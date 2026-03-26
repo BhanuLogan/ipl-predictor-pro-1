@@ -2,57 +2,100 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const Database = require("better-sqlite3");
+const initSqlJs = require("sql.js");
+const fs = require("fs");
 const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "ipl2026-secret-change-me";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "ipl2026";
+const DB_PATH = path.join(__dirname, "ipl.db");
 
-// ─── Database ────────────────────────────────────────────────────────────────
-const db = new Database(path.join(__dirname, "ipl.db"));
-db.pragma("journal_mode = WAL");
+let db;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    is_admin INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS votes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id TEXT NOT NULL,
-    user_id INTEGER NOT NULL,
-    prediction TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(match_id, user_id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-  CREATE TABLE IF NOT EXISTS results (
-    match_id TEXT PRIMARY KEY,
-    winner TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-`);
+// ─── Save DB to disk periodically ───────────────────────────────────────────
+function saveDb() {
+  if (!db) return;
+  const data = db.export();
+  fs.writeFileSync(DB_PATH, Buffer.from(data));
+}
 
-// ─── Seed default admin ──────────────────────────────────────────────────────
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@ipl2026.com";
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "Admin";
-const ADMIN_DEFAULT_PW = process.env.ADMIN_DEFAULT_PW || "admin123";
+async function initDb() {
+  const SQL = await initSqlJs();
 
-(async () => {
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(ADMIN_EMAIL);
-  if (!existing) {
-    const hash = await bcrypt.hash(ADMIN_DEFAULT_PW, 10);
-    db.prepare("INSERT INTO users (email, username, password_hash, is_admin) VALUES (?, ?, ?, 1)")
-      .run(ADMIN_EMAIL, ADMIN_USERNAME, hash);
+  if (fs.existsSync(DB_PATH)) {
+    const buffer = fs.readFileSync(DB_PATH);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
+  }
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      is_admin INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS votes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      match_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      prediction TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(match_id, user_id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS results (
+      match_id TEXT PRIMARY KEY,
+      winner TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Seed default admin
+  const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@ipl2026.com";
+  const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "Admin";
+  const ADMIN_DEFAULT_PW = process.env.ADMIN_DEFAULT_PW || "admin123";
+
+  const existing = db.exec("SELECT id FROM users WHERE email = ?", [ADMIN_EMAIL]);
+  if (existing.length === 0 || existing[0].values.length === 0) {
+    const hash = bcrypt.hashSync(ADMIN_DEFAULT_PW, 10);
+    db.run("INSERT INTO users (email, username, password_hash, is_admin) VALUES (?, ?, ?, 1)",
+      [ADMIN_EMAIL, ADMIN_USERNAME, hash]);
     console.log(`✅ Default admin created: ${ADMIN_EMAIL} / ${ADMIN_DEFAULT_PW}`);
   }
-})();
+
+  saveDb();
+
+  // Auto-save every 30 seconds
+  setInterval(saveDb, 30000);
+}
+
+// Helper: run SELECT and return array of objects
+function query(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return rows;
+}
+
+// Helper: run SELECT and return first row
+function queryOne(sql, params = []) {
+  const rows = query(sql, params);
+  return rows.length > 0 ? rows[0] : null;
+}
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors());
@@ -88,10 +131,13 @@ app.post("/api/register", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
     const hash = await bcrypt.hash(password, 10);
-    const stmt = db.prepare("INSERT INTO users (email, username, password_hash) VALUES (?, ?, ?)");
-    const result = stmt.run(email.toLowerCase().trim(), username.trim(), hash);
-    const token = jwt.sign({ id: result.lastInsertRowid, username: username.trim(), email: email.toLowerCase().trim(), is_admin: 0 }, JWT_SECRET, { expiresIn: "30d" });
-    res.json({ token, user: { id: result.lastInsertRowid, username: username.trim(), email: email.toLowerCase().trim(), is_admin: false } });
+    db.run("INSERT INTO users (email, username, password_hash) VALUES (?, ?, ?)",
+      [email.toLowerCase().trim(), username.trim(), hash]);
+    const user = queryOne("SELECT id, email, username, is_admin FROM users WHERE email = ?",
+      [email.toLowerCase().trim()]);
+    const token = jwt.sign({ id: user.id, username: user.username, email: user.email, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: "30d" });
+    saveDb();
+    res.json({ token, user: { ...user, is_admin: !!user.is_admin } });
   } catch (e) {
     if (e.message?.includes("UNIQUE")) {
       return res.status(400).json({ error: "Email or username already taken" });
@@ -106,7 +152,7 @@ app.post("/api/login", async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase().trim());
+    const user = queryOne("SELECT * FROM users WHERE email = ?", [email.toLowerCase().trim()]);
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: "Invalid credentials" });
@@ -118,7 +164,7 @@ app.post("/api/login", async (req, res) => {
 });
 
 app.get("/api/me", authMiddleware, (req, res) => {
-  const user = db.prepare("SELECT id, email, username, is_admin FROM users WHERE id = ?").get(req.user.id);
+  const user = queryOne("SELECT id, email, username, is_admin FROM users WHERE id = ?", [req.user.id]);
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json({ ...user, is_admin: !!user.is_admin });
 });
@@ -127,18 +173,18 @@ app.get("/api/me", authMiddleware, (req, res) => {
 app.post("/api/admin/unlock", authMiddleware, (req, res) => {
   const { password } = req.body;
   if (password !== ADMIN_PASSWORD) return res.status(403).json({ error: "Wrong admin password" });
-  db.prepare("UPDATE users SET is_admin = 1 WHERE id = ?").run(req.user.id);
+  db.run("UPDATE users SET is_admin = 1 WHERE id = ?", [req.user.id]);
   const token = jwt.sign({ ...req.user, is_admin: 1 }, JWT_SECRET, { expiresIn: "30d" });
+  saveDb();
   res.json({ token, message: "Admin access granted" });
 });
 
 // ─── Votes ───────────────────────────────────────────────────────────────────
 app.get("/api/votes", (req, res) => {
-  const rows = db.prepare(`
+  const rows = query(`
     SELECT v.match_id, u.username, v.prediction 
     FROM votes v JOIN users u ON v.user_id = u.id
-  `).all();
-  // Group by match_id: { matchId: { username: prediction } }
+  `);
   const grouped = {};
   for (const r of rows) {
     if (!grouped[r.match_id]) grouped[r.match_id] = {};
@@ -151,10 +197,14 @@ app.post("/api/vote", authMiddleware, (req, res) => {
   const { matchId, prediction } = req.body;
   if (!matchId || !prediction) return res.status(400).json({ error: "matchId and prediction required" });
   try {
-    db.prepare(`
-      INSERT INTO votes (match_id, user_id, prediction) VALUES (?, ?, ?)
-      ON CONFLICT(match_id, user_id) DO UPDATE SET prediction = excluded.prediction
-    `).run(matchId, req.user.id, prediction);
+    // Check if vote exists
+    const existing = queryOne("SELECT id FROM votes WHERE match_id = ? AND user_id = ?", [matchId, req.user.id]);
+    if (existing) {
+      db.run("UPDATE votes SET prediction = ? WHERE match_id = ? AND user_id = ?", [prediction, matchId, req.user.id]);
+    } else {
+      db.run("INSERT INTO votes (match_id, user_id, prediction) VALUES (?, ?, ?)", [matchId, req.user.id, prediction]);
+    }
+    saveDb();
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Vote failed" });
@@ -163,7 +213,7 @@ app.post("/api/vote", authMiddleware, (req, res) => {
 
 // ─── Results ─────────────────────────────────────────────────────────────────
 app.get("/api/results", (req, res) => {
-  const rows = db.prepare("SELECT match_id, winner FROM results").all();
+  const rows = query("SELECT match_id, winner FROM results");
   const map = {};
   for (const r of rows) map[r.match_id] = r.winner;
   res.json(map);
@@ -173,21 +223,24 @@ app.post("/api/result", authMiddleware, adminMiddleware, (req, res) => {
   const { matchId, winner } = req.body;
   if (!matchId) return res.status(400).json({ error: "matchId required" });
   if (!winner) {
-    db.prepare("DELETE FROM results WHERE match_id = ?").run(matchId);
+    db.run("DELETE FROM results WHERE match_id = ?", [matchId]);
   } else {
-    db.prepare(`
-      INSERT INTO results (match_id, winner) VALUES (?, ?)
-      ON CONFLICT(match_id) DO UPDATE SET winner = excluded.winner
-    `).run(matchId, winner);
+    const existing = queryOne("SELECT match_id FROM results WHERE match_id = ?", [matchId]);
+    if (existing) {
+      db.run("UPDATE results SET winner = ? WHERE match_id = ?", [winner, matchId]);
+    } else {
+      db.run("INSERT INTO results (match_id, winner) VALUES (?, ?)", [matchId, winner]);
+    }
   }
+  saveDb();
   res.json({ ok: true });
 });
 
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
 app.get("/api/leaderboard", (req, res) => {
-  const users = db.prepare("SELECT id, username FROM users").all();
-  const votes = db.prepare("SELECT match_id, user_id, prediction FROM votes").all();
-  const resultRows = db.prepare("SELECT match_id, winner FROM results").all();
+  const users = query("SELECT id, username FROM users");
+  const votes = query("SELECT match_id, user_id, prediction FROM votes");
+  const resultRows = query("SELECT match_id, winner FROM results");
   const resultMap = {};
   for (const r of resultRows) resultMap[r.match_id] = r.winner;
 
@@ -215,11 +268,16 @@ app.get("/api/leaderboard", (req, res) => {
 
 // ─── Users list ──────────────────────────────────────────────────────────────
 app.get("/api/users", (req, res) => {
-  const users = db.prepare("SELECT id, username FROM users").all();
+  const users = query("SELECT id, username FROM users");
   res.json(users);
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`🏏 IPL Predictor API running on http://localhost:${PORT}`);
+initDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`🏏 IPL Predictor API running on http://localhost:${PORT}`);
+  });
+}).catch(err => {
+  console.error("Failed to start:", err);
+  process.exit(1);
 });
