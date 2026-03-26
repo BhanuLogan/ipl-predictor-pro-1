@@ -1,12 +1,21 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
-import { getLeaderboard, getUsername } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
+import { api, type LeaderboardEntry } from "@/lib/api";
 import { Trophy, Medal, Award } from "lucide-react";
-import { useState } from "react";
 
 const Leaderboard = () => {
-  const [, setUser] = useState(getUsername());
-  const leaderboard = getLeaderboard();
-  const currentUser = getUsername();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+
+  useEffect(() => {
+    if (!user) { navigate("/login"); return; }
+    api.getLeaderboard().then(setLeaderboard).catch(() => {});
+  }, [user, navigate]);
+
+  if (!user) return null;
 
   const rankIcons = [
     <Trophy className="text-primary" size={20} />,
@@ -16,7 +25,7 @@ const Leaderboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header onLogout={() => { localStorage.clear(); setUser(null); window.location.href = "/"; }} />
+      <Header />
 
       <main className="container mx-auto max-w-2xl px-4 py-8">
         <div className="mb-8 text-center">
@@ -25,6 +34,9 @@ const Leaderboard = () => {
           </h2>
           <p className="mt-2 text-muted-foreground">
             Who's the ultimate cricket oracle? 🏆
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            ✅ Correct pick = 2 pts · 🤝 Tied/No Result = 2 pts everyone
           </p>
         </div>
 
@@ -38,11 +50,11 @@ const Leaderboard = () => {
           </div>
         ) : (
           <div className="space-y-2">
-            {leaderboard.map((user, i) => (
+            {leaderboard.map((entry, i) => (
               <div
-                key={user.username}
+                key={entry.username}
                 className={`flex items-center gap-4 rounded-xl border p-4 transition-all animate-slide-up ${
-                  user.username === currentUser
+                  entry.username === user.username
                     ? "border-primary/50 bg-primary/5"
                     : "border-border bg-gradient-card"
                 }`}
@@ -58,19 +70,19 @@ const Leaderboard = () => {
 
                 <div className="flex-1">
                   <p className="font-semibold text-foreground">
-                    {user.username}
-                    {user.username === currentUser && (
+                    {entry.username}
+                    {entry.username === user.username && (
                       <span className="ml-2 text-xs text-primary">(You)</span>
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {user.correct}/{user.total} correct predictions
+                    {entry.voted} voted · {entry.correct} correct
                   </p>
                 </div>
 
                 <div className="text-right">
                   <p className="font-display text-3xl text-gradient-gold">
-                    {user.points}
+                    {entry.points}
                   </p>
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     Points
