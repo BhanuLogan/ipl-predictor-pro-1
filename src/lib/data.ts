@@ -1,164 +1,73 @@
 // IPL 2026 Teams
 export const IPL_TEAMS: Record<string, { name: string; short: string; color: string; textColor: string }> = {
-  CSK: { name: "Chennai Super Kings", short: "CSK", color: "#FCCA06", textColor: "#000" },
-  MI: { name: "Mumbai Indians", short: "MI", color: "#004BA0", textColor: "#fff" },
-  RCB: { name: "Royal Challengers Bengaluru", short: "RCB", color: "#D4213D", textColor: "#fff" },
+  CSK: { name: "Chennai Super Kings", short: "CSK", color: "#C47D00", textColor: "#000" },
+  MI:  { name: "Mumbai Indians", short: "MI", color: "#004BA0", textColor: "#fff" },
+  RCB: { name: "Royal Challengers Bengaluru", short: "RCB", color: "#C8102E", textColor: "#fff" },
   KKR: { name: "Kolkata Knight Riders", short: "KKR", color: "#3A225D", textColor: "#fff" },
-  DC: { name: "Delhi Capitals", short: "DC", color: "#17479E", textColor: "#fff" },
-  PBKS: { name: "Punjab Kings", short: "PBKS", color: "#DD1F2D", textColor: "#fff" },
-  RR: { name: "Rajasthan Royals", short: "RR", color: "#EA1A85", textColor: "#fff" },
-  SRH: { name: "Sunrisers Hyderabad", short: "SRH", color: "#F7A721", textColor: "#000" },
-  GT: { name: "Gujarat Titans", short: "GT", color: "#1C1C2B", textColor: "#fff" },
-  LSG: { name: "Lucknow Super Giants", short: "LSG", color: "#A72056", textColor: "#fff" },
+  DC:  { name: "Delhi Capitals", short: "DC", color: "#004C97", textColor: "#fff" },
+  PBKS:{ name: "Punjab Kings", short: "PBKS", color: "#AA0000", textColor: "#fff" },
+  RR:  { name: "Rajasthan Royals", short: "RR", color: "#EA1F8B", textColor: "#fff" },
+  SRH: { name: "Sunrisers Hyderabad", short: "SRH", color: "#FF6B00", textColor: "#000" },
+  GT:  { name: "Gujarat Titans", short: "GT", color: "#1C3C6A", textColor: "#fff" },
+  LSG: { name: "Lucknow Super Giants", short: "LSG", color: "#A72B2A", textColor: "#fff" },
 };
 
 export interface Match {
   id: string;
-  date: string; // YYYY-MM-DD
-  team1: string; // team key
+  date: string;
+  time: string;
+  team1: string;
   team2: string;
+  t1full: string;
+  t2full: string;
   venue: string;
-  winner?: string | "NR" | "DRAW"; // team key, "NR" for no result, "DRAW"
 }
 
-export interface Vote {
-  matchId: string;
-  username: string;
-  prediction: string; // team key
-}
-
-export interface UserScore {
-  username: string;
-  points: number;
-  correct: number;
-  total: number;
-}
-
-// Generate a sample IPL 2026 schedule (March 28 - May 25)
+// IPL 2026 Phase 1 confirmed schedule
 export const IPL_SCHEDULE: Match[] = [
-  { id: "m1", date: "2026-03-28", team1: "KKR", team2: "MI", venue: "Eden Gardens, Kolkata" },
-  { id: "m2", date: "2026-03-29", team1: "CSK", team2: "RCB", venue: "MA Chidambaram Stadium, Chennai" },
-  { id: "m3", date: "2026-03-30", team1: "DC", team2: "PBKS", venue: "Arun Jaitley Stadium, Delhi" },
-  { id: "m4", date: "2026-03-31", team1: "GT", team2: "LSG", venue: "Narendra Modi Stadium, Ahmedabad" },
-  { id: "m5", date: "2026-04-01", team1: "RR", team2: "SRH", venue: "Sawai Mansingh Stadium, Jaipur" },
-  { id: "m6", date: "2026-04-02", team1: "MI", team2: "CSK", venue: "Wankhede Stadium, Mumbai" },
-  { id: "m7", date: "2026-04-03", team1: "RCB", team2: "KKR", venue: "M. Chinnaswamy Stadium, Bengaluru" },
-  { id: "m8", date: "2026-04-04", team1: "PBKS", team2: "GT", venue: "PCA Stadium, Mohali" },
-  { id: "m9", date: "2026-04-05", team1: "SRH", team2: "DC", venue: "Rajiv Gandhi Stadium, Hyderabad" },
-  { id: "m10", date: "2026-04-06", team1: "LSG", team2: "RR", venue: "BRSABV Ekana Stadium, Lucknow" },
-  { id: "m11", date: "2026-04-07", team1: "CSK", team2: "MI", venue: "MA Chidambaram Stadium, Chennai" },
-  { id: "m12", date: "2026-04-08", team1: "KKR", team2: "DC", venue: "Eden Gardens, Kolkata" },
-  { id: "m13", date: "2026-04-09", team1: "RCB", team2: "RR", venue: "M. Chinnaswamy Stadium, Bengaluru" },
-  { id: "m14", date: "2026-04-10", team1: "GT", team2: "SRH", venue: "Narendra Modi Stadium, Ahmedabad" },
-  { id: "m15", date: "2026-04-11", team1: "PBKS", team2: "LSG", venue: "PCA Stadium, Mohali" },
-  { id: "m16", date: "2026-04-12", team1: "MI", team2: "RCB", venue: "Wankhede Stadium, Mumbai" },
-  { id: "m17", date: "2026-04-13", team1: "DC", team2: "CSK", venue: "Arun Jaitley Stadium, Delhi" },
-  { id: "m18", date: "2026-04-14", team1: "SRH", team2: "KKR", venue: "Rajiv Gandhi Stadium, Hyderabad" },
-  { id: "m19", date: "2026-04-15", team1: "RR", team2: "GT", venue: "Sawai Mansingh Stadium, Jaipur" },
-  { id: "m20", date: "2026-04-16", team1: "LSG", team2: "PBKS", venue: "BRSABV Ekana Stadium, Lucknow" },
+  { id: "m01", date: "2026-03-28", time: "19:30", team1: "RCB", team2: "SRH", t1full: "Royal Challengers Bengaluru", t2full: "Sunrisers Hyderabad", venue: "M. Chinnaswamy Stadium, Bengaluru" },
+  { id: "m02", date: "2026-03-29", time: "19:30", team1: "MI", team2: "KKR", t1full: "Mumbai Indians", t2full: "Kolkata Knight Riders", venue: "Wankhede Stadium, Mumbai" },
+  { id: "m03", date: "2026-03-30", time: "19:30", team1: "RR", team2: "CSK", t1full: "Rajasthan Royals", t2full: "Chennai Super Kings", venue: "Sawai Mansingh Stadium, Jaipur" },
+  { id: "m04", date: "2026-03-31", time: "19:30", team1: "PBKS", team2: "GT", t1full: "Punjab Kings", t2full: "Gujarat Titans", venue: "Maharaja Yadavindra Singh Stadium, Mullanpur" },
+  { id: "m05", date: "2026-04-01", time: "19:30", team1: "LSG", team2: "DC", t1full: "Lucknow Super Giants", t2full: "Delhi Capitals", venue: "Ekana Cricket Stadium, Lucknow" },
+  { id: "m06", date: "2026-04-02", time: "19:30", team1: "SRH", team2: "KKR", t1full: "Sunrisers Hyderabad", t2full: "Kolkata Knight Riders", venue: "Rajiv Gandhi Intl. Stadium, Hyderabad" },
+  { id: "m07", date: "2026-04-03", time: "19:30", team1: "PBKS", team2: "CSK", t1full: "Punjab Kings", t2full: "Chennai Super Kings", venue: "Maharaja Yadavindra Singh Stadium, Mullanpur" },
+  { id: "m08", date: "2026-04-04", time: "15:30", team1: "DC", team2: "MI", t1full: "Delhi Capitals", t2full: "Mumbai Indians", venue: "Arun Jaitley Stadium, Delhi" },
+  { id: "m09", date: "2026-04-04", time: "19:30", team1: "GT", team2: "RR", t1full: "Gujarat Titans", t2full: "Rajasthan Royals", venue: "Narendra Modi Stadium, Ahmedabad" },
+  { id: "m10", date: "2026-04-05", time: "15:30", team1: "RCB", team2: "CSK", t1full: "Royal Challengers Bengaluru", t2full: "Chennai Super Kings", venue: "M. Chinnaswamy Stadium, Bengaluru" },
+  { id: "m11", date: "2026-04-05", time: "19:30", team1: "SRH", team2: "LSG", t1full: "Sunrisers Hyderabad", t2full: "Lucknow Super Giants", venue: "Rajiv Gandhi Intl. Stadium, Hyderabad" },
+  { id: "m12", date: "2026-04-06", time: "19:30", team1: "KKR", team2: "PBKS", t1full: "Kolkata Knight Riders", t2full: "Punjab Kings", venue: "Eden Gardens, Kolkata" },
+  { id: "m13", date: "2026-04-07", time: "19:30", team1: "RR", team2: "MI", t1full: "Rajasthan Royals", t2full: "Mumbai Indians", venue: "Sawai Mansingh Stadium, Jaipur" },
+  { id: "m14", date: "2026-04-08", time: "19:30", team1: "DC", team2: "GT", t1full: "Delhi Capitals", t2full: "Gujarat Titans", venue: "Arun Jaitley Stadium, Delhi" },
+  { id: "m15", date: "2026-04-09", time: "19:30", team1: "KKR", team2: "LSG", t1full: "Kolkata Knight Riders", t2full: "Lucknow Super Giants", venue: "Eden Gardens, Kolkata" },
+  { id: "m16", date: "2026-04-10", time: "19:30", team1: "RCB", team2: "RR", t1full: "Royal Challengers Bengaluru", t2full: "Rajasthan Royals", venue: "M. Chinnaswamy Stadium, Bengaluru" },
+  { id: "m17", date: "2026-04-11", time: "15:30", team1: "CSK", team2: "DC", t1full: "Chennai Super Kings", t2full: "Delhi Capitals", venue: "MA Chidambaram Stadium, Chennai" },
+  { id: "m18", date: "2026-04-11", time: "19:30", team1: "SRH", team2: "PBKS", t1full: "Sunrisers Hyderabad", t2full: "Punjab Kings", venue: "Rajiv Gandhi Intl. Stadium, Hyderabad" },
+  { id: "m19", date: "2026-04-12", time: "15:30", team1: "RCB", team2: "MI", t1full: "Royal Challengers Bengaluru", t2full: "Mumbai Indians", venue: "M. Chinnaswamy Stadium, Bengaluru" },
+  { id: "m20", date: "2026-04-12", time: "19:30", team1: "GT", team2: "LSG", t1full: "Gujarat Titans", t2full: "Lucknow Super Giants", venue: "Narendra Modi Stadium, Ahmedabad" },
 ];
 
-// localStorage helpers
-const STORAGE_KEYS = {
-  username: "ipl_poll_username",
-  votes: "ipl_poll_votes",
-  results: "ipl_poll_results",
-  users: "ipl_poll_users",
-};
-
-export function getUsername(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.username);
-}
-
-export function setUsername(name: string) {
-  localStorage.setItem(STORAGE_KEYS.username, name);
-  const users = getUsers();
-  if (!users.includes(name)) {
-    users.push(name);
-    localStorage.setItem(STORAGE_KEYS.users, JSON.stringify(users));
+// Poll open logic: a match poll is open if it hasn't started and (it's the first match OR previous match has a result)
+export function getPollOpenMatches(results: Record<string, string>): Match[] {
+  const now = new Date();
+  const open: Match[] = [];
+  for (let i = 0; i < IPL_SCHEDULE.length; i++) {
+    const m = IPL_SCHEDULE[i];
+    const matchStart = new Date(`${m.date}T${m.time}:00+05:30`);
+    if (results[m.id]) continue;
+    if (now >= matchStart) continue;
+    if (i === 0) { open.push(m); continue; }
+    const prevId = IPL_SCHEDULE[i - 1].id;
+    if (results[prevId]) open.push(m);
   }
+  return open;
 }
 
-export function getUsers(): string[] {
-  const raw = localStorage.getItem(STORAGE_KEYS.users);
-  return raw ? JSON.parse(raw) : [];
-}
-
-export function getVotes(): Vote[] {
-  const raw = localStorage.getItem(STORAGE_KEYS.votes);
-  return raw ? JSON.parse(raw) : [];
-}
-
-export function addVote(vote: Vote) {
-  const votes = getVotes();
-  const existing = votes.findIndex(v => v.matchId === vote.matchId && v.username === vote.username);
-  if (existing >= 0) {
-    votes[existing] = vote;
-  } else {
-    votes.push(vote);
-  }
-  localStorage.setItem(STORAGE_KEYS.votes, JSON.stringify(votes));
-}
-
-export function getResults(): Record<string, string> {
-  const raw = localStorage.getItem(STORAGE_KEYS.results);
-  return raw ? JSON.parse(raw) : {};
-}
-
-export function setResult(matchId: string, winner: string) {
-  const results = getResults();
-  results[matchId] = winner;
-  localStorage.setItem(STORAGE_KEYS.results, JSON.stringify(results));
-}
-
-export function getLeaderboard(): UserScore[] {
-  const users = getUsers();
-  const votes = getVotes();
-  const results = getResults();
-
-  return users.map(username => {
-    let points = 0;
-    let correct = 0;
-    let total = 0;
-
-    votes
-      .filter(v => v.username === username)
-      .forEach(vote => {
-        const result = results[vote.matchId];
-        if (result) {
-          total++;
-          if (result === "NR" || result === "DRAW") {
-            points += 1;
-          } else if (vote.prediction === result) {
-            points += 2;
-            correct++;
-          }
-        }
-      });
-
-    return { username, points, correct, total };
-  }).sort((a, b) => b.points - a.points || b.correct - a.correct);
-}
-
-export function getTodayMatch(): Match | undefined {
-  const today = new Date().toISOString().split("T")[0];
-  return IPL_SCHEDULE.find(m => m.date === today);
-}
-
-export function getNextMatch(): Match | undefined {
-  const today = new Date().toISOString().split("T")[0];
-  return IPL_SCHEDULE.find(m => m.date >= today);
-}
-
-export function getUserVoteForMatch(matchId: string, username: string): Vote | undefined {
-  return getVotes().find(v => v.matchId === matchId && v.username === username);
-}
-
-export function getMatchVoteCounts(matchId: string): Record<string, number> {
-  const votes = getVotes().filter(v => v.matchId === matchId);
-  const counts: Record<string, number> = {};
-  votes.forEach(v => {
-    counts[v.prediction] = (counts[v.prediction] || 0) + 1;
+export function formatMatchDate(date: string, time?: string): string {
+  const base = new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
   });
-  return counts;
+  return time ? `${base} · ${time} IST` : base;
 }

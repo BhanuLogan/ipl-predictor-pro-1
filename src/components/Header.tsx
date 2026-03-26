@@ -1,10 +1,10 @@
 import { Link, useLocation } from "react-router-dom";
 import { Trophy, Vote, Shield, LogOut } from "lucide-react";
-import { getUsername } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
 
-const Header = ({ onLogout }: { onLogout?: () => void }) => {
+const Header = () => {
   const location = useLocation();
-  const username = getUsername();
+  const { user, logout } = useAuth();
 
   const navItems = [
     { path: "/", label: "Polls", icon: Vote },
@@ -42,13 +42,13 @@ const Header = ({ onLogout }: { onLogout?: () => void }) => {
               <span className="hidden sm:inline">{label}</span>
             </Link>
           ))}
-          {username && onLogout && (
+          {user && (
             <button
-              onClick={onLogout}
+              onClick={() => { logout(); window.location.href = "/login"; }}
               className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <LogOut size={16} />
-              <span className="hidden sm:inline">{username}</span>
+              <span className="hidden sm:inline">{user.username}</span>
             </button>
           )}
         </nav>
