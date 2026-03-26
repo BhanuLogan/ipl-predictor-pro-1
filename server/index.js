@@ -39,6 +39,21 @@ db.exec(`
   );
 `);
 
+// ─── Seed default admin ──────────────────────────────────────────────────────
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@ipl2026.com";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "Admin";
+const ADMIN_DEFAULT_PW = process.env.ADMIN_DEFAULT_PW || "admin123";
+
+(async () => {
+  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(ADMIN_EMAIL);
+  if (!existing) {
+    const hash = await bcrypt.hash(ADMIN_DEFAULT_PW, 10);
+    db.prepare("INSERT INTO users (email, username, password_hash, is_admin) VALUES (?, ?, ?, 1)")
+      .run(ADMIN_EMAIL, ADMIN_USERNAME, hash);
+    console.log(`✅ Default admin created: ${ADMIN_EMAIL} / ${ADMIN_DEFAULT_PW}`);
+  }
+})();
+
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
