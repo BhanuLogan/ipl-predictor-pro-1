@@ -11,7 +11,7 @@ const Leaderboard = () => {
   const rankIcons = [
     <Trophy className="text-primary" size={20} />,
     <Medal className="text-muted-foreground" size={20} />,
-    <Award className="text-orange-700" size={20} />,
+    <Award className="text-primary/60" size={20} />,
   ];
 
   return (
