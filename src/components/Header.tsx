@@ -1,0 +1,60 @@
+import { Link, useLocation } from "react-router-dom";
+import { Trophy, Vote, Shield, LogOut } from "lucide-react";
+import { getUsername } from "@/lib/data";
+
+const Header = ({ onLogout }: { onLogout?: () => void }) => {
+  const location = useLocation();
+  const username = getUsername();
+
+  const navItems = [
+    { path: "/", label: "Polls", icon: Vote },
+    { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
+    { path: "/admin", label: "Admin", icon: Shield },
+  ];
+
+  return (
+    <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-xl">
+      <div className="container mx-auto flex items-center justify-between px-4 py-3">
+        <Link to="/" className="flex items-center gap-2">
+          <span className="text-3xl">🏏</span>
+          <div>
+            <h1 className="font-display text-2xl leading-none text-gradient-gold">
+              IPL POLLS 2026
+            </h1>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Predict & Win
+            </p>
+          </div>
+        </Link>
+
+        <nav className="flex items-center gap-1">
+          {navItems.map(({ path, label, icon: Icon }) => (
+            <Link
+              key={path}
+              to={path}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                location.pathname === path
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon size={16} />
+              <span className="hidden sm:inline">{label}</span>
+            </Link>
+          ))}
+          {username && onLogout && (
+            <button
+              onClick={onLogout}
+              className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">{username}</span>
+            </button>
+          )}
+        </nav>
+      </div>
+    </header>
+  );
+};
+
+export default Header;
