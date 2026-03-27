@@ -10,7 +10,7 @@ npm install
 npm start
 ```
 
-Server runs on the `PORT` defined in `.env`.
+Server runs on the `PORT` environment variable.
 
 ## Environment Variables
 
@@ -23,7 +23,7 @@ Server runs on the `PORT` defined in `.env`.
 | `ADMIN_USERNAME` | yes | Seeded admin username |
 | `ADMIN_DEFAULT_PW` | yes | Seeded admin account password |
 
-Create a `.env` file before starting the server. You can copy `.env.example` and fill in your values.
+For local development, create a `.env` file by copying `.env.example`. In production, you can provide the same variables through your host's environment settings instead of a `.env` file.
 
 ## Local PostgreSQL Setup
 
@@ -56,6 +56,8 @@ The app auto-creates tables on boot and seeds the default admin user if it does 
 4. Set environment variables (especially `JWT_SECRET`)
 5. Run `npm start` (use PM2 or systemd for production)
 6. Set `VITE_API_URL` in the frontend to your server URL
+
+On Render, set `PORT`, `DATABASE_URL`, `JWT_SECRET`, `ADMIN_PASSWORD`, `ADMIN_USERNAME`, and `ADMIN_DEFAULT_PW` in the service environment. Render usually does not provide a checked-in `.env` file at runtime.
 
 ## API Endpoints
 
