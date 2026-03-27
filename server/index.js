@@ -1,17 +1,33 @@
+const dotenv = require("dotenv");
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || "ipl2026-secret-change-me";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "ipl2026";
-const DATABASE_URL = process.env.DATABASE_URL;
+const envResult = dotenv.config();
+if (envResult.error) {
+  throw envResult.error;
+}
 
-if (!DATABASE_URL) {
-  throw new Error("DATABASE_URL is required");
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required in .env`);
+  }
+  return value;
+}
+
+const app = express();
+const PORT = Number(requireEnv("PORT"));
+const JWT_SECRET = requireEnv("JWT_SECRET");
+const ADMIN_PASSWORD = requireEnv("ADMIN_PASSWORD");
+const DATABASE_URL = requireEnv("DATABASE_URL");
+const ADMIN_USERNAME = requireEnv("ADMIN_USERNAME");
+const ADMIN_DEFAULT_PW = requireEnv("ADMIN_DEFAULT_PW");
+
+if (Number.isNaN(PORT)) {
+  throw new Error("PORT must be a valid number in .env");
 }
 
 const pool = new Pool({
@@ -61,20 +77,18 @@ async function initDb() {
     );
   `);
 
-  const adminUsername = process.env.ADMIN_USERNAME || "Admin";
-  const adminDefaultPw = process.env.ADMIN_DEFAULT_PW || "admin123";
   const existing = await queryOne(
     "SELECT id FROM users WHERE username = $1",
-    [adminUsername]
+    [ADMIN_USERNAME]
   );
 
   if (!existing) {
-    const hash = bcrypt.hashSync(adminDefaultPw, 10);
+    const hash = bcrypt.hashSync(ADMIN_DEFAULT_PW, 10);
     await query(
       "INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, TRUE)",
-      [adminUsername, hash]
+      [ADMIN_USERNAME, hash]
     );
-    console.log(`Default admin created: ${adminUsername} / ${adminDefaultPw}`);
+    console.log(`Default admin created: ${ADMIN_USERNAME} / ${ADMIN_DEFAULT_PW}`);
   }
 }
 
