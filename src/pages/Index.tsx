@@ -10,19 +10,33 @@ import { MapPin } from "lucide-react";
 const Index = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [votes, setVotes] = useState<Record<string, Record<string, string>>>({});
+  const [myVotes, setMyVotes] = useState<Record<string, string>>({}); // matchId -> my prediction
+  const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
   const [results, setResults] = useState<Record<string, string>>({});
-  const [, forceUpdate] = useState(0);
 
   const loadData = useCallback(async () => {
     try {
-      const [v, r] = await Promise.all([api.getVotes(), api.getResults()]);
-      setVotes(v);
+      const [votes, counts, r] = await Promise.all([
+        api.getVotes(),
+        api.getVoteCounts(),
+        api.getResults(),
+      ]);
+      // Extract my votes from the full votes object
+      if (user) {
+        const mine: Record<string, string> = {};
+        for (const [matchId, matchVotes] of Object.entries(votes)) {
+          if (matchVotes[user.username]) {
+            mine[matchId] = matchVotes[user.username];
+          }
+        }
+        setMyVotes(mine);
+      }
+      setVoteCounts(counts);
       setResults(r);
     } catch {
       // API not available
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
@@ -62,17 +76,22 @@ const Index = () => {
               </h2>
             </div>
             <div className="space-y-4">
-              {openPolls.map(match => (
-                <MatchPoll
-                  key={match.id}
-                  match={match}
-                  votes={votes[match.id] || {}}
-                  result={undefined}
-                  username={user.username}
-                  onVote={handleVote}
-                  isOpen
-                />
-              ))}
+              {openPolls.map(match => {
+                const counts = voteCounts[match.id] || {};
+                const total = Object.values(counts).reduce((a, b) => a + b, 0);
+                return (
+                  <MatchPoll
+                    key={match.id}
+                    match={match}
+                    voteCounts={counts}
+                    totalVotes={total}
+                    myPick={myVotes[match.id] || null}
+                    result={undefined}
+                    onVote={handleVote}
+                    isOpen
+                  />
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -97,17 +116,22 @@ const Index = () => {
           <div className="mb-8">
             <h3 className="mb-4 font-display text-2xl text-foreground">📜 COMPLETED MATCHES</h3>
             <div className="space-y-4">
-              {[...pastMatches].reverse().map(match => (
-                <MatchPoll
-                  key={match.id}
-                  match={match}
-                  votes={votes[match.id] || {}}
-                  result={results[match.id]}
-                  username={user.username}
-                  onVote={handleVote}
-                  isOpen={false}
-                />
-              ))}
+              {[...pastMatches].reverse().map(match => {
+                const counts = voteCounts[match.id] || {};
+                const total = Object.values(counts).reduce((a, b) => a + b, 0);
+                return (
+                  <MatchPoll
+                    key={match.id}
+                    match={match}
+                    voteCounts={counts}
+                    totalVotes={total}
+                    myPick={myVotes[match.id] || null}
+                    result={results[match.id]}
+                    onVote={handleVote}
+                    isOpen={false}
+                  />
+                );
+              })}
             </div>
           </div>
         )}

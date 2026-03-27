@@ -29,7 +29,6 @@ async function apiFetch(path: string, options: RequestInit = {}) {
 
 export interface User {
   id: number;
-  email: string;
   username: string;
   is_admin: boolean;
 }
@@ -43,21 +42,21 @@ export interface LeaderboardEntry {
 }
 
 export const api = {
-  // Auth
-  async register(email: string, username: string, password: string) {
+  // Auth — username + password only
+  async register(username: string, password: string) {
     const data = await apiFetch("/api/register", {
       method: "POST",
-      body: JSON.stringify({ email, username, password }),
+      body: JSON.stringify({ username, password }),
     });
     setToken(data.token);
     localStorage.setItem("ipl_user", JSON.stringify(data.user));
     return data.user as User;
   },
 
-  async login(email: string, password: string) {
+  async login(username: string, password: string) {
     const data = await apiFetch("/api/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
     setToken(data.token);
     localStorage.setItem("ipl_user", JSON.stringify(data.user));
@@ -98,9 +97,14 @@ export const api = {
     return data;
   },
 
-  // Votes
+  // Votes — returns counts only (no usernames revealed)
   async getVotes(): Promise<Record<string, Record<string, string>>> {
     return apiFetch("/api/votes");
+  },
+
+  // Get vote counts (anonymous)
+  async getVoteCounts(): Promise<Record<string, Record<string, number>>> {
+    return apiFetch("/api/vote-counts");
   },
 
   async vote(matchId: string, prediction: string) {
@@ -120,6 +124,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ matchId, winner: winner || "" }),
     });
+  },
+
+  // Admin: alter a user's vote
+  async adminSetVote(matchId: string, username: string, prediction: string) {
+    return apiFetch("/api/admin/vote", {
+      method: "POST",
+      body: JSON.stringify({ matchId, username, prediction }),
+    });
+  },
+
+  // Admin: delete a user's vote
+  async adminDeleteVote(matchId: string, username: string) {
+    return apiFetch("/api/admin/delete-vote", {
+      method: "POST",
+      body: JSON.stringify({ matchId, username }),
+    });
+  },
+
+  // Admin: reset all data
+  async adminReset() {
+    return apiFetch("/api/admin/reset", { method: "POST" });
   },
 
   // Leaderboard

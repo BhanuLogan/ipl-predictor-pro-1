@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate } from "@/lib/data";
-import { Check, CloudRain } from "lucide-react";
+import { Check, CloudRain, Trash2 } from "lucide-react";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
@@ -14,12 +14,17 @@ const Admin = () => {
   const [adminPw, setAdminPw] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!user) { navigate("/login"); return; }
-    Promise.all([api.getResults(), api.getVotes()]).then(([r, v]) => {
+  const loadData = async () => {
+    try {
+      const [r, v] = await Promise.all([api.getResults(), api.getVotes()]);
       setResults(r);
       setVotes(v);
-    }).catch(() => {});
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!user) { navigate("/login"); return; }
+    loadData();
   }, [user, navigate]);
 
   const handleUnlock = async () => {
@@ -35,11 +40,25 @@ const Admin = () => {
   const handleSetResult = async (matchId: string, winner: string | null) => {
     try {
       await api.setResult(matchId, winner);
-      const r = await api.getResults();
-      setResults(r);
-    } catch {
-      // handle error
-    }
+      await loadData();
+    } catch {}
+  };
+
+  const handleDeleteVote = async (matchId: string, username: string) => {
+    if (!confirm(`Delete ${username}'s vote for this match?`)) return;
+    try {
+      await api.adminDeleteVote(matchId, username);
+      await loadData();
+    } catch {}
+  };
+
+  const handleReset = async () => {
+    if (!confirm("RESET ALL votes and results? This cannot be undone!")) return;
+    if (!confirm("Are you absolutely sure?")) return;
+    try {
+      await api.adminReset();
+      await loadData();
+    } catch {}
   };
 
   if (!user) return null;
@@ -54,7 +73,7 @@ const Admin = () => {
             ADMIN PANEL
           </h2>
           <p className="mt-2 text-muted-foreground">
-            Set match results — leaderboard updates instantly 🛡️
+            Set match results & manage votes 🛡️
           </p>
         </div>
 
@@ -83,8 +102,14 @@ const Admin = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="mb-4 rounded-xl bg-secondary/10 border border-secondary/20 p-3 text-center text-sm text-secondary">
-              ✅ Admin mode active — changes sync to all players instantly
+            <div className="mb-4 flex items-center justify-between rounded-xl bg-secondary/10 border border-secondary/20 p-3">
+              <span className="text-sm text-secondary">✅ Admin mode active</span>
+              <button
+                onClick={handleReset}
+                className="rounded-lg bg-destructive px-4 py-1.5 text-xs font-semibold text-destructive-foreground hover:brightness-110"
+              >
+                🗑️ RESET ALL DATA
+              </button>
             </div>
 
             {IPL_SCHEDULE.map((match, i) => {
@@ -92,7 +117,7 @@ const Admin = () => {
               const team1 = IPL_TEAMS[match.team1];
               const team2 = IPL_TEAMS[match.team2];
               const matchVotes = votes[match.id] || {};
-              const totalVotes = Object.keys(matchVotes).length;
+              const voteEntries = Object.entries(matchVotes);
 
               return (
                 <div
@@ -105,7 +130,7 @@ const Admin = () => {
                     <span className="text-xs text-muted-foreground">
                       Match {i + 1} · {formatMatchDate(match.date, match.time)}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">{totalVotes} votes</span>
+                    <span className="text-[10px] text-muted-foreground">{voteEntries.length} votes</span>
                   </div>
 
                   <div className="flex items-center gap-3 mb-3">
@@ -129,6 +154,35 @@ const Admin = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Show individual votes to admin */}
+                  {voteEntries.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {voteEntries.map(([name, pick]) => {
+                        const tc = IPL_TEAMS[pick];
+                        return (
+                          <span
+                            key={name}
+                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                            style={{
+                              backgroundColor: tc ? `${tc.color}20` : undefined,
+                              color: tc?.color,
+                              border: `1px solid ${tc ? `${tc.color}40` : 'transparent'}`,
+                            }}
+                          >
+                            {name}: {pick}
+                            <button
+                              onClick={() => handleDeleteVote(match.id, name)}
+                              className="ml-1 opacity-60 hover:opacity-100"
+                              title="Delete this vote"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {result ? (
                     <div className="flex items-center justify-between">

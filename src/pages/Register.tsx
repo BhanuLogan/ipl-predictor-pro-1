@@ -5,7 +5,6 @@ import { Link, useNavigate } from "react-router-dom";
 const Register = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -24,7 +23,7 @@ const Register = () => {
     }
     setLoading(true);
     try {
-      await register(email, username.trim(), password);
+      await register(username.trim(), password);
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Registration failed");
@@ -48,18 +47,6 @@ const Register = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-              required
-              autoFocus
-            />
-          </div>
-          <div>
             <label className="mb-1.5 block text-sm font-medium text-foreground">Username</label>
             <input
               type="text"
@@ -68,6 +55,7 @@ const Register = () => {
               placeholder="Choose a display name"
               className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               required
+              autoFocus
               maxLength={20}
             />
           </div>
