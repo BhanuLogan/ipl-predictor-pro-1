@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,7 @@ const Login = () => {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
+      await login(username.trim(), password);
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Login failed");
@@ -39,12 +39,12 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Email</label>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Your username"
               className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               required
               autoFocus
@@ -83,7 +83,7 @@ const Login = () => {
           <ul className="mt-2 space-y-1">
             <li>🎯 Predict the winner for each match</li>
             <li>✅ Correct prediction = <span className="font-bold text-primary">2 points</span></li>
-            <li>🤝 Draw/No Result = <span className="font-bold text-secondary">2 points</span> for all</li>
+            <li>🤝 Draw/No Result = <span className="font-bold text-secondary">1 point</span> for all</li>
             <li>🏆 Climb the leaderboard!</li>
           </ul>
         </div>

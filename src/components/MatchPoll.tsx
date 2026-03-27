@@ -1,33 +1,43 @@
 import { useState } from "react";
-import { IPL_TEAMS, type Match, formatMatchDate } from "@/lib/data";
-import { Check, MapPin, Calendar } from "lucide-react";
+import { IPL_TEAMS, type Match, formatMatchDate, isVotingLocked } from "@/lib/data";
+import { Check, MapPin, Calendar, Share2, Lock } from "lucide-react";
 
 interface MatchPollProps {
   match: Match;
-  votes: Record<string, string>; // { username: prediction }
+  voteCounts: Record<string, number>; // { teamShort: count }
+  totalVotes: number;
+  myPick: string | null;
   result?: string;
-  username: string;
   onVote: (matchId: string, prediction: string) => void;
   isOpen: boolean;
 }
 
-const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPollProps) => {
-  const myPick = votes[username] || null;
+const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOpen }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
 
   const team1 = IPL_TEAMS[match.team1];
   const team2 = IPL_TEAMS[match.team2];
-  const totalVotes = Object.keys(votes).length;
-  const votesFor = (t: string) => Object.values(votes).filter(v => v === t).length;
-  const pct = (t: string) => totalVotes === 0 ? 50 : Math.round((votesFor(t) / totalVotes) * 100);
   const isCompleted = !!result;
+  const locked = isVotingLocked(match);
 
   const handleVote = () => {
     if (!selected) return;
     onVote(match.id, selected);
     setHasVoted(true);
   };
+
+  const handleShare = () => {
+    const url = `${window.location.origin}/poll/${match.id}`;
+    if (navigator.share) {
+      navigator.share({ title: `IPL 2026: ${match.team1} vs ${match.team2}`, url });
+    } else {
+      navigator.clipboard.writeText(url);
+      alert("Poll link copied!");
+    }
+  };
+
+  const canVote = isOpen && !isCompleted && !locked && !hasVoted;
 
   return (
     <div className="animate-slide-up rounded-2xl bg-gradient-card border border-border p-6 shadow-xl">
@@ -37,16 +47,26 @@ const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPoll
           <Calendar size={14} />
           <span>{formatMatchDate(match.date, match.time)}</span>
         </div>
-        {isCompleted && (
-          <span className="rounded-full bg-secondary/20 px-3 py-1 text-xs font-semibold text-secondary">
-            Completed
-          </span>
-        )}
-        {isOpen && !isCompleted && (
-          <span className="animate-pulse-slow rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">
-            Live Poll
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {isCompleted && (
+            <span className="rounded-full bg-secondary/20 px-3 py-1 text-xs font-semibold text-secondary">
+              Completed
+            </span>
+          )}
+          {isOpen && !isCompleted && locked && (
+            <span className="flex items-center gap-1 rounded-full bg-destructive/20 px-3 py-1 text-xs font-semibold text-destructive">
+              <Lock size={10} /> Locked
+            </span>
+          )}
+          {isOpen && !isCompleted && !locked && (
+            <span className="animate-pulse-slow rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">
+              Live Poll
+            </span>
+          )}
+          <button onClick={handleShare} className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Share poll">
+            <Share2 size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-5">
@@ -60,10 +80,10 @@ const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPoll
           team={team1}
           teamKey={match.team1}
           selected={selected === match.team1}
-          disabled={hasVoted || isCompleted || !isOpen}
+          disabled={!canVote}
           isWinner={result === match.team1}
           onClick={() => setSelected(match.team1)}
-          voteCount={votesFor(match.team1)}
+          voteCount={voteCounts[match.team1] || 0}
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
         />
@@ -79,10 +99,10 @@ const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPoll
           team={team2}
           teamKey={match.team2}
           selected={selected === match.team2}
-          disabled={hasVoted || isCompleted || !isOpen}
+          disabled={!canVote}
           isWinner={result === match.team2}
           onClick={() => setSelected(match.team2)}
-          voteCount={votesFor(match.team2)}
+          voteCount={voteCounts[match.team2] || 0}
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
         />
@@ -95,13 +115,13 @@ const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPoll
             {result === "nr"
               ? "🌧️ No Result"
               : result === "draw"
-              ? "🤝 Match Drawn"
+              ? "🤝 Match Tied"
               : `🏆 ${IPL_TEAMS[result]?.name || result} won!`}
           </p>
           {myPick && (
             <p className="text-xs text-muted-foreground mt-1">
               {result === "nr" || result === "draw"
-                ? "You earned 2 points"
+                ? "You earned 1 point"
                 : myPick === result
                 ? "✅ You predicted correctly! +2 points"
                 : "❌ Better luck next time!"}
@@ -110,32 +130,8 @@ const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPoll
         </div>
       )}
 
-      {/* Vote summary chips */}
-      {totalVotes > 0 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {Object.entries(votes).map(([name, pick]) => {
-            const tc = IPL_TEAMS[pick];
-            const won = result && (result === "nr" || result === "draw" || pick === result);
-            return (
-              <span
-                key={name}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold"
-                style={{
-                  backgroundColor: tc ? `${tc.color}20` : undefined,
-                  color: tc?.color,
-                  border: `1px solid ${tc ? `${tc.color}40` : 'transparent'}`,
-                }}
-              >
-                {name}: {pick}
-                {result && (won ? " ✓" : " ✗")}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
       {/* Vote button */}
-      {!hasVoted && isOpen && !isCompleted && (
+      {canVote && (
         <button
           onClick={handleVote}
           disabled={!selected}
@@ -143,6 +139,13 @@ const MatchPoll = ({ match, votes, result, username, onVote, isOpen }: MatchPoll
         >
           LOCK IN PREDICTION
         </button>
+      )}
+
+      {locked && !isCompleted && !hasVoted && (
+        <div className="flex items-center justify-center gap-2 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+          <Lock size={16} />
+          <span>Voting closed at 7:30 PM IST</span>
+        </div>
       )}
 
       {hasVoted && !isCompleted && (

@@ -36,7 +36,7 @@ const Leaderboard = () => {
             Who's the ultimate cricket oracle? 🏆
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            ✅ Correct pick = 2 pts · 🤝 Tied/No Result = 2 pts everyone
+            ✅ Correct pick = 2 pts · 🤝 Tied/No Result = 1 pt everyone
           </p>
         </div>
 
