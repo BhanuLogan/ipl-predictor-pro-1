@@ -10,29 +10,37 @@ npm install
 npm start
 ```
 
-Server runs on `http://localhost:3001` by default.
+Server runs on the `PORT` defined in `.env`.
 
 ## Environment Variables
 
-| Variable | Default | Description |
+| Variable | Required | Description |
 |---|---|---|
-| `PORT` | `3001` | Server port |
-| `DATABASE_URL` | none | PostgreSQL connection string |
-| `JWT_SECRET` | `ipl2026-secret-change-me` | JWT signing secret (CHANGE THIS!) |
-| `ADMIN_PASSWORD` | `ipl2026` | Password to unlock admin access |
-| `ADMIN_USERNAME` | `Admin` | Seeded admin username |
-| `ADMIN_DEFAULT_PW` | `admin123` | Seeded admin account password |
+| `PORT` | yes | Server port |
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `JWT_SECRET` | yes | JWT signing secret |
+| `ADMIN_PASSWORD` | yes | Password to unlock admin access |
+| `ADMIN_USERNAME` | yes | Seeded admin username |
+| `ADMIN_DEFAULT_PW` | yes | Seeded admin account password |
+
+Create a `.env` file before starting the server. You can copy `.env.example` and fill in your values.
 
 ## Local PostgreSQL Setup
 
 1. Create a PostgreSQL database
-2. Set `DATABASE_URL`, for example:
+2. Create `.env` from the example and set your values:
 
 ```bash
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ipl_predictor"
+cp .env.example .env
 ```
 
-3. Start the server:
+3. Update `DATABASE_URL` in `.env`, for example:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ipl_predictor
+```
+
+4. Start the server:
 
 ```bash
 npm start

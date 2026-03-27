@@ -1,4 +1,8 @@
-const API_URL = "https://ipl-predictor-pro-2.onrender.com";
+const API_URL = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, "");
+
+if (!API_URL) {
+  throw new Error("VITE_API_URL is required in the frontend .env file");
+}
 
 function getToken(): string | null {
   return localStorage.getItem("ipl_token");
