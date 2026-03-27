@@ -5,15 +5,12 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 
-const envResult = dotenv.config();
-if (envResult.error) {
-  throw envResult.error;
-}
+dotenv.config();
 
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`${name} is required in .env`);
+    throw new Error(`${name} is required`);
   }
   return value;
 }
@@ -27,7 +24,7 @@ const ADMIN_USERNAME = requireEnv("ADMIN_USERNAME");
 const ADMIN_DEFAULT_PW = requireEnv("ADMIN_DEFAULT_PW");
 
 if (Number.isNaN(PORT)) {
-  throw new Error("PORT must be a valid number in .env");
+  throw new Error("PORT must be a valid number");
 }
 
 const pool = new Pool({
