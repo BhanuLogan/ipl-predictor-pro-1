@@ -464,7 +464,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
     [roomId, req.user.id]
   );
-  if (!member) return res.status(403).json({ error: "Not a member of this room" });
+  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
   const board = await query(`
     SELECT
       u.username,
@@ -500,7 +500,7 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
     "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
     [roomId, req.user.id]
   );
-  if (!member) return res.status(403).json({ error: "Not a member of this room" });
+  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
   const room = await queryOne("SELECT id, name, invite_code FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
   const members = await query(
