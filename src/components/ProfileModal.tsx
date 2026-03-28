@@ -11,6 +11,14 @@ const PRESETS = [
   "https://api.dicebear.com/9.x/notionists/svg?seed=Zoe&backgroundColor=f5f5f5",
   "https://api.dicebear.com/9.x/notionists/svg?seed=Lily&backgroundColor=f5f5f5",
   "https://api.dicebear.com/9.x/notionists/svg?seed=Sam&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Max&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Luna&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Oliver&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Chloe&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Finn&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Ruby&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Milo&backgroundColor=f5f5f5",
+  "https://api.dicebear.com/9.x/notionists/svg?seed=Nina&backgroundColor=f5f5f5",
 ];
 
 interface Props {
@@ -29,7 +37,6 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
   const [error, setError] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
     setError("");
@@ -105,7 +112,7 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-md animate-scale-in rounded-2xl border border-border bg-gradient-card shadow-2xl p-6">
+      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto animate-scale-in rounded-2xl border border-border bg-gradient-card shadow-2xl p-6">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-display text-2xl text-gradient-gold">EDIT PROFILE</h3>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-muted transition-colors">
@@ -146,13 +153,20 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
                 )}
               </div>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors shrink-0"
-                >
-                  <Upload size={12} /> UPLOAD
-                </button>
+                <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors shrink-0">
+                  <Upload size={12} /> UPLOAD PHOTO
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        processFile(e.target.files[0]);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
                 {(selectedPic !== null) && (
                   <button
                     type="button"
@@ -163,13 +177,12 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
                   </button>
                 )}
               </div>
-              <input type="file" accept="image/*" ref={fileInputRef} className="sr-only" onChange={(e) => { if (e.target.files?.[0]) { processFile(e.target.files[0]); e.target.value = ""; } }} />
             </div>
 
             {/* Presets Grid */}
             <div className="mb-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3 text-center">Or Pick an Avatar</p>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-4 sm:grid-cols-4 gap-3 max-h-48 overflow-y-auto px-1 pb-1 custom-scrollbar">
                 {PRESETS.map((url, i) => (
                   <button
                     key={i}
