@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS } from "@/lib/data";
+import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS, isVotingLocked } from "@/lib/data";
 import { MapPin } from "lucide-react";
 
 const Index = () => {
@@ -12,6 +12,7 @@ const Index = () => {
   const navigate = useNavigate();
   const [myVotes, setMyVotes] = useState<Record<string, string>>({}); // matchId -> my prediction
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
+  const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({}); // matchId -> { username: prediction }
   const [results, setResults] = useState<Record<string, string>>({});
 
   const loadData = useCallback(async () => {
@@ -31,6 +32,7 @@ const Index = () => {
         }
         setMyVotes(mine);
       }
+      setAllVotes(votes);
       setVoteCounts(counts);
       setResults(r);
     } catch {
@@ -73,7 +75,9 @@ const Index = () => {
             <div className="mb-4 flex items-center gap-2">
               <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive" />
               <h2 className="font-display text-3xl text-gradient-gold">
-                LIVE POLL{openPolls.length > 1 ? "S" : ""} — VOTE NOW!
+                {openPolls.some(m => isVotingLocked(m))
+                  ? "LIVE MATCH IN PROGRESS"
+                  : `LIVE POLL${openPolls.length > 1 ? "S" : ""} — VOTE NOW!`}
               </h2>
             </div>
             <div className="space-y-4">
@@ -90,6 +94,7 @@ const Index = () => {
                     result={undefined}
                     onVote={handleVote}
                     isOpen
+                    allVotes={allVotes[match.id] || {}}
                   />
                 );
               })}

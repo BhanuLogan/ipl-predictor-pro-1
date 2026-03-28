@@ -10,9 +10,10 @@ interface MatchPollProps {
   result?: string;
   onVote: (matchId: string, prediction: string) => void;
   isOpen: boolean;
+  allVotes?: Record<string, string>;
 }
 
-const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOpen }: MatchPollProps) => {
+const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOpen, allVotes }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
@@ -131,6 +132,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           voteCount={voteCounts[match.team1] || 0}
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
+          voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team1) : []}
+          showVoters={locked && !isCompleted}
         />
 
         <div className="flex flex-col items-center">
@@ -151,6 +154,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           voteCount={voteCounts[match.team2] || 0}
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
+          voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team2) : []}
+          showVoters={locked && !isCompleted}
         />
       </div>
 
@@ -218,6 +223,8 @@ function TeamButton({
   voteCount,
   totalVotes,
   showVotes,
+  voters,
+  showVoters,
 }: {
   team: { name: string; short: string; color: string; textColor: string };
   teamKey: string;
@@ -229,6 +236,8 @@ function TeamButton({
   voteCount: number;
   totalVotes: number;
   showVotes: boolean;
+  voters?: string[];
+  showVoters?: boolean;
 }) {
   const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
 
@@ -271,6 +280,16 @@ function TeamButton({
           <p className="mt-1 text-[10px] text-muted-foreground">
             {voteCount} vote{voteCount !== 1 ? "s" : ""} ({percentage}%)
           </p>
+          {showVoters && voters && voters.length > 0 && (
+            <div className="mt-2 text-left w-full border-t border-muted/50 pt-2 px-1 max-h-24 overflow-y-auto custom-scrollbar">
+              <p className="text-[9px] font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-center">Voters</p>
+              <div className="flex flex-wrap gap-1 justify-center">
+                {voters.map(v => (
+                  <span key={v} className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted transition-colors">{v}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

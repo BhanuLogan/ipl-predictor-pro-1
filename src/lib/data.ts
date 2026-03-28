@@ -97,13 +97,10 @@ export const IPL_SCHEDULE: Match[] = [
 
 // Poll open logic: match poll is open if before match time and previous match has result (or first match)
 export function getPollOpenMatches(results: Record<string, string>): Match[] {
-  const now = new Date();
   const open: Match[] = [];
   for (let i = 0; i < IPL_SCHEDULE.length; i++) {
     const m = IPL_SCHEDULE[i];
-    const matchStart = new Date(`${m.date}T${m.time}:00+05:30`);
     if (results[m.id]) continue;
-    if (now >= matchStart) continue;
     if (i === 0) { open.push(m); continue; }
     const prevId = IPL_SCHEDULE[i - 1].id;
     if (results[prevId]) open.push(m);
