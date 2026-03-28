@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { IPL_TEAMS, type Match, formatMatchDate, isVotingLocked } from "@/lib/data";
 import { Check, MapPin, Calendar, Share2, Lock, RefreshCw } from "lucide-react";
 
@@ -16,6 +16,14 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
+
+  // Sync when myPick loads asynchronously (e.g. after page refresh)
+  useEffect(() => {
+    if (myPick && !isChanging) {
+      setSelected(myPick);
+      setHasVoted(true);
+    }
+  }, [myPick, isChanging]);
 
   const team1 = IPL_TEAMS[match.team1];
   const team2 = IPL_TEAMS[match.team2];

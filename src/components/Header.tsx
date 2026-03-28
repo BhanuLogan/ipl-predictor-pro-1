@@ -9,7 +9,7 @@ const Header = () => {
   const navItems = [
     { path: "/", label: "Polls", icon: Vote },
     { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
-    { path: "/admin", label: "Admin", icon: Shield },
+    ...(user?.is_admin ? [{ path: "/admin", label: "Admin", icon: Shield }] : []),
   ];
 
   return (
