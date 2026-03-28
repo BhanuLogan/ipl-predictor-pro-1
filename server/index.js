@@ -445,12 +445,12 @@ app.post("/api/rooms/join", authMiddleware, asyncRoute(async (req, res) => {
 // My rooms
 app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
   const rooms = await query(`
-    SELECT r.id, r.name, r.invite_code,
+    SELECT r.id, r.name, r.invite_code, r.created_by,
            COUNT(rm2.user_id)::int AS member_count
     FROM rooms r
     JOIN room_members rm  ON rm.room_id  = r.id AND rm.user_id = $1
     JOIN room_members rm2 ON rm2.room_id = r.id
-    GROUP BY r.id, r.name, r.invite_code
+    GROUP BY r.id, r.name, r.invite_code, r.created_by
     ORDER BY r.name ASC
   `, [req.user.id]);
   res.json(rooms);
