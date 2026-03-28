@@ -242,10 +242,53 @@ app.get("/api/me", authMiddleware, asyncRoute(async (req, res) => {
   res.json(user);
 }));
 
-app.post("/api/me/profile-pic", authMiddleware, asyncRoute(async (req, res) => {
-  const { profile_pic } = req.body;
-  await query("UPDATE users SET profile_pic = $1 WHERE id = $2", [profile_pic || null, req.user.id]);
-  res.json({ ok: true });
+app.put("/api/me", authMiddleware, asyncRoute(async (req, res) => {
+  const { username, password, profile_pic } = req.body;
+  const updates = [];
+  const params = [req.user.id];
+  let paramIdx = 2;
+
+  if (username) {
+    const trimmed = username.trim();
+    if (trimmed.length < 2 || trimmed.length > 20) {
+      return res.status(400).json({ error: "Username must be 2-20 characters" });
+    }
+    updates.push(`username = $${paramIdx++}`);
+    params.push(trimmed);
+  }
+
+  if (password) {
+    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    updates.push(`password_hash = $${paramIdx++}`);
+    params.push(await bcrypt.hash(password, 10));
+  }
+
+  if (profile_pic !== undefined) {
+    updates.push(`profile_pic = $${paramIdx++}`);
+    params.push(profile_pic || null);
+  }
+
+  if (updates.length > 0) {
+    try {
+      await query(`UPDATE users SET ${updates.join(", ")} WHERE id = $1`, params);
+    } catch (e) {
+      if (e.code === "23505") return res.status(400).json({ error: "Username already taken" });
+      throw e;
+    }
+  }
+
+  const updatedUser = await queryOne(
+    "SELECT id, username, is_admin, profile_pic FROM users WHERE id = $1",
+    [req.user.id]
+  );
+
+  const token = jwt.sign(
+    { id: updatedUser.id, username: updatedUser.username, is_admin: updatedUser.is_admin },
+    JWT_SECRET,
+    { expiresIn: "30d" }
+  );
+
+  res.json({ ok: true, token, user: updatedUser });
 }));
 
 app.post("/api/admin/unlock", authMiddleware, asyncRoute(async (req, res) => {

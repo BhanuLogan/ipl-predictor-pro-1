@@ -155,8 +155,11 @@ export const api = {
     return apiFetch("/api/admin/delete-vote", { method: "POST", body: JSON.stringify({ matchId, username }) });
   },
 
-  async updateProfilePic(profile_pic: string | null) {
-    return apiFetch("/api/me/profile-pic", { method: "POST", body: JSON.stringify({ profile_pic }) });
+  async updateProfile(data: { username?: string; password?: string; profile_pic?: string | null }) {
+    const res = await apiFetch("/api/me", { method: "PUT", body: JSON.stringify(data) });
+    if (res.token) setToken(res.token);
+    if (res.user) localStorage.setItem("ipl_user", JSON.stringify(res.user));
+    return res;
   },
 
   // Admin: reset all data

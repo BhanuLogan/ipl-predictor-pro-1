@@ -6,7 +6,7 @@ import ProfileModal from "./ProfileModal";
 
 const Header = () => {
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
 
   const navItems = user?.is_admin
     ? [
@@ -52,16 +52,47 @@ const Header = () => {
             </Link>
           ))}
           {user && (
-            <button
-              onClick={() => { logout(); window.location.href = "/login"; }}
-              className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <LogOut size={16} />
-              <span className="hidden sm:inline">{user.username}</span>
-            </button>
+            <div className="flex items-center gap-3 ml-2">
+              <button
+                onClick={() => setShowProfile(true)}
+                className="group flex items-center gap-2 rounded-full border border-border bg-gradient-card p-1 pr-3 transition-colors hover:border-primary/50 text-left"
+                title="Profile settings"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 font-display text-sm font-bold text-primary overflow-hidden">
+                  {user.profile_pic ? (
+                    <img src={user.profile_pic} alt="avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    user.username.slice(0, 2).toUpperCase()
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 flex items-center gap-2">
+                  <span className="text-sm font-semibold text-foreground truncate">{user.username}</span>
+                  <Settings size={12} className="text-muted-foreground group-hover:text-primary transition-colors opacity-0 group-hover:opacity-100 hidden sm:block" />
+                </div>
+              </button>
+              <button
+                onClick={() => { logout(); window.location.href = "/login"; }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0"
+                title="Logout"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
           )}
         </nav>
       </div>
+      {showProfile && user && (
+        <ProfileModal
+          user={user}
+          onClose={() => setShowProfile(false)}
+          onSave={async (data) => {
+            const api = (await import("@/lib/api")).api;
+            await api.updateProfile(data);
+            refreshUser();
+            setShowProfile(false);
+          }}
+        />
+      )}
     </header>
   );
 };
