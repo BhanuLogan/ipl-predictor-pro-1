@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Trophy, Vote, Shield, LogOut } from "lucide-react";
+import { Trophy, Vote, Shield, LogOut, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const Header = () => {
@@ -8,6 +8,7 @@ const Header = () => {
 
   const navItems = [
     { path: "/", label: "Polls", icon: Vote },
+    { path: "/rooms", label: "Rooms", icon: Users },
     { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
     ...(user?.is_admin ? [{ path: "/admin", label: "Admin", icon: Shield }] : []),
   ];

@@ -45,6 +45,14 @@ export interface LeaderboardEntry {
   voted: number;
 }
 
+export interface Room {
+  id: number;
+  name: string;
+  invite_code: string;
+  member_count?: number;
+  members?: string[];
+}
+
 export const api = {
   // Auth — username + password only
   async register(username: string, password: string) {
@@ -154,5 +162,26 @@ export const api = {
   // Leaderboard
   async getLeaderboard(): Promise<LeaderboardEntry[]> {
     return apiFetch("/api/leaderboard");
+  },
+
+  // Rooms
+  async createRoom(name: string): Promise<Room> {
+    return apiFetch("/api/rooms", { method: "POST", body: JSON.stringify({ name }) });
+  },
+
+  async joinRoom(inviteCode: string): Promise<{ room: Room }> {
+    return apiFetch("/api/rooms/join", { method: "POST", body: JSON.stringify({ inviteCode }) });
+  },
+
+  async getMyRooms(): Promise<Room[]> {
+    return apiFetch("/api/rooms/mine");
+  },
+
+  async getRoom(id: number): Promise<Room> {
+    return apiFetch(`/api/rooms/${id}`);
+  },
+
+  async getRoomLeaderboard(id: number): Promise<LeaderboardEntry[]> {
+    return apiFetch(`/api/rooms/${id}/leaderboard`);
   },
 };

@@ -10,6 +10,8 @@ import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import PollPage from "./pages/PollPage";
+import Rooms from "./pages/Rooms";
+import RoomLeaderboard from "./pages/RoomLeaderboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,6 +27,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/poll/:matchId" element={<PollPage />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/rooms" element={<Rooms />} />
+            <Route path="/rooms/:id" element={<RoomLeaderboard />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />

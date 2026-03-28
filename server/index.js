@@ -87,6 +87,41 @@ async function initDb() {
     );
     console.log(`Default admin created: ${ADMIN_USERNAME} / ${ADMIN_DEFAULT_PW}`);
   }
+
+  // ── Rooms ──
+  await query(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      invite_code TEXT UNIQUE NOT NULL,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS room_members (
+      room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (room_id, user_id)
+    );
+  `);
+
+  // Seed STAGS room (idempotent)
+  await query(`
+    INSERT INTO rooms (name, invite_code, created_by)
+    VALUES ('STAGS', 'STAGS1', (SELECT id FROM users WHERE is_admin LIMIT 1))
+    ON CONFLICT (name) DO NOTHING
+  `);
+
+  // Add all existing non-admin users to STAGS (idempotent)
+  await query(`
+    INSERT INTO room_members (room_id, user_id)
+    SELECT r.id, u.id FROM rooms r, users u
+    WHERE r.name = 'STAGS' AND NOT u.is_admin
+    ON CONFLICT DO NOTHING
+  `);
 }
 
 app.use(cors());
@@ -353,6 +388,120 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
 app.get("/api/users", asyncRoute(async (req, res) => {
   const users = await query("SELECT id, username FROM users ORDER BY username ASC");
   res.json(users);
+}));
+
+// ─── Room routes ────────────────────────────────────────────────────────────
+
+function generateInviteCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+// Create room
+app.post("/api/rooms", authMiddleware, asyncRoute(async (req, res) => {
+  const { name } = req.body;
+  if (!name || name.trim().length < 2) {
+    return res.status(400).json({ error: "Room name must be at least 2 characters" });
+  }
+  try {
+    const room = await queryOne(
+      `INSERT INTO rooms (name, invite_code, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, invite_code`,
+      [name.trim(), generateInviteCode(), req.user.id]
+    );
+    await query(
+      `INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [room.id, req.user.id]
+    );
+    res.json(room);
+  } catch (e) {
+    if (e.code === "23505") return res.status(400).json({ error: "Room name already taken" });
+    throw e;
+  }
+}));
+
+// Join room by invite code
+app.post("/api/rooms/join", authMiddleware, asyncRoute(async (req, res) => {
+  const { inviteCode } = req.body;
+  if (!inviteCode) return res.status(400).json({ error: "Invite code required" });
+  const room = await queryOne(
+    "SELECT id, name, invite_code FROM rooms WHERE UPPER(invite_code) = UPPER($1)",
+    [inviteCode.trim()]
+  );
+  if (!room) return res.status(404).json({ error: "Invalid invite code" });
+  await query(
+    `INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [room.id, req.user.id]
+  );
+  res.json({ room });
+}));
+
+// My rooms
+app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
+  const rooms = await query(`
+    SELECT r.id, r.name, r.invite_code,
+           COUNT(rm2.user_id)::int AS member_count
+    FROM rooms r
+    JOIN room_members rm  ON rm.room_id  = r.id AND rm.user_id = $1
+    JOIN room_members rm2 ON rm2.room_id = r.id
+    GROUP BY r.id, r.name, r.invite_code
+    ORDER BY r.name ASC
+  `, [req.user.id]);
+  res.json(rooms);
+}));
+
+// Room leaderboard — register BEFORE /:id to avoid route conflict
+app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+  const member = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!member) return res.status(403).json({ error: "Not a member of this room" });
+  const board = await query(`
+    SELECT
+      u.username,
+      COALESCE(SUM(
+        CASE
+          WHEN r.winner IS NULL THEN 0
+          WHEN r.winner IN ('nr','draw') THEN 1
+          WHEN v.prediction = r.winner THEN 2
+          ELSE 0
+        END
+      ), 0)::int AS points,
+      COALESCE(SUM(
+        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr','draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
+      ), 0)::int AS correct,
+      COALESCE(COUNT(r.match_id), 0)::int AS total,
+      COALESCE(COUNT(v.id), 0)::int AS voted
+    FROM users u
+    JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
+    LEFT JOIN votes v ON v.user_id = u.id
+    LEFT JOIN results r ON r.match_id = v.match_id
+    WHERE NOT u.is_admin
+    GROUP BY u.id, u.username
+    ORDER BY points DESC, correct DESC, u.username ASC
+  `, [roomId]);
+  res.json(board);
+}));
+
+// Room details
+app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+  const member = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!member) return res.status(403).json({ error: "Not a member of this room" });
+  const room = await queryOne("SELECT id, name, invite_code FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+  const members = await query(
+    `SELECT u.username FROM users u JOIN room_members rm ON rm.user_id = u.id WHERE rm.room_id = $1 ORDER BY u.username ASC`,
+    [roomId]
+  );
+  res.json({ ...room, members: members.map(m => m.username) });
 }));
 
 app.use((err, req, res, next) => {
