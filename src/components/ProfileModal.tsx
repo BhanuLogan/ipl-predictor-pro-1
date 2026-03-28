@@ -147,6 +147,7 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
               </div>
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors shrink-0"
                 >
@@ -154,6 +155,7 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
                 </button>
                 {(selectedPic !== null) && (
                   <button
+                    type="button"
                     onClick={() => setSelectedPic(null)}
                     className="flex items-center gap-1.5 rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors shrink-0"
                   >
@@ -161,7 +163,7 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
                   </button>
                 )}
               </div>
-              <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => { if (e.target.files?.[0]) { processFile(e.target.files[0]); e.target.value = ""; } }} />
+              <input type="file" accept="image/*" ref={fileInputRef} className="sr-only" onChange={(e) => { if (e.target.files?.[0]) { processFile(e.target.files[0]); e.target.value = ""; } }} />
             </div>
 
             {/* Presets Grid */}
