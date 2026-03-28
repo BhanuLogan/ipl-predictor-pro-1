@@ -6,12 +6,16 @@ const Header = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  const navItems = [
-    { path: "/", label: "Polls", icon: Vote },
-    { path: "/rooms", label: "Rooms", icon: Users },
-    { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
-    ...(user?.is_admin ? [{ path: "/admin", label: "Admin", icon: Shield }] : []),
-  ];
+  const navItems = user?.is_admin
+    ? [
+        { path: "/rooms", label: "Rooms", icon: Users },
+        { path: "/admin", label: "Admin", icon: Shield },
+      ]
+    : [
+        { path: "/", label: "Polls", icon: Vote },
+        { path: "/rooms", label: "Rooms", icon: Users },
+        { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
+      ];
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-xl">

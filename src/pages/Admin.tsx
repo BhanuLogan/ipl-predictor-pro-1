@@ -4,14 +4,13 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate } from "@/lib/data";
-import { Check, CloudRain, Trash2, Users } from "lucide-react";
+import { Check, CloudRain, Trash2 } from "lucide-react";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [results, setResults] = useState<Record<string, string>>({});
   const [votes, setVotes] = useState<Record<string, Record<string, string>>>({});
-  const [allRooms, setAllRooms] = useState<import("@/lib/api").Room[]>([]);
   const [adminPw, setAdminPw] = useState("");
   const [error, setError] = useState("");
 
@@ -21,9 +20,6 @@ const Admin = () => {
       setResults(r);
       setVotes(v);
     } catch {}
-    if (user?.is_admin) {
-      try { setAllRooms(await api.getAllRoomsAdmin()); } catch {}
-    }
   };
 
   useEffect(() => {
@@ -63,16 +59,6 @@ const Admin = () => {
       await api.adminReset();
       await loadData();
     } catch {}
-  };
-
-  const handleDeleteRoom = async (room: import("@/lib/api").Room) => {
-    if (!confirm(`Delete room "${room.name}"? Members will lose access.`)) return;
-    try {
-      await api.deleteRoom(room.id);
-      setAllRooms(prev => prev.filter(r => r.id !== room.id));
-    } catch (e: any) {
-      alert(e.message || "Failed to delete room");
-    }
   };
 
   if (!user) return null;
@@ -249,37 +235,6 @@ const Admin = () => {
                 </div>
               );
             })}
-
-            {/* Rooms management */}
-            <div className="mt-6">
-              <h3 className="mb-3 font-display text-2xl text-foreground">🏏 ALL ROOMS</h3>
-              {allRooms.length === 0 ? (
-                <div className="rounded-xl border border-border bg-gradient-card p-6 text-center text-sm text-muted-foreground">No rooms created yet.</div>
-              ) : (
-                <div className="space-y-2">
-                  {allRooms.map(room => (
-                    <div key={room.id} className="flex items-center gap-3 rounded-xl border border-border bg-gradient-card px-4 py-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-foreground">{room.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Created by <span className="text-foreground">{room.created_by_username || "unknown"}</span>
-                          {" · "}
-                          <span className="inline-flex items-center gap-1"><Users size={10} /> {room.member_count} member{room.member_count !== 1 ? "s" : ""}</span>
-                        </p>
-                      </div>
-                      <code className="rounded-lg border border-border bg-muted/30 px-2.5 py-1 font-mono text-xs font-bold text-foreground tracking-widest">{room.invite_code}</code>
-                      <button
-                        onClick={() => handleDeleteRoom(room)}
-                        className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title="Delete room"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         )}
       </main>

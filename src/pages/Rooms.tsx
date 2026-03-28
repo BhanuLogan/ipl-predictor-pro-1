@@ -68,7 +68,11 @@ const Rooms = () => {
 
   const loadRooms = async () => {
     try {
-      setRooms(await api.getMyRooms());
+      if (user?.is_admin) {
+        setRooms(await api.getAllRoomsAdmin());
+      } else {
+        setRooms(await api.getMyRooms());
+      }
     } catch {}
     finally { setLoading(false); }
   };

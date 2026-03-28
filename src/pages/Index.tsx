@@ -40,6 +40,7 @@ const Index = () => {
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
+    if (user.is_admin) { navigate("/admin"); return; }
     loadData();
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
