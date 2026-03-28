@@ -111,8 +111,14 @@ async function initDb() {
   // Seed STAGS room (idempotent)
   await query(`
     INSERT INTO rooms (name, invite_code, created_by)
-    VALUES ('STAGS', 'STAGS1', (SELECT id FROM users WHERE is_admin LIMIT 1))
+    VALUES ('STAGS', 'STAGS1', (SELECT id FROM users WHERE username = 'manoharcb' LIMIT 1))
     ON CONFLICT (name) DO NOTHING
+  `);
+
+  // Fix STAGS creator to manoharcb (for existing rows)
+  await query(`
+    UPDATE rooms SET created_by = (SELECT id FROM users WHERE username = 'manoharcb' LIMIT 1)
+    WHERE name = 'STAGS'
   `);
 
   // Add all existing non-admin users to STAGS (idempotent)
@@ -502,6 +508,34 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
     [roomId]
   );
   res.json({ ...room, members: members.map(m => m.username) });
+}));
+
+// Delete room (creator or admin)
+app.delete("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!req.user.is_admin && room.created_by !== req.user.id) {
+    return res.status(403).json({ error: "Only the room creator or admin can delete this room" });
+  }
+  await query("DELETE FROM rooms WHERE id = $1", [roomId]);
+  res.json({ ok: true });
+}));
+
+// Admin: view all rooms
+app.get("/api/admin/rooms", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const rooms = await query(`
+    SELECT r.id, r.name, r.invite_code,
+           u.username AS created_by_username,
+           COUNT(rm.user_id)::int AS member_count
+    FROM rooms r
+    LEFT JOIN users u ON u.id = r.created_by
+    LEFT JOIN room_members rm ON rm.room_id = r.id
+    GROUP BY r.id, r.name, r.invite_code, u.username
+    ORDER BY r.name ASC
+  `);
+  res.json(rooms);
 }));
 
 app.use((err, req, res, next) => {

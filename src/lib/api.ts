@@ -51,6 +51,8 @@ export interface Room {
   invite_code: string;
   member_count?: number;
   members?: string[];
+  created_by?: number;
+  created_by_username?: string;
 }
 
 export const api = {
@@ -183,5 +185,13 @@ export const api = {
 
   async getRoomLeaderboard(id: number): Promise<LeaderboardEntry[]> {
     return apiFetch(`/api/rooms/${id}/leaderboard`);
+  },
+
+  async deleteRoom(id: number): Promise<void> {
+    return apiFetch(`/api/rooms/${id}`, { method: "DELETE" });
+  },
+
+  async getAllRoomsAdmin(): Promise<Room[]> {
+    return apiFetch("/api/admin/rooms");
   },
 };

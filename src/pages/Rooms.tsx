@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api, type Room } from "@/lib/api";
-import { Users, Plus, LogIn, Copy, Check, Trophy, X } from "lucide-react";
+import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2 } from "lucide-react";
 
 /* ─── Skeleton card ─── */
 const SkeletonCard = () => (
@@ -90,6 +90,16 @@ const Rooms = () => {
     } finally { setCreating(false); }
   };
 
+  const handleDelete = async (room: Room) => {
+    if (!confirm(`Delete room "${room.name}"? All members will lose access.`)) return;
+    try {
+      await api.deleteRoom(room.id);
+      setRooms(prev => prev.filter(r => r.id !== room.id));
+    } catch (e: any) {
+      alert(e.message || "Failed to delete room");
+    }
+  };
+
   const handleJoin = async () => {
     if (!inviteCode.trim()) return;
     setJoining(true); setJoinError("");
@@ -174,9 +184,20 @@ const Rooms = () => {
               >
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-display text-2xl text-foreground leading-none">{room.name}</h3>
-                  <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground shrink-0">
-                    <Users size={11} /> {room.member_count} member{room.member_count !== 1 ? "s" : ""}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                      <Users size={11} /> {room.member_count} member{room.member_count !== 1 ? "s" : ""}
+                    </span>
+                    {(user.is_admin || room.created_by === user.id) && (
+                      <button
+                        onClick={() => handleDelete(room)}
+                        className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="Delete room"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Invite code */}
