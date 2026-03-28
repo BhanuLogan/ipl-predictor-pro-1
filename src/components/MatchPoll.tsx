@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { IPL_TEAMS, type Match, formatMatchDate, isVotingLocked } from "@/lib/data";
-import { Check, MapPin, Calendar, Share2, Lock } from "lucide-react";
+import { Check, MapPin, Calendar, Share2, Lock, RefreshCw } from "lucide-react";
 
 interface MatchPollProps {
   match: Match;
@@ -15,6 +15,7 @@ interface MatchPollProps {
 const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOpen }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
+  const [isChanging, setIsChanging] = useState(false);
 
   const team1 = IPL_TEAMS[match.team1];
   const team2 = IPL_TEAMS[match.team2];
@@ -25,6 +26,17 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
     if (!selected) return;
     onVote(match.id, selected);
     setHasVoted(true);
+    setIsChanging(false);
+  };
+
+  const handleChangeVote = () => {
+    setIsChanging(true);
+    setSelected(myPick); // keep their previous selection highlighted
+  };
+
+  const handleCancelChange = () => {
+    setIsChanging(false);
+    setSelected(myPick);
   };
 
   const handleShare = () => {
@@ -37,7 +49,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
     }
   };
 
-  const canVote = isOpen && !isCompleted && !locked && !hasVoted;
+  // Can vote: poll open, not completed, not locked, and either hasn't voted yet OR is actively changing
+  const canVote = isOpen && !isCompleted && !locked && (!hasVoted || isChanging);
 
   return (
     <div className="animate-slide-up rounded-2xl bg-gradient-card border border-border p-6 shadow-xl">
@@ -74,6 +87,29 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
         <span>{match.venue}</span>
       </div>
 
+      {/* Previous vote banner (shown when user has voted and is not changing) */}
+      {hasVoted && !isCompleted && !isChanging && myPick && (
+        <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Check size={15} className="text-primary shrink-0" />
+            <p className="text-sm text-foreground">
+              Your pick:{" "}
+              <strong className="text-primary">{IPL_TEAMS[myPick]?.name || myPick}</strong>
+            </p>
+          </div>
+          {/* Only allow changing if poll is still open & not locked */}
+          {isOpen && !locked && (
+            <button
+              onClick={handleChangeVote}
+              className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors shrink-0"
+            >
+              <RefreshCw size={11} />
+              Change Vote
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Teams */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 mb-6">
         <TeamButton
@@ -82,7 +118,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           selected={selected === match.team1}
           disabled={!canVote}
           isWinner={result === match.team1}
-          onClick={() => setSelected(match.team1)}
+          isPreviousPick={!isChanging && myPick === match.team1 && hasVoted}
+          onClick={() => canVote && setSelected(match.team1)}
           voteCount={voteCounts[match.team1] || 0}
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
@@ -101,7 +138,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           selected={selected === match.team2}
           disabled={!canVote}
           isWinner={result === match.team2}
-          onClick={() => setSelected(match.team2)}
+          isPreviousPick={!isChanging && myPick === match.team2 && hasVoted}
+          onClick={() => canVote && setSelected(match.team2)}
           voteCount={voteCounts[match.team2] || 0}
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
@@ -130,30 +168,31 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
         </div>
       )}
 
-      {/* Vote button */}
+      {/* Vote / Change Vote buttons */}
       {canVote && (
-        <button
-          onClick={handleVote}
-          disabled={!selected}
-          className="w-full rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed glow-gold"
-        >
-          LOCK IN PREDICTION
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={handleVote}
+            disabled={!selected || selected === myPick && isChanging}
+            className="w-full rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed glow-gold"
+          >
+            {isChanging ? "CONFIRM NEW PREDICTION" : "LOCK IN PREDICTION"}
+          </button>
+          {isChanging && (
+            <button
+              onClick={handleCancelChange}
+              className="w-full rounded-xl border border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       )}
 
       {locked && !isCompleted && !hasVoted && (
         <div className="flex items-center justify-center gap-2 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
           <Lock size={16} />
           <span>Voting closed at 7:30 PM IST</span>
-        </div>
-      )}
-
-      {hasVoted && !isCompleted && (
-        <div className="flex items-center justify-center gap-2 rounded-xl bg-muted p-3 text-sm text-muted-foreground">
-          <Check size={16} className="text-secondary" />
-          <span>
-            You picked <strong className="text-foreground">{IPL_TEAMS[myPick!]?.short || myPick}</strong>
-          </span>
         </div>
       )}
     </div>
@@ -166,6 +205,7 @@ function TeamButton({
   selected,
   disabled,
   isWinner,
+  isPreviousPick,
   onClick,
   voteCount,
   totalVotes,
@@ -176,6 +216,7 @@ function TeamButton({
   selected: boolean;
   disabled: boolean;
   isWinner: boolean;
+  isPreviousPick: boolean;
   onClick: () => void;
   voteCount: number;
   totalVotes: number;
@@ -203,6 +244,13 @@ function TeamButton({
       </div>
       <span className="font-display text-xl text-foreground">{team.short}</span>
       <span className="text-[10px] text-muted-foreground leading-tight text-center">{team.name}</span>
+
+      {/* "Your pick" badge */}
+      {isPreviousPick && (
+        <span className="rounded-full bg-primary/15 border border-primary/30 px-2 py-0.5 text-[9px] font-semibold text-primary">
+          Your pick
+        </span>
+      )}
 
       {showVotes && (
         <div className="mt-1 w-full">
