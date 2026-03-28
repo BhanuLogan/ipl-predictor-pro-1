@@ -87,10 +87,14 @@ function PodiumTile({
 
       {/* Avatar */}
       <div
-        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${cfg.shadow} ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
-        style={{ width: avatarPx, height: avatarPx, fontSize: avatarPx * 0.35 }}
+        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${cfg.shadow} ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden`}
+        style={{ width: avatarPx, height: avatarPx, fontSize: avatarPx * 0.35, backgroundColor: entry.profile_pic ? "transparent" : "" }}
       >
-        {initials}
+        {entry.profile_pic ? (
+          <img src={entry.profile_pic} alt={entry.username} className="h-full w-full object-cover" />
+        ) : (
+          initials
+        )}
       </div>
 
       {/* Username */}
@@ -209,11 +213,15 @@ const Leaderboard = () => {
                       <span className="font-display text-xl text-muted-foreground">#{entry.rank}</span>
                     </div>
 
-                    {/* Avatar initials */}
-                    <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0">
-                      <span className="font-display text-sm text-foreground">
-                        {entry.username.slice(0, 2).toUpperCase()}
-                      </span>
+                    {/* Avatar / initials */}
+                    <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden text-foreground">
+                      {entry.profile_pic ? (
+                        <img src={entry.profile_pic} alt={entry.username} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="font-display text-sm">
+                          {entry.username.slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex-1 min-w-0">

@@ -35,10 +35,12 @@ export interface User {
   id: number;
   username: string;
   is_admin: boolean;
+  profile_pic?: string;
 }
 
 export interface LeaderboardEntry {
   username: string;
+  profile_pic?: string;
   points: number;
   correct: number;
   total: number;
@@ -150,10 +152,11 @@ export const api = {
 
   // Admin: delete a user's vote
   async adminDeleteVote(matchId: string, username: string) {
-    return apiFetch("/api/admin/delete-vote", {
-      method: "POST",
-      body: JSON.stringify({ matchId, username }),
-    });
+    return apiFetch("/api/admin/delete-vote", { method: "POST", body: JSON.stringify({ matchId, username }) });
+  },
+
+  async updateProfilePic(profile_pic: string | null) {
+    return apiFetch("/api/me/profile-pic", { method: "POST", body: JSON.stringify({ profile_pic }) });
   },
 
   // Admin: reset all data

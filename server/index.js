@@ -128,6 +128,11 @@ async function initDb() {
     WHERE r.name = 'STAGS' AND NOT u.is_admin
     ON CONFLICT DO NOTHING
   `);
+
+  // Add profile_pic column 
+  await query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_pic TEXT;
+  `);
 }
 
 app.use(cors());
@@ -177,7 +182,7 @@ app.post("/api/register", asyncRoute(async (req, res) => {
     const user = await queryOne(
       `INSERT INTO users (username, password_hash)
        VALUES ($1, $2)
-       RETURNING id, username, is_admin`,
+       RETURNING id, username, is_admin, profile_pic`,
       [trimmedUsername, hash]
     );
 
@@ -223,17 +228,24 @@ app.post("/api/login", asyncRoute(async (req, res) => {
       id: user.id,
       username: user.username,
       is_admin: user.is_admin,
+      profile_pic: user.profile_pic,
     },
   });
 }));
 
 app.get("/api/me", authMiddleware, asyncRoute(async (req, res) => {
   const user = await queryOne(
-    "SELECT id, username, is_admin FROM users WHERE id = $1",
+    "SELECT id, username, is_admin, profile_pic FROM users WHERE id = $1",
     [req.user.id]
   );
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json(user);
+}));
+
+app.post("/api/me/profile-pic", authMiddleware, asyncRoute(async (req, res) => {
+  const { profile_pic } = req.body;
+  await query("UPDATE users SET profile_pic = $1 WHERE id = $2", [profile_pic || null, req.user.id]);
+  res.json({ ok: true });
 }));
 
 app.post("/api/admin/unlock", authMiddleware, asyncRoute(async (req, res) => {
@@ -363,6 +375,7 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
   const board = await query(`
     SELECT
       u.username,
+      u.profile_pic,
       COALESCE(SUM(
         CASE
           WHEN r.winner IS NULL THEN 0
@@ -384,7 +397,7 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
     LEFT JOIN votes v ON v.user_id = u.id
     LEFT JOIN results r ON r.match_id = v.match_id
     WHERE NOT u.is_admin
-    GROUP BY u.id, u.username
+    GROUP BY u.id, u.username, u.profile_pic
     ORDER BY points DESC, correct DESC, u.username ASC
   `);
 
@@ -468,6 +481,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
   const board = await query(`
     SELECT
       u.username,
+      u.profile_pic,
       COALESCE(SUM(
         CASE
           WHEN r.winner IS NULL THEN 0
@@ -486,7 +500,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     LEFT JOIN votes v ON v.user_id = u.id
     LEFT JOIN results r ON r.match_id = v.match_id
     WHERE NOT u.is_admin
-    GROUP BY u.id, u.username
+    GROUP BY u.id, u.username, u.profile_pic
     ORDER BY points DESC, correct DESC, u.username ASC
   `, [roomId]);
   res.json(board);

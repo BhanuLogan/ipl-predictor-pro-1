@@ -1,6 +1,8 @@
+import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Trophy, Vote, Shield, LogOut, Users } from "lucide-react";
+import { Trophy, Vote, Shield, LogOut, Users, Settings } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import ProfileModal from "./ProfileModal";
 
 const Header = () => {
   const location = useLocation();
@@ -16,6 +18,8 @@ const Header = () => {
         { path: "/rooms", label: "Rooms", icon: Users },
         { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
       ];
+
+  const [showProfile, setShowProfile] = React.useState(false);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-xl">
