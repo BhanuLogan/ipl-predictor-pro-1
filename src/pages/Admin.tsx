@@ -13,6 +13,7 @@ const Admin = () => {
   const [votes, setVotes] = useState<Record<string, Record<string, string>>>({});
   const [adminPw, setAdminPw] = useState("");
   const [error, setError] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   const loadData = async () => {
     try {
@@ -61,6 +62,23 @@ const Admin = () => {
     } catch {}
   };
 
+  const handleSyncResults = async () => {
+    setSyncing(true);
+    try {
+      const res = await api.syncResults();
+      if (res.error) {
+        alert("Sync Failed: " + res.error);
+      } else {
+        alert(`Sync Complete!\nChecked: ${res.checked} matches\nUpdated: ${res.updated} new results`);
+        await loadData();
+      }
+    } catch (err: any) {
+      alert("Error syncing: " + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -103,7 +121,16 @@ const Admin = () => {
         ) : (
           <div className="space-y-3">
             <div className="mb-4 flex items-center justify-between rounded-xl bg-secondary/10 border border-secondary/20 p-3">
-              <span className="text-sm text-secondary">✅ Admin mode active</span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-secondary">🛡️ Admin mode active</span>
+                <button
+                  onClick={handleSyncResults}
+                  disabled={syncing}
+                  className={`rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-sm transition-all hover:brightness-110 disabled:opacity-50 ${syncing ? "animate-pulse" : ""}`}
+                >
+                  {syncing ? "⌛ SYNCING..." : "🔄 SYNC FROM CRICBUZZ"}
+                </button>
+              </div>
               <button
                 onClick={handleReset}
                 className="rounded-lg bg-destructive px-4 py-1.5 text-xs font-semibold text-destructive-foreground hover:brightness-110"

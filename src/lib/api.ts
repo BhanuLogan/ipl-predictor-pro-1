@@ -167,6 +167,10 @@ export const api = {
     return apiFetch("/api/admin/reset", { method: "POST" });
   },
 
+  async syncResults(): Promise<{ updated: number; checked: number; error?: string }> {
+    return apiFetch("/api/admin/sync-results", { method: "POST" });
+  },
+
   // Leaderboard
   async getLeaderboard(): Promise<LeaderboardEntry[]> {
     return apiFetch("/api/leaderboard");
