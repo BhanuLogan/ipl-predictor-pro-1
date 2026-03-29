@@ -446,14 +446,10 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
         END
       ), 0)::int AS points,
       COALESCE(SUM(
-        CASE
-          WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner
-          THEN 1
-          ELSE 0
-        END
+        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
-      COALESCE(COUNT(r.match_id), 0)::int AS total,
-      COALESCE(COUNT(v.id), 0)::int AS voted
+      COALESCE(COUNT(r.match_id), 0)::int AS voted,
+      (SELECT COUNT(*)::int FROM results) AS matches
     FROM users u
     LEFT JOIN votes v ON v.user_id = u.id
     LEFT JOIN results r ON r.match_id = v.match_id
@@ -554,8 +550,8 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
       COALESCE(SUM(
         CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr','draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
-      COALESCE(COUNT(r.match_id), 0)::int AS total,
-      COALESCE(COUNT(v.id), 0)::int AS voted
+      COALESCE(COUNT(r.match_id), 0)::int AS voted,
+      (SELECT COUNT(*)::int FROM results) AS matches
     FROM users u
     JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
     LEFT JOIN votes v ON v.user_id = u.id

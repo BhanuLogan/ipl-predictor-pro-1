@@ -43,8 +43,8 @@ export interface LeaderboardEntry {
   profile_pic?: string;
   points: number;
   correct: number;
-  total: number;
   voted: number;
+  matches: number;
 }
 
 export interface Room {

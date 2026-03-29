@@ -250,7 +250,7 @@ const Leaderboard = () => {
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {entry.voted} voted · {entry.correct} correct
+                        {entry.voted} voted · {entry.correct} correct · {entry.matches} total
                       </p>
                     </div>
 
@@ -297,10 +297,10 @@ const Leaderboard = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-center text-sm font-medium">{entry.total}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium">{entry.matches}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.voted}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-secondary">{entry.correct}</td>
-                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.total - entry.correct}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct}</td>
                     <td className="px-4 py-4 text-right">
                       <span className="font-display text-xl text-gradient-gold">{entry.points}</span>
                     </td>
