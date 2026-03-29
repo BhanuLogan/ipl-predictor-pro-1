@@ -57,17 +57,24 @@ function PodiumTile({ entry, rank, cfg, isCurrentUser, onAvatarClick }: {
   onAvatarClick: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center gap-1" style={{ order: cfg.order }}>
+    <div
+      className="flex flex-col items-center gap-1 cursor-pointer"
+      style={{ order: cfg.order }}
+      onClick={onAvatarClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onAvatarClick();
+      }}
+    >
       <span className="text-2xl leading-none mb-1">{cfg.medal}</span>
-      <button
-        type="button"
+      <div
         title={`${entry.username}'s predictions`}
-        onClick={onAvatarClick}
-        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden bg-transparent cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2`}
+        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden bg-transparent`}
         style={{ width: cfg.avatarPx, height: cfg.avatarPx, fontSize: cfg.avatarPx * 0.35 }}
       >
         <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
-      </button>
+      </div>
       <p className={`text-xs font-semibold text-center max-w-[88px] truncate leading-tight ${isCurrentUser ? "text-primary" : "text-foreground"}`}>
         {entry.username}
         {isCurrentUser && <span className="block text-[9px] text-primary/70">(You)</span>}
@@ -225,10 +232,17 @@ const RoomLeaderboard = () => {
                 {rest.map((entry, i) => (
                   <div
                     key={entry.username}
-                    className={`flex items-center gap-4 rounded-xl border p-4 transition-all animate-slide-up ${
+                    className={`flex items-center gap-4 rounded-xl border p-4 transition-all animate-slide-up cursor-pointer ${
                       entry.username === user.username ? "border-primary/50 bg-primary/5" : "border-border bg-gradient-card"
                     }`}
                     style={{ animationDelay: `${i * 50}ms` }}
+                    onClick={() => setPickUser(entry.username)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") setPickUser(entry.username);
+                    }}
+                    aria-label={`Open ${entry.username}'s predictions`}
                   >
                     <div className="flex h-10 w-10 items-center justify-center shrink-0">
                       <span className="font-display text-xl text-muted-foreground">#{entry.rank}</span>
@@ -236,7 +250,10 @@ const RoomLeaderboard = () => {
                     <button
                       type="button"
                       title={`${entry.username}'s predictions`}
-                      onClick={() => setPickUser(entry.username)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPickUser(entry.username);
+                      }}
                       className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden text-foreground cursor-pointer ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     >
                       <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
@@ -279,6 +296,13 @@ const RoomLeaderboard = () => {
                   <tr 
                     key={entry.username} 
                     className={`border-b border-border/30 transition-colors hover:bg-muted/10 ${entry.username === user.username ? "bg-primary/5" : ""}`}
+                    onClick={() => setPickUser(entry.username)}
+                    style={{ cursor: "pointer" }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") setPickUser(entry.username);
+                    }}
                   >
                     <td className="px-4 py-4 font-display text-lg text-muted-foreground">#{entry.rank}</td>
                     <td className="px-4 py-4">
@@ -286,7 +310,10 @@ const RoomLeaderboard = () => {
                         <button
                           type="button"
                           title={`${entry.username}'s predictions`}
-                          onClick={() => setPickUser(entry.username)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPickUser(entry.username);
+                          }}
                           className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border cursor-pointer ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
