@@ -697,7 +697,7 @@ async function checkRecentMatches(isManual = false) {
     // 2. Fetch recent matches from Cricbuzz
     const options = {
       method: 'GET',
-      url: `https://${RAPIDAPI_HOST}/matches/list/recent`,
+      url: `https://${RAPIDAPI_HOST}/matches/v1/recent`,
       headers: {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': RAPIDAPI_HOST
@@ -705,14 +705,17 @@ async function checkRecentMatches(isManual = false) {
     };
 
     const response = await axios.request(options);
-    const apiMatches = response.data.typeMatches?.find(tm => tm.matchType === "League")?.seriesMatches || [];
+    const typeMatches = response.data.typeMatches || [];
     
-    // Flatten the matches list
+    // Flatten the matches list across all types (International, League, etc.)
     const allMatches = [];
-    apiMatches.forEach(series => {
-      if (series.seriesAdWrappers?.matches) {
-        allMatches.push(...series.seriesAdWrappers.matches);
-      }
+    typeMatches.forEach(type => {
+      type.seriesMatches?.forEach(series => {
+        const matches = series.seriesAdWrapper?.matches || series.matches;
+        if (matches) {
+          allMatches.push(...matches);
+        }
+      });
     });
 
     for (const match of toCheck) {
