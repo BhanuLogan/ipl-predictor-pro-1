@@ -538,12 +538,9 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
   enriched.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.correct !== a.correct) return b.correct - a.correct;
-    const aNrr = a.nrr == null ? Number.POSITIVE_INFINITY : a.nrr;
-    const bNrr = b.nrr == null ? Number.POSITIVE_INFINITY : b.nrr;
-    if (aNrr !== bNrr) return aNrr - bNrr;
-    const aFirst = a.first_vote_at ? new Date(a.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
-    const bFirst = b.first_vote_at ? new Date(b.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
-    if (aFirst !== bFirst) return aFirst - bFirst;
+    const valA = a.nrr ?? -Infinity;
+    const valB = b.nrr ?? -Infinity;
+    if (valB !== valA) return valB - valA;
     return a.username.localeCompare(b.username);
   });
 
@@ -691,12 +688,9 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
   enriched.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.correct !== a.correct) return b.correct - a.correct;
-    const aNrr = a.nrr == null ? Number.POSITIVE_INFINITY : a.nrr;
-    const bNrr = b.nrr == null ? Number.POSITIVE_INFINITY : b.nrr;
-    if (aNrr !== bNrr) return aNrr - bNrr;
-    const aFirst = a.first_vote_at ? new Date(a.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
-    const bFirst = b.first_vote_at ? new Date(b.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
-    if (aFirst !== bFirst) return aFirst - bFirst;
+    const valA = a.nrr ?? -Infinity;
+    const valB = b.nrr ?? -Infinity;
+    if (valB !== valA) return valB - valA;
     return a.username.localeCompare(b.username);
   });
 
