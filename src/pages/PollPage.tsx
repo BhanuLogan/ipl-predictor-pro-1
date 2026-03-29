@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE } from "@/lib/data";
+import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked } from "@/lib/data";
 
 const PollPage = () => {
   const { matchId } = useParams<{ matchId: string }>();
@@ -13,6 +13,7 @@ const PollPage = () => {
   const [myVotes, setMyVotes] = useState<Record<string, string>>({});
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({});
   const [results, setResults] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
 
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
 
@@ -34,7 +35,9 @@ const PollPage = () => {
       }
       setVoteCounts(counts);
       setResults(r);
-    } catch {}
+    } catch {} finally {
+      setLoading(false);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -54,6 +57,28 @@ const PollPage = () => {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <p className="text-muted-foreground mb-4">Match not found</p>
+          <Link to="/" className="text-primary hover:underline">Go to Polls</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  const openMatches = getPollOpenMatches(results);
+  const isValid = openMatches.some(m => m.id === match.id) || !!results[match.id] || isVotingLocked(match);
+
+  if (!isValid) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground mb-4">This poll is not available yet</p>
           <Link to="/" className="text-primary hover:underline">Go to Polls</Link>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Trophy, Vote, Shield, LogOut, Users, Settings } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import ProfileModal from "./ProfileModal";
+import { getAvatarUrl } from "@/lib/utils";
 
 const Header = () => {
   const location = useLocation();
@@ -59,11 +60,7 @@ const Header = () => {
                 title="Profile settings"
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 font-display text-sm font-bold text-primary overflow-hidden">
-                  {user.profile_pic ? (
-                    <img src={user.profile_pic} alt="avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    user.username.slice(0, 2).toUpperCase()
-                  )}
+                  <img src={getAvatarUrl(user.profile_pic, user.username)} alt="avatar" className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0 flex items-center gap-2">
                   <span className="text-sm font-semibold text-foreground truncate">{user.username}</span>

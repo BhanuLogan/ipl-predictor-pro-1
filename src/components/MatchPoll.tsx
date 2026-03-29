@@ -133,7 +133,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
           voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team1) : []}
-          showVoters={locked && !isCompleted}
+          showVoters={locked}
         />
 
         <div className="flex flex-col items-center">
@@ -155,7 +155,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           totalVotes={totalVotes}
           showVotes={hasVoted || isCompleted || totalVotes > 0}
           voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team2) : []}
-          showVoters={locked && !isCompleted}
+          showVoters={locked}
         />
       </div>
 
@@ -278,7 +278,7 @@ function TeamButton({
             />
           </div>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            {voteCount} vote{voteCount !== 1 ? "s" : ""} ({percentage}%)
+            {voteCount} vote{voteCount !== 1 ? "s" : ""}
           </p>
           {showVoters && voters && voters.length > 0 && (
             <div className="mt-2 text-left w-full border-t border-muted/50 pt-2 px-1 max-h-24 overflow-y-auto custom-scrollbar">

@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { User } from "@/lib/api";
 import { X, Upload, Trash2, User as UserIcon, Lock, Image as ImageIcon } from "lucide-react";
+import { getAvatarUrl } from "@/lib/utils";
 
 const PRESETS = [
   "https://api.dicebear.com/9.x/notionists/svg?seed=Felix&backgroundColor=f5f5f5",
@@ -111,8 +112,9 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto animate-scale-in rounded-2xl border border-border bg-gradient-card shadow-2xl p-6">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 backdrop-blur-sm">
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className="relative w-full max-w-md animate-scale-in rounded-2xl border border-border bg-gradient-card shadow-2xl p-6">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-display text-2xl text-gradient-gold">EDIT PROFILE</h3>
           <button onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-muted transition-colors">
@@ -146,11 +148,7 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
             {/* Current Avatar preview */}
             <div className="flex flex-col items-center justify-center mb-6">
               <div className="relative h-24 w-24 mb-3 border border-border shadow-sm rounded-full overflow-hidden flex items-center justify-center bg-muted text-foreground font-display text-3xl shrink-0">
-                {selectedPic ? (
-                  <img src={selectedPic} alt="Selected" className="h-full w-full object-cover" />
-                ) : (
-                  <span>{user.username.slice(0, 2).toUpperCase()}</span>
-                )}
+                <img src={selectedPic || getAvatarUrl(user.profile_pic, user.username)} alt="Selected" className="h-full w-full object-cover" />
               </div>
               <div className="flex gap-2">
                 <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition-colors shrink-0">
@@ -247,6 +245,7 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
           >
             {loading ? "SAVING..." : "SAVE CHANGES"}
           </button>
+        </div>
         </div>
       </div>
     </div>

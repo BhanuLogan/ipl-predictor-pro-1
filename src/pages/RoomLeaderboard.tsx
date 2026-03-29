@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api, type LeaderboardEntry, type Room } from "@/lib/api";
 import { ArrowLeft, Copy, Check } from "lucide-react";
+import { getAvatarUrl } from "@/lib/utils";
 
 /* ─── Rank helper ─── */
 function assignRanks(entries: LeaderboardEntry[]): (LeaderboardEntry & { rank: number })[] {
@@ -57,14 +58,10 @@ function PodiumTile({ entry, rank, cfg, isCurrentUser }: {
     <div className="flex flex-col items-center gap-1" style={{ order: cfg.order }}>
       <span className="text-2xl leading-none mb-1">{cfg.medal}</span>
       <div
-        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden`}
-        style={{ width: cfg.avatarPx, height: cfg.avatarPx, fontSize: cfg.avatarPx * 0.35, backgroundColor: entry.profile_pic ? "transparent" : "" }}
+        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden bg-transparent`}
+        style={{ width: cfg.avatarPx, height: cfg.avatarPx, fontSize: cfg.avatarPx * 0.35 }}
       >
-        {entry.profile_pic ? (
-          <img src={entry.profile_pic} alt={entry.username} className="h-full w-full object-cover" />
-        ) : (
-          entry.username.slice(0, 2).toUpperCase()
-        )}
+        <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
       </div>
       <p className={`text-xs font-semibold text-center max-w-[88px] truncate leading-tight ${isCurrentUser ? "text-primary" : "text-foreground"}`}>
         {entry.username}
@@ -203,13 +200,7 @@ const RoomLeaderboard = () => {
                       <span className="font-display text-xl text-muted-foreground">#{entry.rank}</span>
                     </div>
                     <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden text-foreground">
-                      {entry.profile_pic ? (
-                        <img src={entry.profile_pic} alt={entry.username} className="h-full w-full object-cover" />
-                      ) : (
-                        <span className="font-display text-sm">
-                          {entry.username.slice(0, 2).toUpperCase()}
-                        </span>
-                      )}
+                      <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-foreground truncate">
