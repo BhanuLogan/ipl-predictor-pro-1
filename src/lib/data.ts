@@ -21,6 +21,12 @@ export interface Match {
   venue: string;
 }
 
+/** Stored match outcome from API (winner + optional Cricbuzz-style score line). */
+export type MatchResult = {
+  winner: string;
+  scoreSummary?: string | null;
+};
+
 // IPL 2026 Full schedule (70 matches)
 export const IPL_SCHEDULE: Match[] = [
   {"id":"m01","date":"2026-03-28","time":"19:30","team1":"RCB","team2":"SRH","venue":"M. Chinnaswamy Stadium, Bengaluru"},
@@ -96,7 +102,7 @@ export const IPL_SCHEDULE: Match[] = [
 ];
 
 // Poll open logic: match poll is open if before match time and previous match has result (or first match)
-export function getPollOpenMatches(results: Record<string, string>): Match[] {
+export function getPollOpenMatches(results: Record<string, MatchResult>): Match[] {
   const open: Match[] = [];
   for (let i = 0; i < IPL_SCHEDULE.length; i++) {
     const m = IPL_SCHEDULE[i];

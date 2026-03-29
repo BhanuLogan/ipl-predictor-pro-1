@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api, type LeaderboardEntry } from "@/lib/api";
-import { Trophy, Medal } from "lucide-react";
+import UserPredictionsDialog from "@/components/UserPredictionsDialog";
 import { getAvatarUrl } from "@/lib/utils";
 
 /* ─── Rank assignment (tie = same rank, next is gap-ranked) ─── */
@@ -71,14 +71,14 @@ function PodiumTile({
   rank,
   cfg,
   isCurrentUser,
+  onAvatarClick,
 }: {
   entry: LeaderboardEntry & { rank: number };
   rank: 1 | 2 | 3;
   cfg: typeof podiumConfig[0];
   isCurrentUser: boolean;
+  onAvatarClick: () => void;
 }) {
-  const initials = entry.username.slice(0, 2).toUpperCase();
-  const avatarRem = cfg.avatarSize / 4; // convert to rough rem scale
   const avatarPx = cfg.avatarSize * 5;
 
   return (
@@ -86,13 +86,16 @@ function PodiumTile({
       {/* Crown / rank badge */}
       <span className="text-2xl leading-none mb-1">{cfg.medal}</span>
 
-      {/* Avatar */}
-      <div
-        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${cfg.shadow} ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden`}
+      {/* Avatar — tap to see match picks */}
+      <button
+        type="button"
+        onClick={onAvatarClick}
+        title={`${entry.username}'s predictions`}
+        className={`rounded-full flex items-center justify-center font-display font-bold text-background border-2 ${cfg.border} shadow-lg ${cfg.shadow} ${isCurrentUser ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} overflow-hidden cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
         style={{ width: avatarPx, height: avatarPx, fontSize: avatarPx * 0.35, backgroundColor: entry.profile_pic ? "transparent" : "" }}
       >
         <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
-      </div>
+      </button>
 
       {/* Username */}
       <p className={`text-xs font-semibold text-foreground text-center leading-tight max-w-[88px] truncate ${isCurrentUser ? "text-primary" : ""}`}>
@@ -122,6 +125,7 @@ const Leaderboard = () => {
   const [leaderboard, setLeaderboard] = useState<(LeaderboardEntry & { rank: number })[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"podium" | "table">("podium");
+  const [pickUser, setPickUser] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
@@ -213,6 +217,7 @@ const Leaderboard = () => {
                     rank={rank}
                     cfg={podiumConfig[cfgIndex]}
                     isCurrentUser={entry.username === user.username}
+                    onAvatarClick={() => setPickUser(entry.username)}
                   />
                 );
               })}
@@ -237,10 +242,14 @@ const Leaderboard = () => {
                       <span className="font-display text-xl text-muted-foreground">#{entry.rank}</span>
                     </div>
 
-                    {/* Avatar */}
-                    <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden text-foreground">
+                    <button
+                      type="button"
+                      title={`${entry.username}'s predictions`}
+                      onClick={() => setPickUser(entry.username)}
+                      className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden text-foreground cursor-pointer ring-offset-background focus:outline-none focus-visible:ring-2  focus-visible:ring-primary"
+                    >
                       <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
-                    </div>
+                    </button>
 
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-foreground truncate">
@@ -289,9 +298,14 @@ const Leaderboard = () => {
                     <td className="px-4 py-4 font-display text-lg text-muted-foreground">#{entry.rank}</td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border">
+                        <button
+                          type="button"
+                          title={`${entry.username}'s predictions`}
+                          onClick={() => setPickUser(entry.username)}
+                          className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border cursor-pointer ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
                           <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
-                        </div>
+                        </button>
                         <span className={`font-semibold ${entry.username === user.username ? "text-primary" : "text-foreground"}`}>
                           {entry.username}
                         </span>
@@ -311,6 +325,14 @@ const Leaderboard = () => {
           </div>
         )}
       </main>
+
+      <UserPredictionsDialog
+        username={pickUser}
+        open={!!pickUser}
+        onOpenChange={(o) => {
+          if (!o) setPickUser(null);
+        }}
+      />
     </div>
   );
 };

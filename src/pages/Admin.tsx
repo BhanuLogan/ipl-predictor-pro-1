@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate } from "@/lib/data";
+import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, type MatchResult } from "@/lib/data";
 import { Check, CloudRain, Trash2 } from "lucide-react";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
-  const [results, setResults] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, MatchResult>>({});
   const [votes, setVotes] = useState<Record<string, Record<string, string>>>({});
   const [adminPw, setAdminPw] = useState("");
   const [error, setError] = useState("");
@@ -150,7 +150,7 @@ const Admin = () => {
                 <div
                   key={match.id}
                   className={`rounded-xl border p-4 ${
-                    result ? "border-secondary/30 bg-secondary/5" : "border-border bg-gradient-card"
+                    result?.winner ? "border-secondary/30 bg-secondary/5" : "border-border bg-gradient-card"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-3">
@@ -211,21 +211,28 @@ const Admin = () => {
                     </div>
                   )}
 
-                  {result ? (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-secondary">
-                        {result === "nr"
-                          ? "🌧️ No Result"
-                          : result === "draw"
-                          ? "🤝 Tied"
-                          : `🏆 ${IPL_TEAMS[result]?.short} Won`}
-                      </span>
-                      <button
-                        onClick={() => handleSetResult(match.id, null)}
-                        className="text-xs text-destructive hover:underline"
-                      >
-                        Reset
-                      </button>
+                  {result?.winner ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-secondary">
+                          {result.winner === "nr"
+                            ? "🌧️ No Result"
+                            : result.winner === "draw"
+                            ? "🤝 Tied"
+                            : `🏆 ${IPL_TEAMS[result.winner]?.short} Won`}
+                        </span>
+                        <button
+                          onClick={() => handleSetResult(match.id, null)}
+                          className="text-xs text-destructive hover:underline shrink-0"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                      {result.scoreSummary ? (
+                        <p className="text-[11px] leading-snug text-muted-foreground border-t border-border/40 pt-2">
+                          {result.scoreSummary}
+                        </p>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="flex gap-2">

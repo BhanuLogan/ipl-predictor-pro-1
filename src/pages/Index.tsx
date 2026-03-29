@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS, isVotingLocked } from "@/lib/data";
+import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS, isVotingLocked, type MatchResult } from "@/lib/data";
 import { MapPin } from "lucide-react";
 
 const Index = () => {
@@ -13,7 +13,7 @@ const Index = () => {
   const [myVotes, setMyVotes] = useState<Record<string, string>>({}); // matchId -> my prediction
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({}); // matchId -> { username: prediction }
-  const [results, setResults] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, MatchResult>>({});
 
   const loadData = useCallback(async () => {
     try {
@@ -132,7 +132,8 @@ const Index = () => {
                     voteCounts={counts}
                     totalVotes={total}
                     myPick={myVotes[match.id] || null}
-                    result={results[match.id]}
+                    result={results[match.id]?.winner}
+                    scoreSummary={results[match.id]?.scoreSummary}
                     onVote={handleVote}
                     isOpen={false}
                   />

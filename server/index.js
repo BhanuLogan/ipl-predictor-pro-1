@@ -144,6 +144,10 @@ async function initDb() {
   await query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_pic TEXT;
   `);
+
+  await query(`
+    ALTER TABLE results ADD COLUMN IF NOT EXISTS score_summary TEXT;
+  `);
 }
 
 app.use(cors());
@@ -413,25 +417,37 @@ app.post("/api/admin/sync-results", authMiddleware, adminMiddleware, asyncRoute(
 }));
 
 app.get("/api/results", asyncRoute(async (req, res) => {
-  const rows = await query("SELECT match_id, winner FROM results");
+  const rows = await query("SELECT match_id, winner, score_summary FROM results");
   const map = {};
-  for (const r of rows) map[r.match_id] = r.winner;
+  for (const r of rows) {
+    map[r.match_id] = {
+      winner: r.winner,
+      scoreSummary: r.score_summary || null,
+    };
+  }
   res.json(map);
 }));
 
 app.post("/api/result", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
-  const { matchId, winner } = req.body;
+  const { matchId, winner, scoreSummary } = req.body;
   if (!matchId) return res.status(400).json({ error: "matchId required" });
 
   if (!winner) {
     await query("DELETE FROM results WHERE match_id = $1", [matchId]);
   } else {
+    const summary =
+      scoreSummary !== undefined && scoreSummary !== "" ? scoreSummary : null;
     await query(
-      `INSERT INTO results (match_id, winner)
-       VALUES ($1, $2)
+      `INSERT INTO results (match_id, winner, score_summary)
+       VALUES ($1, $2, $3)
        ON CONFLICT (match_id)
-       DO UPDATE SET winner = EXCLUDED.winner`,
-      [matchId, winner]
+       DO UPDATE SET
+         winner = EXCLUDED.winner,
+         score_summary = CASE
+           WHEN EXCLUDED.score_summary IS NOT NULL THEN EXCLUDED.score_summary
+           ELSE results.score_summary
+         END`,
+      [matchId, winner, summary]
     );
   }
 
@@ -470,6 +486,23 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
 app.get("/api/users", asyncRoute(async (req, res) => {
   const users = await query("SELECT id, username FROM users ORDER BY username ASC");
   res.json(users);
+}));
+
+/** Logged-in users: another user's vote history (for leaderboard profile tap). */
+app.get("/api/users/:username/predictions", authMiddleware, asyncRoute(async (req, res) => {
+  const username = String(req.params.username || "").trim();
+  if (!username) return res.status(400).json({ error: "username required" });
+  const target = await queryOne("SELECT id FROM users WHERE username = $1", [username]);
+  if (!target) return res.status(404).json({ error: "User not found" });
+  const rows = await query(
+    `SELECT v.match_id AS "matchId", v.prediction, r.winner AS outcome
+     FROM votes v
+     LEFT JOIN results r ON r.match_id = v.match_id
+     WHERE v.user_id = $1
+     ORDER BY v.match_id ASC`,
+    [target.id]
+  );
+  res.json({ votes: rows });
 }));
 
 // ─── Room routes ────────────────────────────────────────────────────────────
@@ -667,6 +700,36 @@ function parseWinnerFromStatus(status, team1Code, team2Code) {
   return null;
 }
 
+/** Short score line from Cricbuzz matchInfo (status text usually includes full summary). */
+function extractScoreSummary(matchInfo) {
+  if (!matchInfo) return null;
+  const st = (matchInfo.status || "").trim();
+  if (st) return st;
+  const t1 = matchInfo.team1;
+  const t2 = matchInfo.team2;
+  if (!t1 || !t2) return null;
+  const shortName = (t) =>
+    t.teamSName ||
+    (typeof t.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
+    "?";
+  const fmt = (t) => {
+    if (t == null) return null;
+    if (typeof t.score === "string" && t.score.length > 0 && t.score !== "-1") {
+      return `${shortName(t)} ${t.score}`;
+    }
+    if (t.score != null && Number(t.score) >= 0 && Number(t.score) !== -1) {
+      const wk = t.wickets != null ? t.wickets : 0;
+      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "—";
+      return `${shortName(t)} ${t.score}/${wk} (${ov})`;
+    }
+    return null;
+  };
+  const a = fmt(t1);
+  const b = fmt(t2);
+  if (a && b) return `${a} · ${b}`;
+  return null;
+}
+
 /**
  * Flattens match list objects from /series/v1/:id or /matches/v1/recent style payloads.
  */
@@ -731,6 +794,11 @@ async function fetchCricbuzzSeriesMatches() {
   return collectCricbuzzMatchesFromPayload(response.data);
 }
 
+/** Auto-sync only runs from (match start + 4h) through (match start + 6h), every CHECK_INTERVAL. */
+const HOUR_MS = 60 * 60 * 1000;
+const AUTO_RESULT_CHECK_DELAY_MS = 4 * HOUR_MS;
+const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
+
 async function checkRecentMatches(isManual = false) {
   if (!RAPIDAPI_KEY) {
     const msg = "⚠️  AutomatedResultService: RAPIDAPI_KEY missing. Skipping auto-check.";
@@ -739,21 +807,32 @@ async function checkRecentMatches(isManual = false) {
   }
 
   try {
-    // 1. Find matches that started > 4 hours ago and have no results
     const now = new Date();
-    const pendingMatches = IPL_SCHEDULE.filter(m => {
+    const nowMs = now.getTime();
+
+    const existingResults = await query("SELECT match_id FROM results");
+    const existingIds = new Set(existingResults.map((r) => r.match_id));
+
+    // Skip Cricbuzz entirely if every match scheduled at or before now already has a result (nothing left to sync).
+    const needResultSync = IPL_SCHEDULE.some((m) => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
-      // For manual check, we can be more lenient, maybe check any match from today or earlier
-      const checkThreshold = isManual ? startTime : new Date(startTime.getTime() + 4 * 60 * 60 * 1000);
-      return now >= checkThreshold;
+      return nowMs >= startTime.getTime() && !existingIds.has(m.id);
+    });
+    if (!needResultSync) {
+      return { updated: 0, checked: 0 };
+    }
+
+    // 1. Candidate matches: manual = any time after start; auto only in [start+4h, start+6h]
+    const pendingMatches = IPL_SCHEDULE.filter((m) => {
+      const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
+      if (isManual) return nowMs >= startTime.getTime();
+      const windowStart = startTime.getTime() + AUTO_RESULT_CHECK_DELAY_MS;
+      const windowEnd = windowStart + AUTO_RESULT_CHECK_WINDOW_MS;
+      return nowMs >= windowStart && nowMs <= windowEnd;
     });
 
     if (pendingMatches.length === 0) return { updated: 0, checked: 0 };
 
-    // Get existing results to avoid duplicate work
-    const existingResults = await query("SELECT match_id FROM results");
-    const existingIds = new Set(existingResults.map(r => r.match_id));
-    
     const toCheck = pendingMatches.filter(m => !existingIds.has(m.id));
     if (toCheck.length === 0) return { updated: 0, checked: 0 };
 
@@ -798,13 +877,16 @@ async function checkRecentMatches(isManual = false) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2);
         
         if (winner) {
+          const scoreSummary = extractScoreSummary(apiMatch.matchInfo);
           console.log(`🏆 AutomatedResultService: AUTO-DECLARING WINNER for ${match.id}: ${winner}`);
           await query(
-            `INSERT INTO results (match_id, winner)
-             VALUES ($1, $2)
+            `INSERT INTO results (match_id, winner, score_summary)
+             VALUES ($1, $2, $3)
              ON CONFLICT (match_id)
-             DO UPDATE SET winner = EXCLUDED.winner`,
-            [match.id, winner]
+             DO UPDATE SET
+               winner = EXCLUDED.winner,
+               score_summary = COALESCE(EXCLUDED.score_summary, results.score_summary)`,
+            [match.id, winner, scoreSummary]
           );
           updatedCount++;
         }
@@ -821,8 +903,8 @@ async function checkRecentMatches(isManual = false) {
   }
 }
 
-// Start the check loop (every 25 minutes)
-const CHECK_INTERVAL = 25 * 60 * 1000;
+// Start the check loop (every 15 minutes; each match is only considered in the 2h window after +4h from start)
+const CHECK_INTERVAL = 15 * 60 * 1000;
 setInterval(checkRecentMatches, CHECK_INTERVAL);
 
 // Initial check on startup

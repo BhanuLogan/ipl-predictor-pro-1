@@ -8,12 +8,14 @@ interface MatchPollProps {
   totalVotes: number;
   myPick: string | null;
   result?: string;
+  /** Cricbuzz-style score / result line for completed matches */
+  scoreSummary?: string | null;
   onVote: (matchId: string, prediction: string) => void;
   isOpen: boolean;
   allVotes?: Record<string, string>;
 }
 
-const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOpen, allVotes }: MatchPollProps) => {
+const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
@@ -64,25 +66,33 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
 
   if (isCompleted && !isExpanded) {
     return (
-      <div 
-        onClick={() => setIsExpanded(true)}
-        className="animate-slide-up cursor-pointer rounded-2xl bg-gradient-card border border-border p-4 shadow-md hover:border-primary/30 transition-all flex items-center justify-between"
-      >
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Calendar size={12} />
-            <span>{formatMatchDate(match.date)}</span>
+      <div className="animate-slide-up space-y-2">
+        <div
+          onClick={() => setIsExpanded(true)}
+          className="cursor-pointer rounded-2xl bg-gradient-card border border-border p-4 shadow-md hover:border-primary/30 transition-all flex items-center justify-between"
+        >
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Calendar size={12} />
+              <span>{formatMatchDate(match.date)}</span>
+            </div>
+            <div className="flex items-center gap-2 font-display text-sm">
+              <span>{match.team1}</span>
+              <span className="text-muted-foreground text-[10px]">VS</span>
+              <span>{match.team2}</span>
+            </div>
+            <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+              {result === "nr" ? "No Result" : result === "draw" ? "Tied" : `${result} won`}
+            </span>
           </div>
-          <div className="flex items-center gap-2 font-display text-sm">
-            <span>{match.team1}</span>
-            <span className="text-muted-foreground text-[10px]">VS</span>
-            <span>{match.team2}</span>
-          </div>
-          <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-semibold text-secondary">
-            {result === "nr" ? "No Result" : result === "draw" ? "Tied" : `${result} won`}
-          </span>
+          <ChevronDown size={16} className="text-muted-foreground shrink-0" />
         </div>
-        <ChevronDown size={16} className="text-muted-foreground" />
+        {scoreSummary ? (
+          <div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Score</p>
+            <p className="text-xs text-foreground leading-snug">{scoreSummary}</p>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -213,6 +223,13 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
                 : "❌ Better luck next time!"}
             </p>
           )}
+        </div>
+      )}
+
+      {isCompleted && scoreSummary && (
+        <div className="mb-4 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-center">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Match summary</p>
+          <p className="text-xs text-foreground leading-relaxed">{scoreSummary}</p>
         </div>
       )}
 

@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked } from "@/lib/data";
+import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked, type MatchResult } from "@/lib/data";
 
 const PollPage = () => {
   const { matchId } = useParams<{ matchId: string }>();
@@ -12,7 +12,7 @@ const PollPage = () => {
   const navigate = useNavigate();
   const [myVotes, setMyVotes] = useState<Record<string, string>>({});
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({});
-  const [results, setResults] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, MatchResult>>({});
   const [loading, setLoading] = useState(true);
 
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
@@ -72,7 +72,7 @@ const PollPage = () => {
   }
 
   const openMatches = getPollOpenMatches(results);
-  const isValid = openMatches.some(m => m.id === match.id) || !!results[match.id] || isVotingLocked(match);
+  const isValid = openMatches.some(m => m.id === match.id) || !!results[match.id]?.winner || isVotingLocked(match);
 
   if (!isValid) {
     return (
@@ -98,9 +98,10 @@ const PollPage = () => {
           voteCounts={counts}
           totalVotes={total}
           myPick={myVotes[match.id] || null}
-          result={results[match.id]}
+          result={results[match.id]?.winner}
+          scoreSummary={results[match.id]?.scoreSummary}
           onVote={handleVote}
-          isOpen={!results[match.id]}
+          isOpen={!results[match.id]?.winner}
         />
       </main>
     </div>

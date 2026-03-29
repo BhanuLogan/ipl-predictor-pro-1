@@ -1,3 +1,5 @@
+import type { MatchResult } from "@/lib/data";
+
 const API_URL = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, "");
 
 if (!API_URL) {
@@ -45,6 +47,12 @@ export interface LeaderboardEntry {
   correct: number;
   voted: number;
   matches: number;
+}
+
+export interface UserPredictionVote {
+  matchId: string;
+  prediction: string;
+  outcome: string | null;
 }
 
 export interface Room {
@@ -131,15 +139,21 @@ export const api = {
   },
 
   // Results
-  async getResults(): Promise<Record<string, string>> {
+  async getResults(): Promise<Record<string, MatchResult>> {
     return apiFetch("/api/results");
   },
 
-  async setResult(matchId: string, winner: string | null) {
+  async setResult(matchId: string, winner: string | null, scoreSummary?: string | null) {
+    const body: Record<string, unknown> = { matchId, winner: winner || "" };
+    if (scoreSummary !== undefined) body.scoreSummary = scoreSummary;
     return apiFetch("/api/result", {
       method: "POST",
-      body: JSON.stringify({ matchId, winner: winner || "" }),
+      body: JSON.stringify(body),
     });
+  },
+
+  async getUserPredictions(username: string): Promise<{ votes: UserPredictionVote[] }> {
+    return apiFetch(`/api/users/${encodeURIComponent(username)}/predictions`);
   },
 
   // Admin: alter a user's vote
