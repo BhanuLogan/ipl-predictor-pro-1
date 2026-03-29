@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { IPL_TEAMS, type Match, formatMatchDate, isVotingLocked } from "@/lib/data";
-import { Check, MapPin, Calendar, Share2, Lock, RefreshCw } from "lucide-react";
+import { Check, MapPin, Calendar, Share2, Lock, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 
 interface MatchPollProps {
   match: Match;
@@ -17,6 +17,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(!result); // Collapsed by default if completed
 
   // Sync when myPick loads asynchronously (e.g. after page refresh)
   useEffect(() => {
@@ -61,8 +62,42 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
   // Can vote: poll open, not completed, not locked, and either hasn't voted yet OR is actively changing
   const canVote = isOpen && !isCompleted && !locked && (!hasVoted || isChanging);
 
+  if (isCompleted && !isExpanded) {
+    return (
+      <div 
+        onClick={() => setIsExpanded(true)}
+        className="animate-slide-up cursor-pointer rounded-2xl bg-gradient-card border border-border p-4 shadow-md hover:border-primary/30 transition-all flex items-center justify-between"
+      >
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Calendar size={12} />
+            <span>{formatMatchDate(match.date)}</span>
+          </div>
+          <div className="flex items-center gap-2 font-display text-sm">
+            <span>{match.team1}</span>
+            <span className="text-muted-foreground text-[10px]">VS</span>
+            <span>{match.team2}</span>
+          </div>
+          <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+            {result === "nr" ? "No Result" : result === "draw" ? "Tied" : `${result} won`}
+          </span>
+        </div>
+        <ChevronDown size={16} className="text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
-    <div className="animate-slide-up rounded-2xl bg-gradient-card border border-border p-6 shadow-xl">
+    <div className="animate-slide-up rounded-2xl bg-gradient-card border border-border p-6 shadow-xl relative">
+      {isCompleted && (
+        <button 
+          onClick={() => setIsExpanded(false)}
+          className="absolute top-4 right-12 p-1 text-muted-foreground hover:text-foreground transition-colors"
+          title="Collapse"
+        >
+          <ChevronUp size={16} />
+        </button>
+      )}
       {/* Match info */}
       <div className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -131,7 +166,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           onClick={() => canVote && setSelected(match.team1)}
           voteCount={voteCounts[match.team1] || 0}
           totalVotes={totalVotes}
-          showVotes={hasVoted || isCompleted || totalVotes > 0}
+          showVotes={isCompleted || locked} // Only show team votes when locked or completed
           voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team1) : []}
           showVoters={locked}
         />
@@ -153,7 +188,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, onVote, isOp
           onClick={() => canVote && setSelected(match.team2)}
           voteCount={voteCounts[match.team2] || 0}
           totalVotes={totalVotes}
-          showVotes={hasVoted || isCompleted || totalVotes > 0}
+          showVotes={isCompleted || locked} // Only show team votes when locked or completed
           voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team2) : []}
           showVoters={locked}
         />

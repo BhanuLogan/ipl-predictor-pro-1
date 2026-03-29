@@ -340,9 +340,12 @@ app.get("/api/vote-counts", asyncRoute(async (req, res) => {
 
   const grouped = {};
   for (const r of rows) {
-    if (!isVotingLocked(r.match_id)) continue;
     if (!grouped[r.match_id]) grouped[r.match_id] = {};
-    grouped[r.match_id][r.prediction] = r.cnt;
+    if (isVotingLocked(r.match_id)) {
+      grouped[r.match_id][r.prediction] = r.cnt;
+    } else {
+      grouped[r.match_id]._total = (grouped[r.match_id]._total || 0) + r.cnt;
+    }
   }
   res.json(grouped);
 }));

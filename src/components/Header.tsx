@@ -23,6 +23,7 @@ const Header = () => {
   const [showProfile, setShowProfile] = React.useState(false);
 
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-xl">
       <div className="container mx-auto flex items-center justify-between px-4 py-3">
         <Link to="/" className="flex items-center gap-2">
@@ -78,6 +79,7 @@ const Header = () => {
           )}
         </nav>
       </div>
+    </header>
       {showProfile && user && (
         <ProfileModal
           user={user}
@@ -90,7 +92,7 @@ const Header = () => {
           }}
         />
       )}
-    </header>
+    </>
   );
 };
 

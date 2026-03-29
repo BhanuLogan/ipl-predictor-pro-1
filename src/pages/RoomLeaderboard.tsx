@@ -99,6 +99,7 @@ const RoomLeaderboard = () => {
   const [room, setRoom] = useState<Room | null>(null);
   const [leaderboard, setLeaderboard] = useState<(LeaderboardEntry & { rank: number })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"podium" | "table">("podium");
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
@@ -149,6 +150,32 @@ const RoomLeaderboard = () => {
           <p className="mt-3 text-xs text-muted-foreground">✅ Correct pick = 2 pts · 🤝 Tied/No Result = 1 pt everyone</p>
         </div>
 
+        {/* Tab Toggler */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex p-1 bg-muted/50 rounded-xl border border-border">
+            <button
+              onClick={() => setView("podium")}
+              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
+                view === "podium" 
+                  ? "bg-primary text-primary-foreground shadow-md" 
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              PODIUM
+            </button>
+            <button
+              onClick={() => setView("table")}
+              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
+                view === "table" 
+                  ? "bg-primary text-primary-foreground shadow-md" 
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              POINTS TABLE
+            </button>
+          </div>
+        </div>
+
         {/* Loading */}
         {loading && (
           <>
@@ -166,8 +193,8 @@ const RoomLeaderboard = () => {
           </div>
         )}
 
-        {/* Podium + list */}
-        {!loading && leaderboard.length > 0 && (
+        {/* Podium + list View */}
+        {!loading && leaderboard.length > 0 && view === "podium" && (
           <>
             <div className="flex items-end justify-center gap-3 mb-10 px-2">
               {podiumOrder.map((entry) => {
@@ -218,6 +245,52 @@ const RoomLeaderboard = () => {
               </div>
             )}
           </>
+        )}
+
+        {/* Table View */}
+        {!loading && leaderboard.length > 0 && view === "table" && (
+          <div className="animate-fade-in overflow-x-auto rounded-2xl border border-border bg-gradient-card shadow-xl">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/20">
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Rank</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Player</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Matches</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Voted</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Wins</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.map((entry) => (
+                  <tr 
+                    key={entry.username} 
+                    className={`border-b border-border/30 transition-colors hover:bg-muted/10 ${entry.username === user.username ? "bg-primary/5" : ""}`}
+                  >
+                    <td className="px-4 py-4 font-display text-lg text-muted-foreground">#{entry.rank}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border">
+                          <img src={getAvatarUrl(entry.profile_pic, entry.username)} alt={entry.username} className="h-full w-full object-cover" />
+                        </div>
+                        <span className={`font-semibold ${entry.username === user.username ? "text-primary" : "text-foreground"}`}>
+                          {entry.username}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm font-medium">{entry.total}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium">{entry.voted}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-secondary">{entry.correct}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.total - entry.correct}</td>
+                    <td className="px-4 py-4 text-right">
+                      <span className="font-display text-xl text-gradient-gold">{entry.points}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </main>
     </div>
