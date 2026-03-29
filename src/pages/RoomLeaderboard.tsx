@@ -288,6 +288,7 @@ const RoomLeaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Voted</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Wins</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR (min)</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
                 </tr>
               </thead>
@@ -327,6 +328,9 @@ const RoomLeaderboard = () => {
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.voted}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-secondary">{entry.correct}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium">
+                      {entry.nrr == null ? "—" : entry.nrr.toFixed(1)}
+                    </td>
                     <td className="px-4 py-4 text-right">
                       <span className="font-display text-xl text-gradient-gold">{entry.points}</span>
                     </td>

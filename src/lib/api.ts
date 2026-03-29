@@ -47,6 +47,8 @@ export interface LeaderboardEntry {
   correct: number;
   voted: number;
   matches: number;
+  /** Average absolute minutes between vote time and match time (lower is better). */
+  nrr?: number | null;
 }
 
 export interface UserPredictionVote {

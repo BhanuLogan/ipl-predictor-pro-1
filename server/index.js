@@ -454,9 +454,50 @@ app.post("/api/result", authMiddleware, adminMiddleware, asyncRoute(async (req, 
   res.json({ ok: true });
 }));
 
+function computeUserTimingStats(voteRows) {
+  if (!voteRows || voteRows.length === 0) return {};
+
+  const matchMap = new Map(IPL_SCHEDULE.map((m) => [m.id, m]));
+  const byUser = new Map();
+
+  for (const row of voteRows) {
+    const match = matchMap.get(row.match_id);
+    if (!match) continue;
+    const createdAt = new Date(row.created_at);
+    if (Number.isNaN(createdAt.getTime())) continue;
+    const lockTime = new Date(`${match.date}T${match.time}:00+05:30`);
+    const diffMinutes = Math.abs((lockTime.getTime() - createdAt.getTime()) / 60000);
+
+    let stats = byUser.get(row.user_id);
+    if (!stats) {
+      stats = {
+        totalDiff: 0,
+        count: 0,
+        firstVoteAt: createdAt,
+      };
+      byUser.set(row.user_id, stats);
+    }
+    stats.totalDiff += diffMinutes;
+    stats.count += 1;
+    if (createdAt < stats.firstVoteAt) {
+      stats.firstVoteAt = createdAt;
+    }
+  }
+
+  const out = {};
+  for (const [userId, stats] of byUser.entries()) {
+    out[userId] = {
+      nrr: stats.count > 0 ? stats.totalDiff / stats.count : null,
+      firstVoteAt: stats.firstVoteAt,
+    };
+  }
+  return out;
+}
+
 app.get("/api/leaderboard", asyncRoute(async (req, res) => {
   const board = await query(`
     SELECT
+      u.id AS user_id,
       u.username,
       u.profile_pic,
       COALESCE(SUM(
@@ -477,10 +518,36 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
     LEFT JOIN results r ON r.match_id = v.match_id
     WHERE NOT u.is_admin
     GROUP BY u.id, u.username, u.profile_pic
-    ORDER BY points DESC, correct DESC, u.username ASC
   `);
 
-  res.json(board);
+  const voteRows = await query(
+    `SELECT user_id, match_id, created_at
+     FROM votes`
+  );
+  const timing = computeUserTimingStats(voteRows);
+
+  const enriched = board.map((row) => {
+    const t = timing[row.user_id] || {};
+    return {
+      ...row,
+      nrr: t.nrr ?? null,
+      first_vote_at: t.firstVoteAt ? t.firstVoteAt.toISOString() : null,
+    };
+  });
+
+  enriched.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.correct !== a.correct) return b.correct - a.correct;
+    const aNrr = a.nrr == null ? Number.POSITIVE_INFINITY : a.nrr;
+    const bNrr = b.nrr == null ? Number.POSITIVE_INFINITY : b.nrr;
+    if (aNrr !== bNrr) return aNrr - bNrr;
+    const aFirst = a.first_vote_at ? new Date(a.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
+    const bFirst = b.first_vote_at ? new Date(b.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
+    if (aFirst !== bFirst) return aFirst - bFirst;
+    return a.username.localeCompare(b.username);
+  });
+
+  res.json(enriched);
 }));
 
 app.get("/api/users", asyncRoute(async (req, res) => {
@@ -576,6 +643,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
   if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
   const board = await query(`
     SELECT
+      u.id AS user_id,
       u.username,
       u.profile_pic,
       COALESCE(SUM(
@@ -597,9 +665,42 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     LEFT JOIN results r ON r.match_id = v.match_id
     WHERE NOT u.is_admin
     GROUP BY u.id, u.username, u.profile_pic
-    ORDER BY points DESC, correct DESC, u.username ASC
   `, [roomId]);
-  res.json(board);
+
+  const userIds = board.map((b) => b.user_id);
+  let timing = {};
+  if (userIds.length > 0) {
+    const voteRows = await query(
+      `SELECT user_id, match_id, created_at
+       FROM votes
+       WHERE user_id = ANY($1::int[])`,
+      [userIds]
+    );
+    timing = computeUserTimingStats(voteRows);
+  }
+
+  const enriched = board.map((row) => {
+    const t = timing[row.user_id] || {};
+    return {
+      ...row,
+      nrr: t.nrr ?? null,
+      first_vote_at: t.firstVoteAt ? t.firstVoteAt.toISOString() : null,
+    };
+  });
+
+  enriched.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.correct !== a.correct) return b.correct - a.correct;
+    const aNrr = a.nrr == null ? Number.POSITIVE_INFINITY : a.nrr;
+    const bNrr = b.nrr == null ? Number.POSITIVE_INFINITY : b.nrr;
+    if (aNrr !== bNrr) return aNrr - bNrr;
+    const aFirst = a.first_vote_at ? new Date(a.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
+    const bFirst = b.first_vote_at ? new Date(b.first_vote_at).getTime() : Number.POSITIVE_INFINITY;
+    if (aFirst !== bFirst) return aFirst - bFirst;
+    return a.username.localeCompare(b.username);
+  });
+
+  res.json(enriched);
 }));
 
 // Room details
