@@ -619,6 +619,8 @@ app.get("/api/admin/rooms", authMiddleware, adminMiddleware, asyncRoute(async (r
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "cricbuzz-cricket.p.rapidapi.com";
+/** IPL series on Cricbuzz (RapidAPI). Override if the tournament id changes year to year. */
+const RAPIDAPI_SERIES_ID = process.env.RAPIDAPI_SERIES_ID || "9241";
 
 const TEAM_NAME_MAP = {
   "Chennai Super Kings": "CSK",
@@ -665,6 +667,70 @@ function parseWinnerFromStatus(status, team1Code, team2Code) {
   return null;
 }
 
+/**
+ * Flattens match list objects from /series/v1/:id or /matches/v1/recent style payloads.
+ */
+function collectCricbuzzMatchesFromPayload(data) {
+  if (!data || typeof data !== "object") return [];
+
+  const fromTypeMatches = [];
+  const typeMatches = data.typeMatches || [];
+  typeMatches.forEach((type) => {
+    type.seriesMatches?.forEach((series) => {
+      const matches = series.seriesAdWrapper?.matches || series.matches;
+      if (matches) fromTypeMatches.push(...matches);
+    });
+  });
+  if (fromTypeMatches.length > 0) return dedupeCricbuzzMatches(fromTypeMatches);
+
+  const fromWalk = [];
+  function walk(node) {
+    if (!node || typeof node !== "object") return;
+    const mi = node.matchInfo;
+    if (mi?.team1?.teamName && mi?.team2?.teamName && mi.startDate != null) {
+      fromWalk.push(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+    } else {
+      for (const v of Object.values(node)) walk(v);
+    }
+  }
+  walk(data);
+  return dedupeCricbuzzMatches(fromWalk);
+}
+
+function dedupeCricbuzzMatches(matches) {
+  const seen = new Set();
+  const out = [];
+  for (const m of matches) {
+    const mi = m.matchInfo;
+    if (!mi) continue;
+    const key =
+      mi.matchId != null
+        ? String(mi.matchId)
+        : `${mi.startDate}-${mi.team1?.teamName}-${mi.team2?.teamName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
+async function fetchCricbuzzSeriesMatches() {
+  const url = `https://${RAPIDAPI_HOST}/series/v1/${RAPIDAPI_SERIES_ID}`;
+  const response = await axios.request({
+    method: "GET",
+    url,
+    headers: {
+      "X-RapidAPI-Key": RAPIDAPI_KEY,
+      "X-RapidAPI-Host": RAPIDAPI_HOST,
+    },
+  });
+  return collectCricbuzzMatchesFromPayload(response.data);
+}
+
 async function checkRecentMatches(isManual = false) {
   if (!RAPIDAPI_KEY) {
     const msg = "⚠️  AutomatedResultService: RAPIDAPI_KEY missing. Skipping auto-check.";
@@ -694,29 +760,11 @@ async function checkRecentMatches(isManual = false) {
     console.log(`🔍 AutomatedResultService: Checking ${toCheck.length} pending matches...`);
     let updatedCount = 0;
 
-    // 2. Fetch recent matches from Cricbuzz
-    const options = {
-      method: 'GET',
-      url: `https://${RAPIDAPI_HOST}/matches/v1/recent`,
-      headers: {
-        'X-RapidAPI-Key': RAPIDAPI_KEY,
-        'X-RapidAPI-Host': RAPIDAPI_HOST
-      }
-    };
-
-    const response = await axios.request(options);
-    const typeMatches = response.data.typeMatches || [];
-    
-    // Flatten the matches list across all types (International, League, etc.)
-    const allMatches = [];
-    typeMatches.forEach(type => {
-      type.seriesMatches?.forEach(series => {
-        const matches = series.seriesAdWrapper?.matches || series.matches;
-        if (matches) {
-          allMatches.push(...matches);
-        }
-      });
-    });
+    // 2. Fetch IPL series matches from Cricbuzz (RapidAPI: /series/v1/:seriesId)
+    const allMatches = await fetchCricbuzzSeriesMatches();
+    if (allMatches.length === 0) {
+      console.log("⚠️  AutomatedResultService: No matches in series response — check RAPIDAPI_SERIES_ID and API subscription.");
+    }
 
     for (const match of toCheck) {
       // Find matching API entry by date and teams
@@ -739,10 +787,14 @@ async function checkRecentMatches(isManual = false) {
         continue;
       }
 
-      const status = apiMatch.matchInfo.status;
-      const state = apiMatch.matchInfo.state;
+      const status = apiMatch.matchInfo.status || "";
+      const state = (apiMatch.matchInfo.state || "").toString();
 
-      if (state === "Complete" || state === "Result" || status.includes("won by") || status.includes("Match abandoned")) {
+      const stateDone =
+        /^complete|result$/i.test(state) ||
+        status.includes("won by") ||
+        status.includes("Match abandoned");
+      if (stateDone) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2);
         
         if (winner) {
