@@ -4,6 +4,16 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
+const IPL_SCHEDULE = require("./schedule");
+
+function isVotingLocked(matchId) {
+  const match = IPL_SCHEDULE.find((m) => m.id === matchId);
+  if (!match) return false;
+  const now = new Date();
+  const timeStr = match.time || "19:30";
+  const lockTime = new Date(`${match.date}T${timeStr}:00+05:30`);
+  return now >= lockTime;
+}
 
 dotenv.config();
 
@@ -312,6 +322,10 @@ app.get("/api/votes", authMiddleware, asyncRoute(async (req, res) => {
   const grouped = {};
   for (const r of rows) {
     if (!grouped[r.match_id]) grouped[r.match_id] = {};
+    const locked = isVotingLocked(r.match_id);
+    if (!locked && r.username !== req.user.username && !req.user.is_admin) {
+      continue;
+    }
     grouped[r.match_id][r.username] = r.prediction;
   }
   res.json(grouped);
@@ -326,6 +340,7 @@ app.get("/api/vote-counts", asyncRoute(async (req, res) => {
 
   const grouped = {};
   for (const r of rows) {
+    if (!isVotingLocked(r.match_id)) continue;
     if (!grouped[r.match_id]) grouped[r.match_id] = {};
     grouped[r.match_id][r.prediction] = r.cnt;
   }

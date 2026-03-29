@@ -108,10 +108,11 @@ export function getPollOpenMatches(results: Record<string, string>): Match[] {
   return open;
 }
 
-// Check if voting is locked (after 7:30 PM IST on match day)
+// Check if voting is locked (after match start time on match day)
 export function isVotingLocked(match: Match): boolean {
   const now = new Date();
-  const lockTime = new Date(`${match.date}T19:30:00+05:30`);
+  const timeStr = match.time || "19:30";
+  const lockTime = new Date(`${match.date}T${timeStr}:00+05:30`);
   return now >= lockTime;
 }
 
