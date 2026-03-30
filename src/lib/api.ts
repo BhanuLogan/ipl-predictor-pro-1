@@ -142,6 +142,13 @@ export const api = {
       body: JSON.stringify({ matchId, prediction, roomId }),
     });
   },
+  
+  async bulkVote(matchId: string, prediction: string) {
+    return apiFetch("/api/vote/bulk", {
+      method: "POST",
+      body: JSON.stringify({ matchId, prediction }),
+    });
+  },
 
   // Results
   async getResults(): Promise<Record<string, MatchResult>> {

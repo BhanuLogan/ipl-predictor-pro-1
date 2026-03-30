@@ -414,6 +414,37 @@ app.post("/api/vote", authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+app.post("/api/vote/bulk", authMiddleware, asyncRoute(async (req, res) => {
+  const { matchId, prediction } = req.body;
+  if (!matchId || !prediction) {
+    return res.status(400).json({ error: "matchId and prediction required" });
+  }
+
+  if (isVotingLocked(matchId)) {
+    return res.status(400).json({ error: "Voting is locked for this match" });
+  }
+
+  const rooms = await query(
+    "SELECT room_id FROM room_members WHERE user_id = $1",
+    [req.user.id]
+  );
+
+  if (rooms.length === 0) {
+    return res.status(400).json({ error: "You are not a member of any rooms" });
+  }
+
+  const values = rooms.map(r => `('${matchId}', ${req.user.id}, '${prediction}', ${r.room_id})`).join(",");
+
+  await query(`
+    INSERT INTO votes (match_id, user_id, prediction, room_id)
+    VALUES ${values}
+    ON CONFLICT (match_id, user_id, room_id)
+    DO UPDATE SET prediction = EXCLUDED.prediction
+  `);
+
+  res.json({ ok: true, roomCount: rooms.length });
+}));
+
 app.post("/api/admin/vote", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
   const { matchId, username, prediction, roomId } = req.body;
   if (!matchId || !username || !prediction || !roomId) {

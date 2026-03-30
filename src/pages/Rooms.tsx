@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api, type Room } from "@/lib/api";
-import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2, LayoutDashboard } from "lucide-react";
+import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2, LayoutDashboard, Share2 } from "lucide-react";
 
 /* ─── Skeleton card ─── */
 const SkeletonCard = () => (
@@ -19,9 +19,10 @@ const SkeletonCard = () => (
 );
 
 /* ─── Copy button ─── */
-function CopyBtn({ text }: { text: string }) {
+function CopyBtn({ text, label = "Copy" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => {
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -29,11 +30,13 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       onClick={copy}
-      className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
-      title="Copy"
+      className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs transition-colors shrink-0 ${
+        copied ? "text-secondary bg-secondary/10" : "text-muted-foreground hover:text-primary hover:bg-primary/10"
+      }`}
+      title={label}
     >
-      {copied ? <Check size={13} className="text-secondary" /> : <Copy size={13} />}
-      {copied ? "Copied!" : "Copy"}
+      {copied ? <Check size={13} /> : <Share2 size={13} />}
+      {copied ? "Copied!" : label}
     </button>
   );
 }
@@ -206,12 +209,14 @@ const Rooms = () => {
                   </div>
                 </div>
 
-                {/* Invite code */}
+                {/* Invite & Share */}
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Invite Code</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Sharable Link</p>
                   <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <code className="flex-1 font-mono text-sm font-bold text-foreground tracking-[0.25em]">{room.invite_code}</code>
-                    <CopyBtn text={room.invite_code} />
+                    <div className="flex-1 overflow-hidden">
+                       <code className="block font-mono text-[10px] font-bold text-foreground opacity-70 truncate">{window.location.origin}/join/{room.invite_code}</code>
+                    </div>
+                    <CopyBtn text={`${window.location.origin}/join/${room.invite_code}`} label="Link" />
                   </div>
                 </div>
 
@@ -251,10 +256,10 @@ const Rooms = () => {
               <p className="font-display text-xl text-secondary mb-1">Room Created!</p>
               <p className="text-sm text-muted-foreground mb-5">Share this invite code with your friends.</p>
               <div className="rounded-xl border border-primary/40 bg-primary/5 p-4 mb-5">
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">{createdRoom.name} · Invite Code</p>
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
-                  <code className="font-mono text-2xl font-bold text-foreground tracking-[0.3em]">{createdRoom.invite_code}</code>
-                  <CopyBtn text={createdRoom.invite_code} />
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">{createdRoom.name} · Join Link</p>
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-3 overflow-hidden">
+                  <code className="font-mono text-sm font-bold text-foreground truncate">{window.location.origin}/join/{createdRoom.invite_code}</code>
+                  <CopyBtn text={`${window.location.origin}/join/${createdRoom.invite_code}`} label="Copy Link" />
                 </div>
               </div>
               <button

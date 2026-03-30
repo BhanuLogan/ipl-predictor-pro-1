@@ -10,7 +10,7 @@ interface MatchPollProps {
   result?: string;
   /** Cricbuzz-style score / result line for completed matches */
   scoreSummary?: string | null;
-  onVote: (matchId: string, prediction: string) => void;
+  onVote: (matchId: string, prediction: string, isBulk?: boolean) => void;
   isOpen: boolean;
   allVotes?: Record<string, string>;
 }
@@ -20,6 +20,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
   const [isExpanded, setIsExpanded] = useState(!result); // Collapsed by default if completed
+  const [applyToAll, setApplyToAll] = useState(false);
 
   // Sync when myPick loads asynchronously (e.g. after page refresh)
   useEffect(() => {
@@ -36,7 +37,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
 
   const handleVote = () => {
     if (!selected) return;
-    onVote(match.id, selected);
+    onVote(match.id, selected, applyToAll);
     setHasVoted(true);
     setIsChanging(false);
   };
@@ -231,6 +232,19 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Match summary</p>
           <p className="text-xs text-foreground leading-relaxed">{scoreSummary}</p>
         </div>
+      )}
+
+      {/* Bulk Vote Toggle */}
+      {canVote && (
+        <label className="mb-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-3 transition-colors hover:border-primary/40">
+          <input
+            type="checkbox"
+            checked={applyToAll}
+            onChange={(e) => setApplyToAll(e.target.checked)}
+            className="h-4 w-4 rounded border-border bg-muted text-primary focus:ring-primary/20"
+          />
+          <span className="text-sm font-medium text-foreground italic">Apply prediction to all my rooms</span>
+        </label>
       )}
 
       {/* Vote / Change Vote buttons */}

@@ -52,10 +52,14 @@ const Index = () => {
     return () => clearInterval(id);
   }, [user, navigate, loadData, activeRoom, roomLoading]);
 
-  const handleVote = async (matchId: string, prediction: string) => {
+  const handleVote = async (matchId: string, prediction: string, isBulk?: boolean) => {
     if (!activeRoom) return;
     try {
-      await api.vote(matchId, prediction, activeRoom.id);
+      if (isBulk) {
+        await api.bulkVote(matchId, prediction);
+      } else {
+        await api.vote(matchId, prediction, activeRoom.id);
+      }
       await loadData();
     } catch {
       // handle error
