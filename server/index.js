@@ -56,14 +56,47 @@ async function queryOne(sql, params = []) {
 }
 
 async function initDb() {
+  // ── Rooms ──
+  await query(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      invite_code TEXT UNIQUE NOT NULL,
+      created_by INTEGER, -- will add FK later
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS room_members (
+      room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL, -- will add FK later
+      joined_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (room_id, user_id)
+    );
+  `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       is_admin BOOLEAN DEFAULT FALSE,
+      profile_pic TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+  `);
+
+  // Add FKs if they weren't added (for existing rooms table)
+  await query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rooms_created_by_fkey') THEN
+        ALTER TABLE rooms ADD CONSTRAINT rooms_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'room_members_user_id_fkey') THEN
+        ALTER TABLE room_members ADD CONSTRAINT room_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      END IF;
+    END $$;
   `);
 
   await query(`
@@ -77,7 +110,18 @@ async function initDb() {
     );
   `);
 
-  // Migrate existing votes to STAGS room and add constraint
+  // Explicitly add room_id column if it doesn't exist (for existing votes table)
+  await query(`
+    ALTER TABLE votes ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE;
+  `);
+
+  // Ensure STAGS room exists for migration
+  await query(`
+    INSERT INTO rooms (name, invite_code)
+    VALUES ('STAGS', 'STAGS1')
+    ON CONFLICT (name) DO NOTHING
+  `);
+
   const stagsRoom = await queryOne("SELECT id FROM rooms WHERE name = 'STAGS' LIMIT 1");
   if (stagsRoom) {
     await query(`UPDATE votes SET room_id = $1 WHERE room_id IS NULL`, [stagsRoom.id]);
@@ -98,6 +142,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS results (
       match_id TEXT PRIMARY KEY,
       winner TEXT NOT NULL,
+      score_summary TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
@@ -116,37 +161,10 @@ async function initDb() {
     console.log(`Default admin created: ${ADMIN_USERNAME} / ${ADMIN_DEFAULT_PW}`);
   }
 
-  // ── Rooms ──
-  await query(`
-    CREATE TABLE IF NOT EXISTS rooms (
-      id SERIAL PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
-      invite_code TEXT UNIQUE NOT NULL,
-      created_by INTEGER REFERENCES users(id),
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-  `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS room_members (
-      room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      joined_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (room_id, user_id)
-    );
-  `);
-
-  // Seed STAGS room (idempotent)
-  await query(`
-    INSERT INTO rooms (name, invite_code, created_by)
-    VALUES ('STAGS', 'STAGS1', (SELECT id FROM users WHERE username = 'manoharcb' LIMIT 1))
-    ON CONFLICT (name) DO NOTHING
-  `);
-
-  // Fix STAGS creator to manoharcb (for existing rows)
+  // Seed STAGS room creator (now that user might exist)
   await query(`
     UPDATE rooms SET created_by = (SELECT id FROM users WHERE username = 'manoharcb' LIMIT 1)
-    WHERE name = 'STAGS'
+    WHERE name = 'STAGS' AND created_by IS NULL
   `);
 
   // Add all existing non-admin users to STAGS (idempotent)
@@ -155,15 +173,6 @@ async function initDb() {
     SELECT r.id, u.id FROM rooms r, users u
     WHERE r.name = 'STAGS' AND NOT u.is_admin
     ON CONFLICT DO NOTHING
-  `);
-
-  // Add profile_pic column 
-  await query(`
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_pic TEXT;
-  `);
-
-  await query(`
-    ALTER TABLE results ADD COLUMN IF NOT EXISTS score_summary TEXT;
   `);
 }
 
