@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, type MatchResult } from "@/lib/data";
-import { Check, CloudRain, Trash2 } from "lucide-react";
+import { Check, CloudRain, Trash2, Users } from "lucide-react";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
@@ -14,12 +14,28 @@ const Admin = () => {
   const [adminPw, setAdminPw] = useState("");
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
 
-  const loadData = async () => {
+  const loadData = async (roomId?: number) => {
     try {
-      const [r, v] = await Promise.all([api.getResults(), api.getVotes()]);
+      const actualRoomId = roomId ?? selectedRoomId;
+      const [r, v, rms] = await Promise.all([
+        api.getResults(),
+        actualRoomId ? api.getVotes(actualRoomId) : Promise.resolve({}),
+        user?.is_admin ? api.getAllRoomsAdmin() : Promise.resolve([]),
+      ]);
       setResults(r);
       setVotes(v);
+      if (user?.is_admin) {
+        setRooms(rms);
+        if (!actualRoomId && rms.length > 0) {
+          setSelectedRoomId(rms[0].id);
+          // Re-fetch votes for the first room
+          const v2 = await api.getVotes(rms[0].id);
+          setVotes(v2);
+        }
+      }
     } catch {}
   };
 
@@ -46,9 +62,10 @@ const Admin = () => {
   };
 
   const handleDeleteVote = async (matchId: string, username: string) => {
-    if (!confirm(`Delete ${username}'s vote for this match?`)) return;
+    if (!selectedRoomId) return;
+    if (!confirm(`Delete ${username}'s vote for this match in this room?`)) return;
     try {
-      await api.adminDeleteVote(matchId, username);
+      await api.adminDeleteVote(matchId, username, selectedRoomId);
       await loadData();
     } catch {}
   };
@@ -120,23 +137,52 @@ const Admin = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="mb-4 flex items-center justify-between rounded-xl bg-secondary/10 border border-secondary/20 p-3">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold text-secondary">🛡️ Admin mode active</span>
+            <div className="mb-4 space-y-4">
+              <div className="flex items-center justify-between rounded-xl bg-secondary/10 border border-secondary/20 p-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-secondary">🛡️ Admin mode active</span>
+                  <button
+                    onClick={handleSyncResults}
+                    disabled={syncing}
+                    className={`rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-sm transition-all hover:brightness-110 disabled:opacity-50 ${syncing ? "animate-pulse" : ""}`}
+                  >
+                    {syncing ? "⌛ SYNCING..." : "🔄 SYNC FROM CRICBUZZ"}
+                  </button>
+                </div>
                 <button
-                  onClick={handleSyncResults}
-                  disabled={syncing}
-                  className={`rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-sm transition-all hover:brightness-110 disabled:opacity-50 ${syncing ? "animate-pulse" : ""}`}
+                  onClick={handleReset}
+                  className="rounded-lg bg-destructive px-4 py-1.5 text-xs font-semibold text-destructive-foreground hover:brightness-110"
                 >
-                  {syncing ? "⌛ SYNCING..." : "🔄 SYNC FROM CRICBUZZ"}
+                  🗑️ RESET ALL DATA
                 </button>
               </div>
-              <button
-                onClick={handleReset}
-                className="rounded-lg bg-destructive px-4 py-1.5 text-xs font-semibold text-destructive-foreground hover:brightness-110"
-              >
-                🗑️ RESET ALL DATA
-              </button>
+
+              {/* Room Selector for Admin */}
+              <div className="rounded-xl border border-border bg-gradient-card p-4">
+                <div className="mb-3 flex items-center gap-2 text-muted-foreground">
+                  <Users size={16} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Manage Votes by Room</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {rooms.map(room => (
+                    <button
+                      key={room.id}
+                      onClick={() => {
+                        setSelectedRoomId(room.id);
+                        loadData(room.id);
+                      }}
+                      className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                        selectedRoomId === room.id
+                          ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {room.name}
+                    </button>
+                  ))}
+                  {rooms.length === 0 && <p className="text-xs text-muted-foreground italic">No rooms created yet.</p>}
+                </div>
+              </div>
             </div>
 
             {IPL_SCHEDULE.map((match, i) => {

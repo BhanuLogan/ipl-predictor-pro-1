@@ -3,12 +3,14 @@ import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
+import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS, isVotingLocked, type MatchResult } from "@/lib/data";
-import { MapPin } from "lucide-react";
+import { MapPin, Users } from "lucide-react";
 
 const Index = () => {
   const { user } = useAuth();
+  const { activeRoom, loading: roomLoading } = useRoom();
   const navigate = useNavigate();
   const [myVotes, setMyVotes] = useState<Record<string, string>>({}); // matchId -> my prediction
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
@@ -16,10 +18,11 @@ const Index = () => {
   const [results, setResults] = useState<Record<string, MatchResult>>({});
 
   const loadData = useCallback(async () => {
+    if (!activeRoom) return;
     try {
       const [votes, counts, r] = await Promise.all([
-        api.getVotes(),
-        api.getVoteCounts(),
+        api.getVotes(activeRoom.id),
+        api.getVoteCounts(activeRoom.id),
         api.getResults(),
       ]);
       // Extract my votes from the full votes object
@@ -38,7 +41,7 @@ const Index = () => {
     } catch {
       // API not available
     }
-  }, [user]);
+  }, [user, activeRoom]);
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
@@ -49,8 +52,9 @@ const Index = () => {
   }, [user, navigate, loadData]);
 
   const handleVote = async (matchId: string, prediction: string) => {
+    if (!activeRoom) return;
     try {
-      await api.vote(matchId, prediction);
+      await api.vote(matchId, prediction, activeRoom.id);
       await loadData();
     } catch {
       // handle error
@@ -64,11 +68,55 @@ const Index = () => {
   const upcomingLocked = IPL_SCHEDULE.filter(m => !results[m.id] && !openPolls.find(o => o.id === m.id));
   const completedCount = Object.keys(results).length;
 
+  if (roomLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!activeRoom) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto max-w-2xl px-4 py-16 text-center">
+          <div className="text-6xl mb-6">🏘️</div>
+          <h2 className="font-display text-4xl text-gradient-gold mb-4">Welcome!</h2>
+          <p className="text-muted-foreground mb-8">You are not in any rooms yet. Join a room with an invite code or create your own to start predicting!</p>
+          <div className="flex justify-center gap-4">
+            <button onClick={() => navigate("/rooms")} className="rounded-xl bg-primary px-8 py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 glow-gold">
+              GO TO ROOMS
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
       <main className="container mx-auto max-w-2xl px-4 py-8">
+        {/* Active Room Indicator */}
+        <div className="mb-6 flex items-center justify-between rounded-2xl border border-primary/20 bg-primary/5 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-primary">
+              <Users size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Active Room</p>
+              <h3 className="font-display text-2xl text-foreground leading-none">{activeRoom.name}</h3>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate("/rooms")}
+            className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Switch Room
+          </button>
+        </div>
         {/* Open Polls */}
         {openPolls.length > 0 ? (
           <div className="mb-8">

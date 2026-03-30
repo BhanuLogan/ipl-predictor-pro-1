@@ -3,12 +3,14 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
+import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked, type MatchResult } from "@/lib/data";
 
 const PollPage = () => {
   const { matchId } = useParams<{ matchId: string }>();
   const { user } = useAuth();
+  const { activeRoom, loading: roomLoading } = useRoom();
   const navigate = useNavigate();
   const [myVotes, setMyVotes] = useState<Record<string, string>>({});
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({});
@@ -18,10 +20,11 @@ const PollPage = () => {
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
 
   const loadData = useCallback(async () => {
+    if (!activeRoom) return;
     try {
       const [votes, counts, r] = await Promise.all([
-        api.getVotes(),
-        api.getVoteCounts(),
+        api.getVotes(activeRoom.id),
+        api.getVoteCounts(activeRoom.id),
         api.getResults(),
       ]);
       if (user) {
@@ -38,7 +41,7 @@ const PollPage = () => {
     } catch {} finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, activeRoom]);
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
@@ -46,8 +49,9 @@ const PollPage = () => {
   }, [user, navigate, loadData]);
 
   const handleVote = async (mid: string, prediction: string) => {
+    if (!activeRoom) return;
     try {
-      await api.vote(mid, prediction);
+      await api.vote(mid, prediction, activeRoom.id);
       await loadData();
     } catch {}
   };
@@ -63,12 +67,17 @@ const PollPage = () => {
     );
   }
 
-  if (loading) {
+  if (loading || roomLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center text-muted-foreground">Loading...</div>
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
+  }
+
+  if (!activeRoom && user) {
+     navigate("/rooms");
+     return null;
   }
 
   const openMatches = getPollOpenMatches(results);

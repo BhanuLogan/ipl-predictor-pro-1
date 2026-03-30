@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth";
+import { RoomProvider } from "@/lib/room";
 import Index from "./pages/Index";
 import Leaderboard from "./pages/Leaderboard";
 import Admin from "./pages/Admin";
@@ -13,6 +14,7 @@ import PollPage from "./pages/PollPage";
 import Rooms from "./pages/Rooms";
 import RoomLeaderboard from "./pages/RoomLeaderboard";
 import NotFound from "./pages/NotFound";
+import JoinRoom from "./pages/JoinRoom";
 
 const queryClient = new QueryClient();
 
@@ -23,17 +25,20 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/poll/:matchId" element={<PollPage />} />
-            <Route path="/leaderboard" element={<Leaderboard />} />
-            <Route path="/rooms" element={<Rooms />} />
-            <Route path="/rooms/:id" element={<RoomLeaderboard />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <RoomProvider>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/poll/:matchId" element={<PollPage />} />
+              <Route path="/leaderboard" element={<Leaderboard />} />
+              <Route path="/rooms" element={<Rooms />} />
+              <Route path="/rooms/:id" element={<RoomLeaderboard />} />
+              <Route path="/join/:inviteCode" element={<JoinRoom />} />
+              <Route path="/admin" element={<Admin />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </RoomProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

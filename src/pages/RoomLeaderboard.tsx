@@ -344,6 +344,7 @@ const RoomLeaderboard = () => {
 
       <UserPredictionsDialog
         username={pickUser}
+        roomId={parseInt(id!)}
         open={!!pickUser}
         onOpenChange={(o) => {
           if (!o) setPickUser(null);

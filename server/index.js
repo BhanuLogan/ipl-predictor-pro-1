@@ -71,10 +71,27 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       match_id TEXT NOT NULL,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
       prediction TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(match_id, user_id)
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
+  `);
+
+  // Migrate existing votes to STAGS room and add constraint
+  const stagsRoom = await queryOne("SELECT id FROM rooms WHERE name = 'STAGS' LIMIT 1");
+  if (stagsRoom) {
+    await query(`UPDATE votes SET room_id = $1 WHERE room_id IS NULL`, [stagsRoom.id]);
+  }
+
+  // Ensure unique constraint on (match_id, user_id, room_id)
+  await query(`
+    ALTER TABLE votes DROP CONSTRAINT IF EXISTS votes_match_id_user_id_key;
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'votes_room_match_user_unique') THEN
+        ALTER TABLE votes ADD CONSTRAINT votes_room_match_user_unique UNIQUE(match_id, user_id, room_id);
+      END IF;
+    END $$;
   `);
 
   await query(`
@@ -318,11 +335,16 @@ app.post("/api/admin/unlock", authMiddleware, asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/votes", authMiddleware, asyncRoute(async (req, res) => {
+  const { roomId } = req.query;
+  const roomFilter = roomId ? "AND v.room_id = $1" : "";
+  const params = roomId ? [roomId] : [];
+
   const rows = await query(`
-    SELECT v.match_id, u.username, v.prediction
+    SELECT v.match_id, u.username, v.prediction, v.room_id
     FROM votes v
     JOIN users u ON v.user_id = u.id
-  `);
+    WHERE 1=1 ${roomFilter}
+  `, params);
 
   const grouped = {};
   for (const r of rows) {
@@ -337,11 +359,16 @@ app.get("/api/votes", authMiddleware, asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/vote-counts", asyncRoute(async (req, res) => {
+  const { roomId } = req.query;
+  const roomFilter = roomId ? "WHERE room_id = $1" : "";
+  const params = roomId ? [roomId] : [];
+
   const rows = await query(`
     SELECT match_id, prediction, COUNT(*)::int AS cnt
     FROM votes
+    ${roomFilter}
     GROUP BY match_id, prediction
-  `);
+  `, params);
 
   const grouped = {};
   for (const r of rows) {
@@ -356,52 +383,58 @@ app.get("/api/vote-counts", asyncRoute(async (req, res) => {
 }));
 
 app.post("/api/vote", authMiddleware, asyncRoute(async (req, res) => {
-  const { matchId, prediction } = req.body;
-  if (!matchId || !prediction) {
-    return res.status(400).json({ error: "matchId and prediction required" });
+  const { matchId, prediction, roomId } = req.body;
+  if (!matchId || !prediction || !roomId) {
+    return res.status(400).json({ error: "matchId, prediction, and roomId required" });
+  }
+
+  // verify membership
+  const membership = await queryOne("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2", [roomId, req.user.id]);
+  if (!membership && !req.user.is_admin) {
+    return res.status(403).json({ error: "Not a member of this room" });
   }
 
   await query(
-    `INSERT INTO votes (match_id, user_id, prediction)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (match_id, user_id)
+    `INSERT INTO votes (match_id, user_id, prediction, room_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (match_id, user_id, room_id)
      DO UPDATE SET prediction = EXCLUDED.prediction`,
-    [matchId, req.user.id, prediction]
+    [matchId, req.user.id, prediction, roomId]
   );
 
   res.json({ ok: true });
 }));
 
 app.post("/api/admin/vote", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
-  const { matchId, username, prediction } = req.body;
-  if (!matchId || !username || !prediction) {
-    return res.status(400).json({ error: "matchId, username, prediction required" });
+  const { matchId, username, prediction, roomId } = req.body;
+  if (!matchId || !username || !prediction || !roomId) {
+    return res.status(400).json({ error: "matchId, username, prediction, and roomId required" });
   }
 
   const user = await queryOne("SELECT id FROM users WHERE username = $1", [username]);
   if (!user) return res.status(404).json({ error: "User not found" });
 
   await query(
-    `INSERT INTO votes (match_id, user_id, prediction)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (match_id, user_id)
+    `INSERT INTO votes (match_id, user_id, prediction, room_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (match_id, user_id, room_id)
      DO UPDATE SET prediction = EXCLUDED.prediction`,
-    [matchId, user.id, prediction]
+    [matchId, user.id, prediction, roomId]
   );
 
   res.json({ ok: true });
 }));
 
 app.post("/api/admin/delete-vote", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
-  const { matchId, username } = req.body;
-  if (!matchId || !username) {
-    return res.status(400).json({ error: "matchId and username required" });
+  const { matchId, username, roomId } = req.body;
+  if (!matchId || !username || !roomId) {
+    return res.status(400).json({ error: "matchId, username, and roomId required" });
   }
 
   const user = await queryOne("SELECT id FROM users WHERE username = $1", [username]);
   if (!user) return res.status(404).json({ error: "User not found" });
 
-  await query("DELETE FROM votes WHERE match_id = $1 AND user_id = $2", [matchId, user.id]);
+  await query("DELETE FROM votes WHERE match_id = $1 AND user_id = $2 AND room_id = $3", [matchId, user.id, roomId]);
   res.json({ ok: true });
 }));
 
@@ -558,13 +591,17 @@ app.get("/api/users/:username/predictions", authMiddleware, asyncRoute(async (re
   if (!username) return res.status(400).json({ error: "username required" });
   const target = await queryOne("SELECT id FROM users WHERE username = $1", [username]);
   if (!target) return res.status(404).json({ error: "User not found" });
+  const { roomId } = req.query;
+  const roomFilter = roomId ? "AND v.room_id = $2" : "";
+  const params = roomId ? [target.id, roomId] : [target.id];
+
   const rows = await query(
     `SELECT v.match_id AS "matchId", v.prediction, r.winner AS outcome
      FROM votes v
      LEFT JOIN results r ON r.match_id = v.match_id
-     WHERE v.user_id = $1
+     WHERE v.user_id = $1 ${roomFilter}
      ORDER BY v.match_id ASC`,
-    [target.id]
+    params
   );
   res.json({ votes: rows });
 }));

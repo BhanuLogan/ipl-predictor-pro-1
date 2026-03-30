@@ -19,11 +19,12 @@ function outcomeLabel(outcome: string | null, prediction: string) {
 
 type Props = {
   username: string | null;
+  roomId: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-const UserPredictionsDialog = ({ username, open, onOpenChange }: Props) => {
+const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) => {
   const [loading, setLoading] = useState(false);
   const [votes, setVotes] = useState<
     { matchId: string; prediction: string; outcome: string | null }[]
@@ -36,7 +37,7 @@ const UserPredictionsDialog = ({ username, open, onOpenChange }: Props) => {
     }
     setLoading(true);
     api
-      .getUserPredictions(username)
+      .getUserPredictions(username, roomId || undefined)
       .then((r) => {
         const order = new Map(IPL_SCHEDULE.map((m, i) => [m.id, i]));
         const sorted = [...r.votes].sort(
@@ -46,7 +47,7 @@ const UserPredictionsDialog = ({ username, open, onOpenChange }: Props) => {
       })
       .catch(() => setVotes([]))
       .finally(() => setLoading(false));
-  }, [open, username]);
+  }, [open, username, roomId]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

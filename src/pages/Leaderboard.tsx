@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
+import { useRoom } from "@/lib/room";
 import { api, type LeaderboardEntry } from "@/lib/api";
 import UserPredictionsDialog from "@/components/UserPredictionsDialog";
 import { getAvatarUrl } from "@/lib/utils";
@@ -128,6 +129,7 @@ function PodiumTile({
 /* ─── Main component ─── */
 const Leaderboard = () => {
   const { user } = useAuth();
+  const { activeRoom } = useRoom();
   const navigate = useNavigate();
   const [leaderboard, setLeaderboard] = useState<(LeaderboardEntry & { rank: number })[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,12 +138,16 @@ const Leaderboard = () => {
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
+    if (activeRoom) {
+      navigate(`/rooms/${activeRoom.id}`, { replace: true });
+      return;
+    }
     setLoading(true);
     api.getLeaderboard()
       .then((data) => setLeaderboard(assignRanks(data)))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [user, navigate]);
+  }, [user, navigate, activeRoom]);
 
   if (!user) return null;
 
@@ -360,6 +366,7 @@ const Leaderboard = () => {
 
       <UserPredictionsDialog
         username={pickUser}
+        roomId={activeRoom?.id || null}
         open={!!pickUser}
         onOpenChange={(o) => {
           if (!o) setPickUser(null);

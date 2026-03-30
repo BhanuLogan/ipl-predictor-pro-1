@@ -124,19 +124,21 @@ export const api = {
   },
 
   // Votes — returns counts only (no usernames revealed)
-  async getVotes(): Promise<Record<string, Record<string, string>>> {
-    return apiFetch("/api/votes");
+  async getVotes(roomId?: number): Promise<Record<string, Record<string, string>>> {
+    const url = roomId ? `/api/votes?roomId=${roomId}` : "/api/votes";
+    return apiFetch(url);
   },
 
   // Get vote counts (anonymous)
-  async getVoteCounts(): Promise<Record<string, Record<string, number>>> {
-    return apiFetch("/api/vote-counts");
+  async getVoteCounts(roomId?: number): Promise<Record<string, Record<string, number>>> {
+    const url = roomId ? `/api/vote-counts?roomId=${roomId}` : "/api/vote-counts";
+    return apiFetch(url);
   },
 
-  async vote(matchId: string, prediction: string) {
+  async vote(matchId: string, prediction: string, roomId: number) {
     return apiFetch("/api/vote", {
       method: "POST",
-      body: JSON.stringify({ matchId, prediction }),
+      body: JSON.stringify({ matchId, prediction, roomId }),
     });
   },
 
@@ -154,21 +156,22 @@ export const api = {
     });
   },
 
-  async getUserPredictions(username: string): Promise<{ votes: UserPredictionVote[] }> {
-    return apiFetch(`/api/users/${encodeURIComponent(username)}/predictions`);
+  async getUserPredictions(username: string, roomId?: number): Promise<{ votes: UserPredictionVote[] }> {
+    const url = roomId ? `/api/users/${encodeURIComponent(username)}/predictions?roomId=${roomId}` : `/api/users/${encodeURIComponent(username)}/predictions`;
+    return apiFetch(url);
   },
 
   // Admin: alter a user's vote
-  async adminSetVote(matchId: string, username: string, prediction: string) {
+  async adminSetVote(matchId: string, username: string, prediction: string, roomId: number) {
     return apiFetch("/api/admin/vote", {
       method: "POST",
-      body: JSON.stringify({ matchId, username, prediction }),
+      body: JSON.stringify({ matchId, username, prediction, roomId }),
     });
   },
 
   // Admin: delete a user's vote
-  async adminDeleteVote(matchId: string, username: string) {
-    return apiFetch("/api/admin/delete-vote", { method: "POST", body: JSON.stringify({ matchId, username }) });
+  async adminDeleteVote(matchId: string, username: string, roomId: number) {
+    return apiFetch("/api/admin/delete-vote", { method: "POST", body: JSON.stringify({ matchId, username, roomId }) });
   },
 
   async updateProfile(data: { username?: string; password?: string; profile_pic?: string | null }) {

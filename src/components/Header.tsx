@@ -1,13 +1,15 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Trophy, Vote, Shield, LogOut, Users, Settings } from "lucide-react";
+import { Trophy, Vote, Shield, LogOut, Users, Settings, ChevronDown } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useRoom } from "@/lib/room";
 import ProfileModal from "./ProfileModal";
 import { getAvatarUrl } from "@/lib/utils";
 
 const Header = () => {
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
+  const { activeRoom } = useRoom();
 
   const navItems = user?.is_admin
     ? [
@@ -17,7 +19,7 @@ const Header = () => {
     : [
         { path: "/", label: "Polls", icon: Vote },
         { path: "/rooms", label: "Rooms", icon: Users },
-        { path: "/leaderboard", label: "Leaderboard", icon: Trophy },
+        { path: activeRoom ? `/rooms/${activeRoom.id}` : "/rooms", label: "Leaderboard", icon: Trophy },
       ];
 
   const [showProfile, setShowProfile] = React.useState(false);
