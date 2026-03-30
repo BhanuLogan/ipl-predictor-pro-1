@@ -17,6 +17,7 @@ function setToken(token: string) {
 function clearToken() {
   localStorage.removeItem("ipl_token");
   localStorage.removeItem("ipl_user");
+  localStorage.removeItem("active_room_id");
 }
 
 async function apiFetch(path: string, options: RequestInit = {}) {

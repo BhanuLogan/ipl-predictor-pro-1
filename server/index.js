@@ -684,6 +684,9 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     [roomId, req.user.id]
   );
   if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+  const room = await queryOne("SELECT created_at FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+
   const board = await query(`
     SELECT
       u.id AS user_id,
@@ -704,11 +707,11 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
       (SELECT COUNT(*)::int FROM results) AS matches
     FROM users u
     JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
-    LEFT JOIN votes v ON v.user_id = u.id
+    LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1 AND v.created_at >= $2
     LEFT JOIN results r ON r.match_id = v.match_id
     WHERE NOT u.is_admin
     GROUP BY u.id, u.username, u.profile_pic
-  `, [roomId]);
+  `, [roomId, room.created_at]);
 
   const userIds = board.map((b) => b.user_id);
   let timing = {};
@@ -716,8 +719,8 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     const voteRows = await query(
       `SELECT user_id, match_id, created_at
        FROM votes
-       WHERE user_id = ANY($1::int[])`,
-      [userIds]
+       WHERE user_id = ANY($1::int[]) AND room_id = $2 AND created_at >= $3`,
+      [userIds, roomId, room.created_at]
     );
     timing = computeUserTimingStats(voteRows);
   }

@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
+import { useRoom } from "@/lib/room";
 import { api, type Room } from "@/lib/api";
-import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2 } from "lucide-react";
+import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2, LayoutDashboard } from "lucide-react";
 
 /* ─── Skeleton card ─── */
 const SkeletonCard = () => (
@@ -52,6 +53,7 @@ function Modal({ onClose, children }: { onClose: () => void; children: React.Rea
 /* ─── Main page ─── */
 const Rooms = () => {
   const { user } = useAuth();
+  const { setActiveRoomId } = useRoom();
   const navigate = useNavigate();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,9 +110,9 @@ const Rooms = () => {
     if (!inviteCode.trim()) return;
     setJoining(true); setJoinError("");
     try {
-      await api.joinRoom(inviteCode.trim());
-      await loadRooms();
-      closeModal();
+      const res = await api.joinRoom(inviteCode.trim());
+      setActiveRoomId(res.room.id);
+      navigate("/");
     } catch (e: any) {
       setJoinError(e.message || "Invalid invite code");
     } finally { setJoining(false); }
@@ -213,11 +215,21 @@ const Rooms = () => {
                   </div>
                 </div>
 
+                <button
+                  onClick={() => {
+                    setActiveRoomId(room.id);
+                    navigate("/");
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 transition-all glow-gold"
+                >
+                  <LayoutDashboard size={18} /> ENTER ROOM
+                </button>
+
                 <Link
                   to={`/rooms/${room.id}`}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/10 py-2.5 font-display text-sm tracking-wider text-primary hover:bg-primary/20 transition-colors"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <Trophy size={14} /> VIEW LEADERBOARD
+                  <Trophy size={13} /> View Leaderboard
                 </Link>
               </div>
             ))}
@@ -245,13 +257,18 @@ const Rooms = () => {
                   <CopyBtn text={createdRoom.invite_code} />
                 </div>
               </div>
-              <Link
-                to={`/rooms/${createdRoom.id}`}
-                onClick={closeModal}
+              <button
+                onClick={() => {
+                  if (createdRoom) {
+                    setActiveRoomId(createdRoom.id);
+                    closeModal();
+                    navigate("/");
+                  }
+                }}
                 className="flex items-center justify-center gap-2 w-full rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 glow-gold"
               >
-                <Trophy size={17} /> GO TO LEADERBOARD
-              </Link>
+                <LayoutDashboard size={18} /> ENTER ROOM
+              </button>
             </div>
           ) : (
             <div>

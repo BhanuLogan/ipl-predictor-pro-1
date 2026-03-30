@@ -30,19 +30,15 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       const myRooms = await api.getMyRooms();
       setRooms(myRooms);
 
-      // Restore active room from localStorage or default to first
+      // Restore active room from localStorage if it exists and is valid
       const storedId = localStorage.getItem("active_room_id");
       if (storedId) {
         const found = myRooms.find(r => r.id === parseInt(storedId));
         if (found) {
           setActiveRoom(found);
-        } else if (myRooms.length > 0) {
-          setActiveRoom(myRooms[0]);
-          localStorage.setItem("active_room_id", myRooms[0].id.toString());
+        } else {
+          localStorage.removeItem("active_room_id");
         }
-      } else if (myRooms.length > 0) {
-        setActiveRoom(myRooms[0]);
-        localStorage.setItem("active_room_id", myRooms[0].id.toString());
       }
     } catch (e) {
       console.error("Failed to load rooms", e);

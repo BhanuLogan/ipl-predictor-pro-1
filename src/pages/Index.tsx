@@ -46,10 +46,11 @@ const Index = () => {
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
     if (user.is_admin) { navigate("/admin"); return; }
+    if (!roomLoading && !activeRoom) { navigate("/rooms"); return; }
     loadData();
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
-  }, [user, navigate, loadData]);
+  }, [user, navigate, loadData, activeRoom, roomLoading]);
 
   const handleVote = async (matchId: string, prediction: string) => {
     if (!activeRoom) return;
@@ -77,21 +78,7 @@ const Index = () => {
   }
 
   if (!activeRoom) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container mx-auto max-w-2xl px-4 py-16 text-center">
-          <div className="text-6xl mb-6">🏘️</div>
-          <h2 className="font-display text-4xl text-gradient-gold mb-4">Welcome!</h2>
-          <p className="text-muted-foreground mb-8">You are not in any rooms yet. Join a room with an invite code or create your own to start predicting!</p>
-          <div className="flex justify-center gap-4">
-            <button onClick={() => navigate("/rooms")} className="rounded-xl bg-primary px-8 py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 glow-gold">
-              GO TO ROOMS
-            </button>
-          </div>
-        </main>
-      </div>
-    );
+    return null; // Side effect in useEffect will handle redirect
   }
 
   return (
