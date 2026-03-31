@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import MatchPoll from "@/components/MatchPoll";
@@ -7,6 +7,11 @@ import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS, isVotingLocked, type MatchResult } from "@/lib/data";
 import { MapPin, Users } from "lucide-react";
+import OpenPolls from "@/components/dashboard/OpenPolls";
+import CompletedMatches from "@/components/dashboard/CompletedMatches";
+import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
+
+const PAGE_SIZE = 10;
 
 const Index = () => {
   const { user } = useAuth();
@@ -16,6 +21,10 @@ const Index = () => {
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({}); // matchId -> { username: prediction }
   const [results, setResults] = useState<Record<string, MatchResult>>({});
+
+  // Pagination state
+  const [pastPage, setPastPage] = useState(1);
+  const [upcomingPage, setUpcomingPage] = useState(1);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
@@ -66,11 +75,32 @@ const Index = () => {
     }
   };
 
+  // Memoized Lists
+  const openPolls = useMemo(() => getPollOpenMatches(results), [results]);
+
+  const pastMatches = useMemo(() => {
+    return IPL_SCHEDULE.filter(m => results[m.id]).reverse();
+  }, [results]);
+
+  const upcomingLocked = useMemo(() => {
+    const openIds = new Set(openPolls.map(o => o.id));
+    return IPL_SCHEDULE.filter(m => !results[m.id] && !openIds.has(m.id));
+  }, [results, openPolls]);
+
+  // Paginated Lists
+  const paginatedPast = useMemo(() => {
+    return pastMatches.slice((pastPage - 1) * PAGE_SIZE, pastPage * PAGE_SIZE);
+  }, [pastMatches, pastPage]);
+
+  const paginatedUpcoming = useMemo(() => {
+    return upcomingLocked.slice((upcomingPage - 1) * PAGE_SIZE, upcomingPage * PAGE_SIZE);
+  }, [upcomingLocked, upcomingPage]);
+
+  const totalPastPages = Math.ceil(pastMatches.length / PAGE_SIZE);
+  const totalUpcomingPages = Math.ceil(upcomingLocked.length / PAGE_SIZE);
+
   if (!user) return null;
 
-  const openPolls = getPollOpenMatches(results);
-  const pastMatches = IPL_SCHEDULE.filter(m => results[m.id]);
-  const upcomingLocked = IPL_SCHEDULE.filter(m => !results[m.id] && !openPolls.find(o => o.id === m.id));
   const completedCount = Object.keys(results).length;
 
   if (roomLoading) {
@@ -108,112 +138,36 @@ const Index = () => {
             Switch Room
           </button>
         </div>
-        {/* Open Polls */}
-        {openPolls.length > 0 ? (
-          <div className="mb-8">
-            <div className="mb-4 flex items-center gap-2">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive" />
-              <h2 className="font-display text-3xl text-gradient-gold">
-                {openPolls.some(m => isVotingLocked(m))
-                  ? "LIVE MATCH IN PROGRESS"
-                  : `LIVE POLL${openPolls.length > 1 ? "S" : ""} — VOTE NOW!`}
-              </h2>
-            </div>
-            <div className="space-y-4">
-              {openPolls.map(match => {
-                const counts = voteCounts[match.id] || {};
-                const total = Object.values(counts).reduce((a, b) => a + b, 0);
-                return (
-                  <MatchPoll
-                    key={match.id}
-                    match={match}
-                    voteCounts={counts}
-                    totalVotes={total}
-                    myPick={myVotes[match.id] || null}
-                    result={undefined}
-                    onVote={handleVote}
-                    isOpen
-                    allVotes={allVotes[match.id] || {}}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div className="mb-8 text-center">
-            <h2 className="font-display text-5xl text-gradient-gold sm:text-6xl">
-              POLLS
-            </h2>
-            <div className="mt-4 rounded-2xl bg-gradient-card border border-border p-8">
-              <p className="text-muted-foreground">
-                {IPL_SCHEDULE.every(m => results[m.id])
-                  ? "🏆 IPL 2026 is complete! Check the leaderboard!"
-                  : completedCount === 0
-                    ? "🚀 IPL 2026 starts March 28! First poll opens then."
-                    : "⏳ Next poll opens after the current match finishes."}
-              </p>
-            </div>
-          </div>
-        )}
 
-        {/* Completed Matches */}
-        {pastMatches.length > 0 && (
-          <div className="mb-8">
-            <h3 className="mb-4 font-display text-2xl text-foreground">📜 COMPLETED MATCHES</h3>
-            <div className="space-y-4">
-              {[...pastMatches].reverse().map(match => {
-                const counts = voteCounts[match.id] || {};
-                const total = Object.values(counts).reduce((a, b) => a + b, 0);
-                return (
-                  <MatchPoll
-                    key={match.id}
-                    match={match}
-                    voteCounts={counts}
-                    totalVotes={total}
-                    myPick={myVotes[match.id] || null}
-                    result={results[match.id]?.winner}
-                    scoreSummary={results[match.id]?.scoreSummary}
-                    onVote={handleVote}
-                    isOpen={false}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <OpenPolls
+          openPolls={openPolls}
+          voteCounts={voteCounts}
+          myVotes={myVotes}
+          allVotes={allVotes}
+          onVote={handleVote}
+          completedCount={completedCount}
+          results={results}
+        />
 
-        {/* Upcoming Schedule */}
-        {upcomingLocked.length > 0 && (
-          <div>
-            <h3 className="mb-4 font-display text-2xl text-foreground">📅 UPCOMING MATCHES</h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {upcomingLocked.map(match => (
-                <div key={match.id} className="rounded-xl bg-gradient-card border border-border p-4">
-                  <p className="text-xs text-muted-foreground">{formatMatchDate(match.date, match.time)}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span
-                      className="rounded-md px-2 py-0.5 text-xs font-bold"
-                      style={{ backgroundColor: IPL_TEAMS[match.team1]?.color, color: IPL_TEAMS[match.team1]?.textColor }}
-                    >
-                      {match.team1}
-                    </span>
-                    <span className="text-xs text-muted-foreground">vs</span>
-                    <span
-                      className="rounded-md px-2 py-0.5 text-xs font-bold"
-                      style={{ backgroundColor: IPL_TEAMS[match.team2]?.color, color: IPL_TEAMS[match.team2]?.textColor }}
-                    >
-                      {match.team2}
-                    </span>
-                  </div>
-                  <p className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <MapPin size={10} />
-                    {match.venue.split(",")[0]}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <CompletedMatches
+          pastMatches={pastMatches}
+          paginatedPast={paginatedPast}
+          pastPage={pastPage}
+          totalPastPages={totalPastPages}
+          setPastPage={setPastPage}
+          voteCounts={voteCounts}
+          myVotes={myVotes}
+          results={results}
+          onVote={handleVote}
+        />
+
+        <UpcomingMatches
+          upcomingLocked={upcomingLocked}
+          paginatedUpcoming={paginatedUpcoming}
+          upcomingPage={upcomingPage}
+          totalUpcomingPages={totalUpcomingPages}
+          setUpcomingPage={setUpcomingPage}
+        />
       </main>
     </div>
   );
