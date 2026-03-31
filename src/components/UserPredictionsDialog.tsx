@@ -7,7 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
+import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked } from "@/lib/data";
 
 function outcomeLabel(outcome: string | null, prediction: string) {
   if (!outcome) return { emoji: "⏳", hint: "Result pending" };
@@ -25,6 +26,7 @@ type Props = {
 };
 
 const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [votes, setVotes] = useState<
     { matchId: string; prediction: string; outcome: string | null }[]
@@ -66,8 +68,17 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
             <ul className="space-y-2.5 text-sm">
               {votes.map((v) => {
                 const match = IPL_SCHEDULE.find((m) => m.id === v.matchId);
-                const { emoji, hint } = outcomeLabel(v.outcome, v.prediction);
-                const pick = IPL_TEAMS[v.prediction]?.short ?? v.prediction;
+                const isLocked = match ? isVotingLocked(match) : true;
+                const isHidden = username !== user?.username && !v.outcome && !isLocked;
+
+                const { emoji, hint } = isHidden
+                  ? { emoji: "🔒", hint: "Prediction hidden until match starts" }
+                  : outcomeLabel(v.outcome, v.prediction);
+
+                const pick = isHidden
+                  ? "???"
+                  : IPL_TEAMS[v.prediction]?.short ?? v.prediction;
+
                 const line1 = match
                   ? `${formatMatchDate(match.date, match.time)} · ${match.team1} vs ${match.team2}`
                   : v.matchId;
@@ -83,7 +94,9 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
                         </p>
                         <p className="mt-1 text-foreground">
                           Picked{" "}
-                          <span className="font-semibold text-primary">{pick}</span>
+                          <span className={`font-semibold ${isHidden ? "text-muted-foreground" : "text-primary"}`}>
+                            {pick}
+                          </span>
                         </p>
                         <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
                       </div>
