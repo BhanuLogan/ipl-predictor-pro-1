@@ -643,7 +643,18 @@ app.get("/api/users/:username/predictions", authMiddleware, asyncRoute(async (re
      ORDER BY v.match_id ASC`,
     params
   );
-  res.json({ votes: rows });
+
+  const votes = rows.map((r) => {
+    const isOwner = target.id === req.user.id;
+    const isAdmin = req.user.is_admin;
+    
+    // If there is no outcome yet, hide the prediction from others
+    if (!r.outcome && !isOwner && !isAdmin) {
+      return { ...r, prediction: "HIDDEN" };
+    }
+    return r;
+  });
+  res.json({ votes });
 }));
 
 // ─── Room routes ────────────────────────────────────────────────────────────
