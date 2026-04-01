@@ -48,8 +48,8 @@ const SkeletonPodium = () => (
 /* ─── Podium config ─── */
 const podiumConfig = [
   { order: 1, avatarPx: 80, height: 110, width: 100, medal: "🥇", bg: "from-yellow-500/20 to-yellow-600/10", border: "border-yellow-500/40" },
-  { order: 0, avatarPx: 64, height: 80,  width: 90,  medal: "🥈", bg: "from-slate-400/20 to-slate-500/10",  border: "border-slate-400/40" },
-  { order: 2, avatarPx: 56, height: 60,  width: 90,  medal: "🥉", bg: "from-orange-500/20 to-orange-600/10", border: "border-orange-500/40" },
+  { order: 0, avatarPx: 64, height: 80, width: 90, medal: "🥈", bg: "from-slate-400/20 to-slate-500/10", border: "border-slate-400/40" },
+  { order: 2, avatarPx: 56, height: 60, width: 90, medal: "🥉", bg: "from-orange-500/20 to-orange-600/10", border: "border-orange-500/40" },
 ];
 
 function PodiumTile({ entry, rank, cfg, isCurrentUser, onAvatarClick }: {
@@ -182,21 +182,19 @@ const RoomLeaderboard = () => {
           <div className="inline-flex p-1 bg-muted/50 rounded-xl border border-border">
             <button
               onClick={() => setView("podium")}
-              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
-                view === "podium" 
-                  ? "bg-primary text-primary-foreground shadow-md" 
+              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${view === "podium"
+                  ? "bg-primary text-primary-foreground shadow-md"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               PODIUM
             </button>
             <button
               onClick={() => setView("table")}
-              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
-                view === "table" 
-                  ? "bg-primary text-primary-foreground shadow-md" 
+              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${view === "table"
+                  ? "bg-primary text-primary-foreground shadow-md"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               POINTS TABLE
             </button>
@@ -207,7 +205,7 @@ const RoomLeaderboard = () => {
         {loading && (
           <>
             <SkeletonPodium />
-            <div className="space-y-2">{[0,1,2,3].map(i => <SkeletonRow key={i} delay={i * 60} />)}</div>
+            <div className="space-y-2">{[0, 1, 2, 3].map(i => <SkeletonRow key={i} delay={i * 60} />)}</div>
           </>
         )}
 
@@ -247,9 +245,8 @@ const RoomLeaderboard = () => {
                 {rest.map((entry, i) => (
                   <div
                     key={entry.username}
-                    className={`flex items-center gap-4 rounded-xl border p-4 transition-all animate-slide-up cursor-pointer ${
-                      entry.username === user.username ? "border-primary/50 bg-primary/5" : "border-border bg-gradient-card"
-                    }`}
+                    className={`flex items-center gap-4 rounded-xl border p-4 transition-all animate-slide-up cursor-pointer ${entry.username === user.username ? "border-primary/50 bg-primary/5" : "border-border bg-gradient-card"
+                      }`}
                     style={{ animationDelay: `${i * 50}ms` }}
                     onClick={() => setPickUser(entry.username)}
                     role="button"
@@ -303,14 +300,14 @@ const RoomLeaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Voted</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Wins</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR (min)</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
                 </tr>
               </thead>
               <tbody>
                 {leaderboard.map((entry) => (
-                  <tr 
-                    key={entry.username} 
+                  <tr
+                    key={entry.username}
                     className={`border-b border-border/30 transition-colors hover:bg-muted/10 ${entry.username === user.username ? "bg-primary/5" : ""}`}
                     onClick={() => setPickUser(entry.username)}
                     style={{ cursor: "pointer" }}
