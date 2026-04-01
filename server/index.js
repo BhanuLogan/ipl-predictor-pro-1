@@ -195,6 +195,14 @@ function adminMiddleware(req, res, next) {
   next();
 }
 
+/** ─── Basic API Protection ─── */
+function securityMiddleware(req, res, next) {
+  if (req.headers["x-app-source"] !== "web-app") {
+    return res.status(403).json({ error: "Access denied. Use the official application to perform this action." });
+  }
+  next();
+}
+
 function asyncRoute(handler) {
   return (req, res, next) => {
     Promise.resolve(handler(req, res, next)).catch((err) => {
@@ -391,7 +399,7 @@ app.get("/api/vote-counts", asyncRoute(async (req, res) => {
   res.json(grouped);
 }));
 
-app.post("/api/vote", authMiddleware, asyncRoute(async (req, res) => {
+app.post("/api/vote", authMiddleware, securityMiddleware, asyncRoute(async (req, res) => {
   const { matchId, prediction, roomId } = req.body;
   if (!matchId || !prediction || !roomId) {
     return res.status(400).json({ error: "matchId, prediction, and roomId required" });
@@ -414,7 +422,7 @@ app.post("/api/vote", authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.post("/api/vote/bulk", authMiddleware, asyncRoute(async (req, res) => {
+app.post("/api/vote/bulk", authMiddleware, securityMiddleware, asyncRoute(async (req, res) => {
   const { matchId, prediction } = req.body;
   if (!matchId || !prediction) {
     return res.status(400).json({ error: "matchId and prediction required" });
@@ -445,7 +453,7 @@ app.post("/api/vote/bulk", authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ok: true, roomCount: rooms.length });
 }));
 
-app.post("/api/admin/vote", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+app.post("/api/admin/vote", authMiddleware, adminMiddleware, securityMiddleware, asyncRoute(async (req, res) => {
   const { matchId, username, prediction, roomId } = req.body;
   if (!matchId || !username || !prediction || !roomId) {
     return res.status(400).json({ error: "matchId, username, prediction, and roomId required" });

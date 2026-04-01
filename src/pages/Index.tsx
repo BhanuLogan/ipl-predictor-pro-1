@@ -10,6 +10,7 @@ import { MapPin, Users } from "lucide-react";
 import OpenPolls from "@/components/dashboard/OpenPolls";
 import CompletedMatches from "@/components/dashboard/CompletedMatches";
 import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
+import Footer from "@/components/Footer";
 
 const PAGE_SIZE = 10;
 
@@ -168,6 +169,8 @@ const Index = () => {
           totalUpcomingPages={totalUpcomingPages}
           setUpcomingPage={setUpcomingPage}
         />
+
+        <Footer />
       </main>
     </div>
   );

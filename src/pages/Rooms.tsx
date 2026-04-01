@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api, type Room } from "@/lib/api";
 import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2, LayoutDashboard, Share2 } from "lucide-react";
+import Footer from "@/components/Footer";
+
 
 /* ─── Skeleton card ─── */
 const SkeletonCard = () => (
@@ -240,6 +242,8 @@ const Rooms = () => {
             ))}
           </div>
         )}
+
+        <Footer />
       </main>
 
       {/* ── Create Room Modal ── */}

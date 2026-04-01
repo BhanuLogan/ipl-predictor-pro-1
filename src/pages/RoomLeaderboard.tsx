@@ -4,8 +4,11 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api, type LeaderboardEntry, type Room } from "@/lib/api";
 import UserPredictionsDialog from "@/components/UserPredictionsDialog";
-import { ArrowLeft, Copy, Check } from "lucide-react";
+import { ArrowLeft, Copy, Check, Coffee } from "lucide-react";
+
 import { getAvatarUrl } from "@/lib/utils";
+import Footer from "@/components/Footer";
+
 
 /* ─── Rank helper ─── */
 function assignRanks(entries: LeaderboardEntry[]): (LeaderboardEntry & { rank: number })[] {
@@ -161,6 +164,17 @@ const RoomLeaderboard = () => {
             <div className="h-14 w-48 mx-auto rounded bg-muted/40 animate-pulse" />
           )}
           <p className="mt-3 text-xs text-muted-foreground">✅ Correct pick = 2 pts · 🤝 Tied/No Result = 1 pt everyone</p>
+          <div className="mt-4 flex justify-center">
+            <a
+              href="https://www.buymeacoffee.com/manoharcb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-xl bg-[#FFDD00] px-4 py-2 text-xs font-bold text-black hover:bg-[#FFDD00]/90 transition-all shadow-md"
+            >
+              <Coffee size={14} fill="currentColor" />
+              <span>Enjoy the app? Buy me a coffee! ☕</span>
+            </a>
+          </div>
         </div>
 
         {/* Tab Toggler */}
@@ -210,14 +224,15 @@ const RoomLeaderboard = () => {
         {!loading && leaderboard.length > 0 && view === "podium" && (
           <>
             <div className="flex items-end justify-center gap-3 mb-10 px-2">
-              {podiumOrder.map((entry) => {
-                const rank = entry.rank as 1 | 2 | 3;
-                const cfgIndex = rank === 1 ? 0 : rank === 2 ? 1 : 2;
+              {podiumOrder.map((entry, idx) => {
+                // idx 0 -> Silver position (Left), idx 1 -> Gold position (Middle), idx 2 -> Bronze position (Right)
+                // This corresponds to cfg mapping: idx 0 -> podiumConfig[1], idx 1 -> podiumConfig[0], idx 2 -> podiumConfig[2]
+                const cfgIndex = idx === 0 ? 1 : idx === 1 ? 0 : 2;
                 return (
                   <PodiumTile
                     key={entry.username}
                     entry={entry}
-                    rank={rank}
+                    rank={entry.rank as 1 | 2 | 3}
                     cfg={podiumConfig[cfgIndex]}
                     isCurrentUser={entry.username === user.username}
                     onAvatarClick={() => setPickUser(entry.username)}
@@ -340,6 +355,8 @@ const RoomLeaderboard = () => {
             </table>
           </div>
         )}
+
+        <Footer />
       </main>
 
       <UserPredictionsDialog
