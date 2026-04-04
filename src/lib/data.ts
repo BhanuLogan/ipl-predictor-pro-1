@@ -109,7 +109,15 @@ export function getPollOpenMatches(results: Record<string, MatchResult>): Match[
     if (results[m.id]) continue;
     if (i === 0) { open.push(m); continue; }
     const prevId = IPL_SCHEDULE[i - 1].id;
-    if (results[prevId]) open.push(m);
+    if (results[prevId]) {
+      open.push(m);
+      // If next match is on the same day, open it too
+      const next = IPL_SCHEDULE[i + 1];
+      if (next && !results[next.id] && next.date === m.date) {
+        open.push(next);
+        i++; // skip next since we already added it
+      }
+    }
   }
   return open;
 }
