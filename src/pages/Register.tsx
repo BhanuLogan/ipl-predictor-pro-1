@@ -24,7 +24,7 @@ const Register = () => {
     setLoading(true);
     try {
       await register(username.trim(), password);
-      navigate("/rooms");
+      navigate("/");
     } catch (err: any) {
       setError(err.message || "Registration failed");
     } finally {
