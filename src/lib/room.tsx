@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useLayoutEffect, type ReactNode } from "react";
 import { api, type Room } from "./api";
 import { useAuth } from "./auth";
 
@@ -16,38 +16,38 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !!user);
 
-  const refreshRooms = useCallback(async () => {
+  useLayoutEffect(() => {
     if (!user) {
       setRooms([]);
       setActiveRoom(null);
       setLoading(false);
       return;
     }
+
     setLoading(true);
+  }, [user]);
+
+  const refreshRooms = useCallback(async () => {
+    if (!user) return;
+
     try {
       const myRooms = await api.getMyRooms();
       setRooms(myRooms);
 
-      // Restore active room from localStorage if it exists and is valid
       const storedId = localStorage.getItem("active_room_id");
-      if (storedId) {
-        const found = myRooms.find(r => r.id === parseInt(storedId));
-        if (found) {
-          setActiveRoom(found);
-        } else {
-          localStorage.removeItem("active_room_id");
-          // Auto-select if only one room
-          if (myRooms.length === 1) {
-            setActiveRoom(myRooms[0]);
-            localStorage.setItem("active_room_id", myRooms[0].id.toString());
-          }
-        }
-      } else if (myRooms.length === 1) {
-        // Auto-select the only room
-        setActiveRoom(myRooms[0]);
-        localStorage.setItem("active_room_id", myRooms[0].id.toString());
+      const preferredRoom =
+        (storedId ? myRooms.find((room) => room.id === Number(storedId)) : null) ??
+        myRooms[0] ??
+        null;
+
+      setActiveRoom(preferredRoom);
+
+      if (preferredRoom) {
+        localStorage.setItem("active_room_id", preferredRoom.id.toString());
+      } else {
+        localStorage.removeItem("active_room_id");
       }
     } catch (e) {
       console.error("Failed to load rooms", e);
