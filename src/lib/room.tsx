@@ -42,8 +42,17 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         if (found) {
           setActiveRoom(found);
         } else {
+          // Stored room no longer valid – clear and auto-select if only one
           localStorage.removeItem("active_room_id");
+          if (myRooms.length === 1) {
+            setActiveRoom(myRooms[0]);
+            localStorage.setItem("active_room_id", myRooms[0].id.toString());
+          }
         }
+      } else if (myRooms.length === 1) {
+        // No preference stored – auto-select the only room
+        setActiveRoom(myRooms[0]);
+        localStorage.setItem("active_room_id", myRooms[0].id.toString());
       }
     } catch (e) {
       console.error("Failed to load rooms", e);

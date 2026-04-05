@@ -8,16 +8,22 @@ import { IPL_SCHEDULE, getPollOpenMatches, type MatchResult } from "@/lib/data";
 import { Users } from "lucide-react";
 import OpenPolls from "@/components/dashboard/OpenPolls";
 import CompletedMatches from "@/components/dashboard/CompletedMatches";
+import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import Footer from "@/components/Footer";
+
+const PAGE_SIZE = 10;
 
 const Index = () => {
   const { user } = useAuth();
   const { activeRoom, loading: roomLoading } = useRoom();
   const navigate = useNavigate();
-  const [myVotes, setMyVotes] = useState<Record<string, string>>({}); // matchId -> my prediction
-  const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
-  const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({}); // matchId -> { username: prediction }
+  const [myVotes, setMyVotes] = useState<Record<string, string>>({});
+  const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>();
+  const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({});
   const [results, setResults] = useState<Record<string, MatchResult>>({});
+
+  // Pagination for upcoming
+  const [upcomingPage, setUpcomingPage] = useState(1);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
@@ -27,7 +33,6 @@ const Index = () => {
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
       ]);
-      // Extract my votes from the full votes object
       if (user) {
         const mine: Record<string, string> = {};
         for (const [matchId, matchVotes] of Object.entries(votes)) {
@@ -63,9 +68,7 @@ const Index = () => {
         await api.vote(matchId, prediction, activeRoom.id);
       }
       await loadData();
-    } catch {
-      // handle error
-    }
+    } catch {}
   };
 
   // Memoized Lists
@@ -74,6 +77,17 @@ const Index = () => {
   const pastMatches = useMemo(() => {
     return IPL_SCHEDULE.filter(m => results[m.id]).reverse();
   }, [results]);
+
+  const upcomingLocked = useMemo(() => {
+    const openIds = new Set(openPolls.map(o => o.id));
+    return IPL_SCHEDULE.filter(m => !results[m.id] && !openIds.has(m.id));
+  }, [results, openPolls]);
+
+  const paginatedUpcoming = useMemo(() => {
+    return upcomingLocked.slice((upcomingPage - 1) * PAGE_SIZE, upcomingPage * PAGE_SIZE);
+  }, [upcomingLocked, upcomingPage]);
+
+  const totalUpcomingPages = Math.ceil(upcomingLocked.length / PAGE_SIZE);
 
   if (!user) return null;
 
@@ -115,9 +129,10 @@ const Index = () => {
           </button>
         </div>
 
+        {/* Active / Live Polls */}
         <OpenPolls
           openPolls={openPolls}
-          voteCounts={voteCounts}
+          voteCounts={voteCounts ?? {}}
           myVotes={myVotes}
           allVotes={allVotes}
           onVote={handleVote}
@@ -125,16 +140,26 @@ const Index = () => {
           results={results}
         />
 
+        {/* Completed Matches – horizontal scrolling cards */}
         <CompletedMatches
           pastMatches={pastMatches}
           paginatedPast={pastMatches}
           pastPage={1}
           totalPastPages={1}
           setPastPage={() => {}}
-          voteCounts={voteCounts}
+          voteCounts={voteCounts ?? {}}
           myVotes={myVotes}
           results={results}
           onVote={handleVote}
+        />
+
+        {/* Upcoming Matches */}
+        <UpcomingMatches
+          upcomingLocked={upcomingLocked}
+          paginatedUpcoming={paginatedUpcoming}
+          upcomingPage={upcomingPage}
+          totalUpcomingPages={totalUpcomingPages}
+          setUpcomingPage={setUpcomingPage}
         />
 
         <Footer />
