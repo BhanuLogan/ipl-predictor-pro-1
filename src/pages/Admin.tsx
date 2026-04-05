@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, type MatchResult } from "@/lib/data";
+import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
 import { Check, CloudRain, Trash2, Users, Plus } from "lucide-react";
 
 const Admin = () => {
@@ -122,7 +122,9 @@ const Admin = () => {
   if (!user) return null;
 
   // Categorize matches: current/active polls (open, no result) and completed (has result)
-  const currentPolls = IPL_SCHEDULE.filter(m => !results[m.id]);
+  // Only show matches that are locked (started) or the current open poll — hide future upcoming
+  const openPollIds = new Set(getPollOpenMatches(results).map(m => m.id));
+  const currentPolls = IPL_SCHEDULE.filter(m => !results[m.id] && (isVotingLocked(m) || openPollIds.has(m.id)));
   const completedMatches = IPL_SCHEDULE.filter(m => results[m.id]).reverse();
 
   const renderMatch = (match: typeof IPL_SCHEDULE[0], i: number, index: number) => {
@@ -366,7 +368,7 @@ const Admin = () => {
             {currentPolls.length > 0 && (
               <div className="mb-2">
                 <h3 className="mb-3 font-display text-lg text-primary uppercase tracking-wide flex items-center gap-2">
-                  <span className="animate-pulse">🟢</span> Current &amp; Upcoming Polls
+                  <span className="animate-pulse">🟢</span> Current Poll
                 </h3>
                 <div className="space-y-3">
                   {currentPolls.map((match, i) => {
