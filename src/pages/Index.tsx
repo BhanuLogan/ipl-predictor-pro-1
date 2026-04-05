@@ -1,18 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
-import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, getPollOpenMatches, formatMatchDate, IPL_TEAMS, isVotingLocked, type MatchResult } from "@/lib/data";
-import { MapPin, Users } from "lucide-react";
+import { IPL_SCHEDULE, getPollOpenMatches, type MatchResult } from "@/lib/data";
+import { Users } from "lucide-react";
 import OpenPolls from "@/components/dashboard/OpenPolls";
 import CompletedMatches from "@/components/dashboard/CompletedMatches";
-import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import Footer from "@/components/Footer";
-
-const PAGE_SIZE = 10;
 
 const Index = () => {
   const { user } = useAuth();
@@ -22,10 +18,6 @@ const Index = () => {
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({}); // matchId -> { team: count }
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({}); // matchId -> { username: prediction }
   const [results, setResults] = useState<Record<string, MatchResult>>({});
-
-  // Pagination state
-  const [pastPage, setPastPage] = useState(1);
-  const [upcomingPage, setUpcomingPage] = useState(1);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
@@ -83,23 +75,6 @@ const Index = () => {
     return IPL_SCHEDULE.filter(m => results[m.id]).reverse();
   }, [results]);
 
-  const upcomingLocked = useMemo(() => {
-    const openIds = new Set(openPolls.map(o => o.id));
-    return IPL_SCHEDULE.filter(m => !results[m.id] && !openIds.has(m.id));
-  }, [results, openPolls]);
-
-  // Paginated Lists
-  const paginatedPast = useMemo(() => {
-    return pastMatches.slice((pastPage - 1) * PAGE_SIZE, pastPage * PAGE_SIZE);
-  }, [pastMatches, pastPage]);
-
-  const paginatedUpcoming = useMemo(() => {
-    return upcomingLocked.slice((upcomingPage - 1) * PAGE_SIZE, upcomingPage * PAGE_SIZE);
-  }, [upcomingLocked, upcomingPage]);
-
-  const totalPastPages = Math.ceil(pastMatches.length / PAGE_SIZE);
-  const totalUpcomingPages = Math.ceil(upcomingLocked.length / PAGE_SIZE);
-
   if (!user) return null;
 
   const completedCount = Object.keys(results).length;
@@ -152,22 +127,14 @@ const Index = () => {
 
         <CompletedMatches
           pastMatches={pastMatches}
-          paginatedPast={paginatedPast}
-          pastPage={pastPage}
-          totalPastPages={totalPastPages}
-          setPastPage={setPastPage}
+          paginatedPast={pastMatches}
+          pastPage={1}
+          totalPastPages={1}
+          setPastPage={() => {}}
           voteCounts={voteCounts}
           myVotes={myVotes}
           results={results}
           onVote={handleVote}
-        />
-
-        <UpcomingMatches
-          upcomingLocked={upcomingLocked}
-          paginatedUpcoming={paginatedUpcoming}
-          upcomingPage={upcomingPage}
-          totalUpcomingPages={totalUpcomingPages}
-          setUpcomingPage={setUpcomingPage}
         />
 
         <Footer />

@@ -4,8 +4,8 @@ import { api, type User } from "./api";
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<User>;
+  register: (username: string, password: string) => Promise<User>;
   logout: () => void;
   refreshUser: () => void;
 }
@@ -19,11 +19,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const u = await api.login(username, password);
     setUser(u);
+    return u;
   }, []);
 
   const register = useCallback(async (username: string, password: string) => {
     const u = await api.register(username, password);
     setUser(u);
+    return u;
   }, []);
 
   const logout = useCallback(() => {

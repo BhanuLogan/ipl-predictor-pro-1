@@ -59,15 +59,11 @@ const Header = () => {
             <div className="flex items-center gap-3 ml-2">
               <button
                 onClick={() => setShowProfile(true)}
-                className="group flex items-center gap-2 rounded-full border border-border bg-gradient-card p-1 pr-3 transition-colors hover:border-primary/50 text-left"
+                className="group flex items-center justify-center rounded-full border border-border bg-gradient-card p-1 transition-colors hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
                 title="Profile settings"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 font-display text-sm font-bold text-primary overflow-hidden">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20 font-display text-sm font-bold text-primary overflow-hidden">
                   <img src={getAvatarUrl(user.profile_pic, user.username)} alt="avatar" className="w-full h-full object-cover" />
-                </div>
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground truncate">{user.username}</span>
-                  <Settings size={12} className="text-muted-foreground group-hover:text-primary transition-colors opacity-0 group-hover:opacity-100 hidden sm:block" />
                 </div>
               </button>
               <button

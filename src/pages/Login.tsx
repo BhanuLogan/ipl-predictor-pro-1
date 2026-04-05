@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Link, useNavigate } from "react-router-dom";
+import { api } from "@/lib/api";
 
 const Login = () => {
   const { login } = useAuth();
@@ -15,8 +16,17 @@ const Login = () => {
     setError("");
     setLoading(true);
     try {
-      await login(username.trim(), password);
-      navigate("/rooms");
+      const user = await login(username.trim(), password);
+      // After login, check if user has rooms - if they have exactly one, auto-select and go to polls
+      if (!user?.is_admin) {
+        try {
+          const rooms = await api.getMyRooms();
+          if (rooms.length === 1) {
+            localStorage.setItem("active_room_id", rooms[0].id.toString());
+          }
+        } catch {}
+      }
+      navigate("/");
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {

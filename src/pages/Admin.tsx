@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, type MatchResult } from "@/lib/data";
-import { Check, CloudRain, Trash2, Users } from "lucide-react";
+import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, type MatchResult } from "@/lib/data";
+import { Check, CloudRain, Trash2, Users, Plus } from "lucide-react";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
@@ -16,6 +16,12 @@ const Admin = () => {
   const [syncing, setSyncing] = useState(false);
   const [rooms, setRooms] = useState<any[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
+  // Add vote modal state
+  const [addVoteModal, setAddVoteModal] = useState<{ matchId: string; team1: string; team2: string } | null>(null);
+  const [addVoteUsername, setAddVoteUsername] = useState("");
+  const [addVoteTeam, setAddVoteTeam] = useState("");
+  const [addVoteLoading, setAddVoteLoading] = useState(false);
+  const [addVoteError, setAddVoteError] = useState("");
 
   const loadData = async (roomId?: number) => {
     try {
@@ -70,6 +76,23 @@ const Admin = () => {
     } catch {}
   };
 
+  const handleAddVote = async () => {
+    if (!addVoteModal || !addVoteUsername.trim() || !addVoteTeam || !selectedRoomId) return;
+    setAddVoteLoading(true);
+    setAddVoteError("");
+    try {
+      await api.adminSetVote(addVoteModal.matchId, addVoteUsername.trim(), addVoteTeam, selectedRoomId);
+      setAddVoteModal(null);
+      setAddVoteUsername("");
+      setAddVoteTeam("");
+      await loadData();
+    } catch (err: any) {
+      setAddVoteError(err.message || "Failed to add vote");
+    } finally {
+      setAddVoteLoading(false);
+    }
+  };
+
   const handleReset = async () => {
     if (!confirm("RESET ALL votes and results? This cannot be undone!")) return;
     if (!confirm("Are you absolutely sure?")) return;
@@ -98,6 +121,160 @@ const Admin = () => {
 
   if (!user) return null;
 
+  // Categorize matches: current/active polls (open, no result) and completed (has result)
+  const currentPolls = IPL_SCHEDULE.filter(m => !results[m.id]);
+  const completedMatches = IPL_SCHEDULE.filter(m => results[m.id]).reverse();
+
+  const renderMatch = (match: typeof IPL_SCHEDULE[0], i: number, index: number) => {
+    const result = results[match.id];
+    const team1 = IPL_TEAMS[match.team1];
+    const team2 = IPL_TEAMS[match.team2];
+    const matchVotes = votes[match.id] || {};
+    const voteEntries = Object.entries(matchVotes);
+    const locked = isVotingLocked(match);
+
+    return (
+      <div
+        key={match.id}
+        className={`rounded-xl border p-4 ${
+          result?.winner ? "border-secondary/30 bg-secondary/5" : locked ? "border-destructive/20 bg-destructive/5" : "border-primary/30 bg-primary/5"
+        }`}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              Match {index + 1} · {formatMatchDate(match.date, match.time)}
+            </span>
+            {!result && (
+              <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${locked ? "bg-destructive/20 text-destructive" : "bg-primary/20 text-primary animate-pulse"}`}>
+                {locked ? "🔒 Locked" : "🟢 Live Poll"}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground">{voteEntries.length} votes</span>
+            {!result && selectedRoomId && (
+              <button
+                onClick={() => setAddVoteModal({ matchId: match.id, team1: match.team1, team2: match.team2 })}
+                className="flex items-center gap-1 rounded-lg bg-primary/10 border border-primary/20 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/20 transition-colors"
+                title="Add a user vote"
+              >
+                <Plus size={10} /> Add Vote
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-2 flex-1">
+            <div
+              className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold"
+              style={{ backgroundColor: team1.color, color: team1.textColor }}
+            >
+              {team1.short.slice(0, 2)}
+            </div>
+            <span className="font-semibold text-sm text-foreground">{team1.short}</span>
+          </div>
+          <span className="text-xs text-muted-foreground font-display">VS</span>
+          <div className="flex items-center gap-2 flex-1 justify-end">
+            <span className="font-semibold text-sm text-foreground">{team2.short}</span>
+            <div
+              className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold"
+              style={{ backgroundColor: team2.color, color: team2.textColor }}
+            >
+              {team2.short.slice(0, 2)}
+            </div>
+          </div>
+        </div>
+
+        {/* Show individual votes to admin */}
+        {voteEntries.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {voteEntries.map(([name, pick]) => {
+              const tc = IPL_TEAMS[pick];
+              return (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                  style={{
+                    backgroundColor: tc ? `${tc.color}20` : undefined,
+                    color: tc?.color,
+                    border: `1px solid ${tc ? `${tc.color}40` : 'transparent'}`,
+                  }}
+                >
+                  {name}: {pick}
+                  <button
+                    onClick={() => handleDeleteVote(match.id, name)}
+                    className="ml-1 opacity-60 hover:opacity-100"
+                    title="Delete this vote"
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {result?.winner ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-secondary">
+                {result.winner === "nr"
+                  ? "🌧️ No Result"
+                  : result.winner === "draw"
+                  ? "🤝 Tied"
+                  : `🏆 ${IPL_TEAMS[result.winner]?.short} Won`}
+              </span>
+              <button
+                onClick={() => handleSetResult(match.id, null)}
+                className="text-xs text-destructive hover:underline shrink-0"
+              >
+                Reset
+              </button>
+            </div>
+            {result.scoreSummary ? (
+              <p className="text-[11px] leading-snug text-muted-foreground border-t border-border/40 pt-2">
+                {result.scoreSummary}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleSetResult(match.id, match.team1)}
+              className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-border py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Check size={12} />
+              {team1.short} Won
+            </button>
+            <button
+              onClick={() => handleSetResult(match.id, match.team2)}
+              className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-border py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Check size={12} />
+              {team2.short} Won
+            </button>
+            <button
+              onClick={() => handleSetResult(match.id, "draw")}
+              className="flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+              title="Tied"
+            >
+              🤝
+            </button>
+            <button
+              onClick={() => handleSetResult(match.id, "nr")}
+              className="flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+              title="No Result"
+            >
+              <CloudRain size={12} />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -108,7 +285,7 @@ const Admin = () => {
             ADMIN PANEL
           </h2>
           <p className="mt-2 text-muted-foreground">
-            Set match results & manage votes 🛡️
+            Set match results &amp; manage votes 🛡️
           </p>
         </div>
 
@@ -185,139 +362,108 @@ const Admin = () => {
               </div>
             </div>
 
-            {IPL_SCHEDULE.map((match, i) => {
-              const result = results[match.id];
-              const team1 = IPL_TEAMS[match.team1];
-              const team2 = IPL_TEAMS[match.team2];
-              const matchVotes = votes[match.id] || {};
-              const voteEntries = Object.entries(matchVotes);
-
-              return (
-                <div
-                  key={match.id}
-                  className={`rounded-xl border p-4 ${
-                    result?.winner ? "border-secondary/30 bg-secondary/5" : "border-border bg-gradient-card"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs text-muted-foreground">
-                      Match {i + 1} · {formatMatchDate(match.date, match.time)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{voteEntries.length} votes</span>
-                  </div>
-
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="flex items-center gap-2 flex-1">
-                      <div
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold"
-                        style={{ backgroundColor: team1.color, color: team1.textColor }}
-                      >
-                        {team1.short.slice(0, 2)}
-                      </div>
-                      <span className="font-semibold text-sm text-foreground">{team1.short}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground font-display">VS</span>
-                    <div className="flex items-center gap-2 flex-1 justify-end">
-                      <span className="font-semibold text-sm text-foreground">{team2.short}</span>
-                      <div
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold"
-                        style={{ backgroundColor: team2.color, color: team2.textColor }}
-                      >
-                        {team2.short.slice(0, 2)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Show individual votes to admin */}
-                  {voteEntries.length > 0 && (
-                    <div className="mb-3 flex flex-wrap gap-1.5">
-                      {voteEntries.map(([name, pick]) => {
-                        const tc = IPL_TEAMS[pick];
-                        return (
-                          <span
-                            key={name}
-                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold"
-                            style={{
-                              backgroundColor: tc ? `${tc.color}20` : undefined,
-                              color: tc?.color,
-                              border: `1px solid ${tc ? `${tc.color}40` : 'transparent'}`,
-                            }}
-                          >
-                            {name}: {pick}
-                            <button
-                              onClick={() => handleDeleteVote(match.id, name)}
-                              className="ml-1 opacity-60 hover:opacity-100"
-                              title="Delete this vote"
-                            >
-                              <Trash2 size={10} />
-                            </button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {result?.winner ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-secondary">
-                          {result.winner === "nr"
-                            ? "🌧️ No Result"
-                            : result.winner === "draw"
-                            ? "🤝 Tied"
-                            : `🏆 ${IPL_TEAMS[result.winner]?.short} Won`}
-                        </span>
-                        <button
-                          onClick={() => handleSetResult(match.id, null)}
-                          className="text-xs text-destructive hover:underline shrink-0"
-                        >
-                          Reset
-                        </button>
-                      </div>
-                      {result.scoreSummary ? (
-                        <p className="text-[11px] leading-snug text-muted-foreground border-t border-border/40 pt-2">
-                          {result.scoreSummary}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleSetResult(match.id, match.team1)}
-                        className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-border py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                      >
-                        <Check size={12} />
-                        {team1.short} Won
-                      </button>
-                      <button
-                        onClick={() => handleSetResult(match.id, match.team2)}
-                        className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-border py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                      >
-                        <Check size={12} />
-                        {team2.short} Won
-                      </button>
-                      <button
-                        onClick={() => handleSetResult(match.id, "draw")}
-                        className="flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                        title="Tied"
-                      >
-                        🤝
-                      </button>
-                      <button
-                        onClick={() => handleSetResult(match.id, "nr")}
-                        className="flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                        title="No Result"
-                      >
-                        <CloudRain size={12} />
-                      </button>
-                    </div>
-                  )}
+            {/* Current / Active Polls Section */}
+            {currentPolls.length > 0 && (
+              <div className="mb-2">
+                <h3 className="mb-3 font-display text-lg text-primary uppercase tracking-wide flex items-center gap-2">
+                  <span className="animate-pulse">🟢</span> Current &amp; Upcoming Polls
+                </h3>
+                <div className="space-y-3">
+                  {currentPolls.map((match, i) => {
+                    const scheduleIdx = IPL_SCHEDULE.findIndex(m => m.id === match.id);
+                    return renderMatch(match, i, scheduleIdx);
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            )}
+
+            {/* Completed Matches Section */}
+            {completedMatches.length > 0 && (
+              <div>
+                <h3 className="mb-3 mt-6 font-display text-lg text-secondary uppercase tracking-wide flex items-center gap-2">
+                  📜 Completed Matches
+                </h3>
+                <div className="space-y-3">
+                  {completedMatches.map((match, i) => {
+                    const scheduleIdx = IPL_SCHEDULE.findIndex(m => m.id === match.id);
+                    return renderMatch(match, i, scheduleIdx);
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
+
+      {/* Add Vote Modal */}
+      {addVoteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => { setAddVoteModal(null); setAddVoteUsername(""); setAddVoteTeam(""); setAddVoteError(""); }} />
+          <div className="relative w-full max-w-sm rounded-2xl border border-border bg-gradient-card shadow-2xl p-6 animate-slide-up">
+            <h3 className="font-display text-2xl text-gradient-gold mb-1">ADD VOTE</h3>
+            <p className="text-xs text-muted-foreground mb-5">
+              {IPL_TEAMS[addVoteModal.team1]?.short} vs {IPL_TEAMS[addVoteModal.team2]?.short}
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-muted-foreground mb-1.5">Username</label>
+                <input
+                  autoFocus
+                  value={addVoteUsername}
+                  onChange={e => setAddVoteUsername(e.target.value)}
+                  placeholder="Enter username..."
+                  className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 text-foreground placeholder:text-muted-foreground/50 focus:border-primary/60 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-muted-foreground mb-1.5">Pick</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[addVoteModal.team1, addVoteModal.team2].map(teamKey => {
+                    const team = IPL_TEAMS[teamKey];
+                    return (
+                      <button
+                        key={teamKey}
+                        onClick={() => setAddVoteTeam(teamKey)}
+                        className={`flex items-center gap-2 rounded-xl border-2 p-3 transition-all ${
+                          addVoteTeam === teamKey ? "border-primary shadow-lg" : "border-border hover:border-muted-foreground/30"
+                        }`}
+                      >
+                        <div
+                          className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                          style={{ backgroundColor: team.color, color: team.textColor }}
+                        >
+                          {team.short.slice(0, 2)}
+                        </div>
+                        <span className="font-display text-sm text-foreground">{team.short}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {addVoteError && <p className="text-xs text-destructive">{addVoteError}</p>}
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => { setAddVoteModal(null); setAddVoteUsername(""); setAddVoteTeam(""); setAddVoteError(""); }}
+                  className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddVote}
+                  disabled={addVoteLoading || !addVoteUsername.trim() || !addVoteTeam}
+                  className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed glow-gold"
+                >
+                  {addVoteLoading ? "..." : "ADD"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
