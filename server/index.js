@@ -1119,6 +1119,19 @@ setInterval(checkRecentMatches, CHECK_INTERVAL);
 // Initial check on startup
 setTimeout(checkRecentMatches, 5000); // 5 sec delay to let DB init completion
 
+app.get("/api/health", (req, res) => {
+  res.json({ status: "alive", time: new Date() });
+});
+
+// Self-pinging mechanism to prevent backend from sleeping
+const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes
+setInterval(() => {
+  const url = process.env.SERVER_URL || `http://localhost:${PORT}`;
+  axios.get(`${url}/api/health`)
+    .then(() => console.log(`[Self-Ping] Backend kept alive via ${url}`))
+    .catch((err) => console.log(`[Self-Ping] Failed to ping ${url}: ${err.message}`));
+}, PING_INTERVAL);
+
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   res.status(500).json({ error: "Internal server error" });
