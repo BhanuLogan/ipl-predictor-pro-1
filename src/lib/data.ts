@@ -1,14 +1,14 @@
 export const IPL_TEAMS: Record<string, { name: string; short: string; color: string; textColor: string; logo?: string }> = {
-  CSK: { name: "Chennai Super Kings", short: "CSK", color: "#C47D00", textColor: "#000", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/2/2b/Chennai_Super_Kings_Logo.svg/150px-Chennai_Super_Kings_Logo.svg.png" },
-  MI:  { name: "Mumbai Indians", short: "MI", color: "#004BA0", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/c/cd/Mumbai_Indians_Logo.svg/150px-Mumbai_Indians_Logo.svg.png" },
-  RCB: { name: "Royal Challengers Bengaluru", short: "RCB", color: "#C8102E", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/2/2a/Royal_Challengers_Bengaluru_logo.svg/150px-Royal_Challengers_Bengaluru_logo.svg.png" },
-  KKR: { name: "Kolkata Knight Riders", short: "KKR", color: "#3A225D", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/4/4c/Kolkata_Knight_Riders_Logo.svg/150px-Kolkata_Knight_Riders_Logo.svg.png" },
-  DC:  { name: "Delhi Capitals", short: "DC", color: "#004C97", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/f/f5/Delhi_Capitals_Logo.svg/150px-Delhi_Capitals_Logo.svg.png" },
-  PBKS:{ name: "Punjab Kings", short: "PBKS", color: "#AA0000", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/d/d4/Punjab_Kings_Logo.svg/150px-Punjab_Kings_Logo.svg.png" },
-  RR:  { name: "Rajasthan Royals", short: "RR", color: "#EA1F8B", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/6/60/Rajasthan_Royals_Logo.svg/150px-Rajasthan_Royals_Logo.svg.png" },
-  SRH: { name: "Sunrisers Hyderabad", short: "SRH", color: "#FF6B00", textColor: "#000", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/8/81/Sunrisers_Hyderabad.svg/150px-Sunrisers_Hyderabad.svg.png" },
-  GT:  { name: "Gujarat Titans", short: "GT", color: "#1C3C6A", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/0/09/Gujarat_Titans_Logo.svg/150px-Gujarat_Titans_Logo.svg.png" },
-  LSG: { name: "Lucknow Super Giants", short: "LSG", color: "#A72B2A", textColor: "#fff", logo: "https://upload.wikimedia.org/wikipedia/en/thumb/a/a9/Lucknow_Super_Giants_IPL_Logo.svg/150px-Lucknow_Super_Giants_IPL_Logo.svg.png" },
+  CSK: { name: "Chennai Super Kings", short: "CSK", color: "#C47D00", textColor: "#000", logo: "/logos/CSK.svg" },
+  MI:  { name: "Mumbai Indians", short: "MI", color: "#004BA0", textColor: "#fff", logo: "/logos/MI.svg" },
+  RCB: { name: "Royal Challengers Bengaluru", short: "RCB", color: "#C8102E", textColor: "#fff", logo: "/logos/RCB.svg" },
+  KKR: { name: "Kolkata Knight Riders", short: "KKR", color: "#3A225D", textColor: "#fff", logo: "/logos/KKR.svg" },
+  DC:  { name: "Delhi Capitals", short: "DC", color: "#004C97", textColor: "#fff", logo: "/logos/DC.svg" },
+  PBKS:{ name: "Punjab Kings", short: "PBKS", color: "#AA0000", textColor: "#fff", logo: "/logos/PBKS.svg" },
+  RR:  { name: "Rajasthan Royals", short: "RR", color: "#EA1F8B", textColor: "#fff", logo: "/logos/RR.svg" },
+  SRH: { name: "Sunrisers Hyderabad", short: "SRH", color: "#FF6B00", textColor: "#000", logo: "/logos/SRH.svg" },
+  GT:  { name: "Gujarat Titans", short: "GT", color: "#1C3C6A", textColor: "#fff", logo: "/logos/GT.svg" },
+  LSG: { name: "Lucknow Super Giants", short: "LSG", color: "#A72B2A", textColor: "#fff", logo: "/logos/LSG.svg" },
 };
 
 export interface Match {
