@@ -292,7 +292,7 @@ function TeamButton({
   voters,
   showVoters,
 }: {
-  team: { name: string; short: string; color: string; textColor: string };
+  team: { name: string; short: string; color: string; textColor: string; logo?: string };
   teamKey: string;
   selected: boolean;
   disabled: boolean;
@@ -320,10 +320,14 @@ function TeamButton({
       } ${disabled && !isWinner ? "opacity-70" : ""}`}
     >
       <div
-        className="flex h-14 w-14 items-center justify-center rounded-full text-xl font-bold"
-        style={{ backgroundColor: team.color, color: team.textColor }}
+        className="flex h-14 w-14 items-center justify-center rounded-full text-xl font-bold overflow-hidden bg-white shadow-inner"
+        style={team.logo ? {} : { backgroundColor: team.color, color: team.textColor }}
       >
-        {team.short.slice(0, 2)}
+        {team.logo ? (
+           <img src={team.logo} alt={team.short} className="h-full w-full object-contain p-1.5" />
+        ) : (
+           team.short.slice(0, 2)
+        )}
       </div>
       <span className="font-display text-xl text-foreground">{team.short}</span>
       <span className="text-[10px] text-muted-foreground leading-tight text-center">{team.name}</span>
