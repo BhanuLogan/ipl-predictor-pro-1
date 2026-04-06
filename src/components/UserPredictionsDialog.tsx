@@ -91,15 +91,31 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
                         <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                           {line1}
                         </p>
-                        <p className="mt-1 text-foreground">
-                          Picked{" "}
-                          <span className={`font-semibold ${isHidden ? "text-muted-foreground" : "text-primary"}`}>
-                            {pick}
-                          </span>
+                        <p className="mt-1 flex items-center gap-2 text-foreground">
+                          <span>Picked</span>
+                          {isHidden ? (
+                            <span className="font-semibold text-muted-foreground">???</span>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <div 
+                                className="h-5 w-5 shrink-0 rounded-full flex items-center justify-center overflow-hidden bg-white shadow-sm border border-border/40"
+                                style={IPL_TEAMS[v.prediction]?.logo ? {} : { backgroundColor: IPL_TEAMS[v.prediction]?.color, color: IPL_TEAMS[v.prediction]?.textColor }}
+                              >
+                                {IPL_TEAMS[v.prediction]?.logo ? (
+                                  <img src={IPL_TEAMS[v.prediction].logo} alt={v.prediction} className="h-full w-full object-contain p-0.5" />
+                                ) : (
+                                  <span className="text-[8px] font-bold">{v.prediction.slice(0, 2)}</span>
+                                )}
+                              </div>
+                              <span className="font-semibold text-primary">
+                                {IPL_TEAMS[v.prediction]?.short ?? v.prediction}
+                              </span>
+                            </div>
+                          )}
                         </p>
                         <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
                       </div>
-                      <span className="text-lg leading-none" aria-hidden>
+                      <span className="text-lg leading-none shrink-0" aria-hidden>
                         {emoji}
                       </span>
                     </div>

@@ -42,14 +42,18 @@ const CompletedMatchCard = React.memo(({ match, result, myPick }: {
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-col items-center gap-1.5 flex-1">
           <div
-            className={`h-10 w-10 rounded-full flex items-center justify-center text-sm font-bold shadow-sm ${winner === match.team1 ? "ring-2 ring-offset-1 ring-offset-card" : "opacity-80"}`}
-            style={{
+            className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-sm font-bold overflow-hidden bg-white shadow-sm border border-border/50 ${winner === match.team1 ? "ring-2 ring-offset-1 ring-offset-card" : "opacity-80"}`}
+            style={team1.logo ? (winner === match.team1 ? { ["--tw-ring-color" as any]: team1.color } : {}) : {
               backgroundColor: team1.color,
               color: team1.textColor,
-              ...(winner === match.team1 ? { ringColor: team1.color } : {}),
+              ...(winner === match.team1 ? { ["--tw-ring-color" as any]: team1.color } : {}),
             }}
           >
-            {team1.short.slice(0, 2)}
+            {team1.logo ? (
+              <img src={team1.logo} alt={team1.short} className="h-full w-full object-contain p-1" />
+            ) : (
+              team1.short.slice(0, 2)
+            )}
           </div>
           <span className={`font-display text-sm ${winner === match.team1 ? "text-foreground" : "text-muted-foreground"}`}>
             {team1.short}
@@ -61,14 +65,18 @@ const CompletedMatchCard = React.memo(({ match, result, myPick }: {
 
         <div className="flex flex-col items-center gap-1.5 flex-1">
           <div
-            className={`h-10 w-10 rounded-full flex items-center justify-center text-sm font-bold shadow-sm ${winner === match.team2 ? "ring-2 ring-offset-1 ring-offset-card" : "opacity-80"}`}
-            style={{
+            className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-sm font-bold overflow-hidden bg-white shadow-sm border border-border/50 ${winner === match.team2 ? "ring-2 ring-offset-1 ring-offset-card" : "opacity-80"}`}
+            style={team2.logo ? (winner === match.team2 ? { ["--tw-ring-color" as any]: team2.color } : {}) : {
               backgroundColor: team2.color,
               color: team2.textColor,
-              ...(winner === match.team2 ? { ringColor: team2.color } : {}),
+              ...(winner === match.team2 ? { ["--tw-ring-color" as any]: team2.color } : {}),
             }}
           >
-            {team2.short.slice(0, 2)}
+            {team2.logo ? (
+              <img src={team2.logo} alt={team2.short} className="h-full w-full object-contain p-1" />
+            ) : (
+              team2.short.slice(0, 2)
+            )}
           </div>
           <span className={`font-display text-sm ${winner === match.team2 ? "text-foreground" : "text-muted-foreground"}`}>
             {team2.short}
