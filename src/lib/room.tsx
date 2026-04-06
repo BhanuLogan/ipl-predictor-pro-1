@@ -49,8 +49,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
             localStorage.setItem("active_room_id", myRooms[0].id.toString());
           }
         }
-      } else if (myRooms.length === 1) {
-        // No preference stored – auto-select the only room
+      } else if (myRooms.length > 0) {
+        // No preference stored – auto-select the first room
         setActiveRoom(myRooms[0]);
         localStorage.setItem("active_room_id", myRooms[0].id.toString());
       }

@@ -22,6 +22,9 @@ const Admin = () => {
   const [addVoteTeam, setAddVoteTeam] = useState("");
   const [addVoteLoading, setAddVoteLoading] = useState(false);
   const [addVoteError, setAddVoteError] = useState("");
+  const [changePwUsername, setChangePwUsername] = useState("");
+  const [changePwPassword, setChangePwPassword] = useState("");
+  const [changePwStatus, setChangePwStatus] = useState("");
 
   const loadData = async (roomId?: number) => {
     try {
@@ -116,6 +119,20 @@ const Admin = () => {
       alert("Error syncing: " + err.message);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!changePwUsername.trim() || !changePwPassword) return;
+    try {
+      setChangePwStatus("Updating...");
+      await api.adminSetPassword(changePwUsername.trim(), changePwPassword);
+      setChangePwStatus("✅ Password updated successfully");
+      setChangePwUsername("");
+      setChangePwPassword("");
+      setTimeout(() => setChangePwStatus(""), 3000);
+    } catch (err: any) {
+      setChangePwStatus(`❌ Error: ${err.message}`);
     }
   };
 
@@ -334,6 +351,37 @@ const Admin = () => {
                 >
                   🗑️ RESET ALL DATA
                 </button>
+              </div>
+
+              {/* User Management Section */}
+              <div className="rounded-xl border border-border bg-gradient-card p-4">
+                <div className="mb-3 flex items-center gap-2 text-muted-foreground">
+                  <span className="text-xs font-semibold uppercase tracking-wider">User Management - Reset Password</span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={changePwUsername}
+                    onChange={(e) => setChangePwUsername(e.target.value)}
+                    placeholder="Username"
+                    className="flex-1 rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <input
+                    type="password"
+                    value={changePwPassword}
+                    onChange={(e) => setChangePwPassword(e.target.value)}
+                    placeholder="New password"
+                    className="flex-1 rounded-xl border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={!changePwUsername.trim() || !changePwPassword}
+                    className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50"
+                  >
+                    Reset
+                  </button>
+                </div>
+                {changePwStatus && <p className="mt-2 text-xs text-foreground">{changePwStatus}</p>}
               </div>
 
               {/* Room Selector for Admin */}

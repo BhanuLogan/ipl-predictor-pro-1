@@ -78,10 +78,15 @@ const CompletedMatchCard = React.memo(({ match, result, myPick }: {
       </div>
 
       {/* Result badge */}
-      <div className="rounded-lg bg-secondary/10 border border-secondary/20 px-2 py-1.5 text-center">
+      <div className="rounded-lg bg-secondary/10 border border-secondary/20 px-2 py-1.5 text-center flex flex-col gap-1">
         <p className="text-[10px] font-semibold text-secondary">
           {isNR ? "🌧️ No Result" : isDraw ? "🤝 Tied" : `${IPL_TEAMS[winner]?.short || winner} won`}
         </p>
+        {result.scoreSummary && (
+          <p className="text-[9px] text-muted-foreground/80 leading-snug">
+            {result.scoreSummary}
+          </p>
+        )}
       </div>
 
       {/* My prediction */}

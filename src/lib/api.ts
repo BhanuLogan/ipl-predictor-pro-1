@@ -183,6 +183,14 @@ export const api = {
     return apiFetch("/api/admin/delete-vote", { method: "POST", body: JSON.stringify({ matchId, username, roomId }) });
   },
 
+  // Admin: set a user's password
+  async adminSetPassword(username: string, password: string) {
+    return apiFetch("/api/admin/set-password", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
   async updateProfile(data: { username?: string; password?: string; profile_pic?: string | null }) {
     const res = await apiFetch("/api/me", { method: "PUT", body: JSON.stringify(data) });
     if (res.token) setToken(res.token);

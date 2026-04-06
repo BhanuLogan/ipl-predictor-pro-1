@@ -10,7 +10,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked } from "@/lib/data";
 
-function outcomeLabel(outcome: string | null, prediction: string) {
+function outcomeLabel(outcome: string | null, prediction: string, isHidden: boolean) {
+  if (isHidden) return { emoji: "🔒", hint: "Prediction hidden until match starts" };
   if (!outcome) return { emoji: "⏳", hint: "Result pending" };
   if (outcome === "nr" || outcome === "draw")
     return { emoji: "🤝", hint: "+1 pt (tie / no result)" };
@@ -69,11 +70,9 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
               {votes.map((v) => {
                 const match = IPL_SCHEDULE.find((m) => m.id === v.matchId);
                 const isLocked = match ? isVotingLocked(match) : true;
-                const isHidden = username !== user?.username && !v.outcome;
+                const isHidden = username !== user?.username && !isLocked;
 
-                const { emoji, hint } = isHidden
-                  ? { emoji: "🔒", hint: "Prediction hidden until result is updated" }
-                  : outcomeLabel(v.outcome, v.prediction);
+                const { emoji, hint } = outcomeLabel(v.outcome, v.prediction, isHidden);
 
                 const pick = isHidden
                   ? "???"

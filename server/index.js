@@ -486,6 +486,20 @@ app.post("/api/admin/delete-vote", authMiddleware, adminMiddleware, asyncRoute(a
   res.json({ ok: true });
 }));
 
+app.post("/api/admin/set-password", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+  
+  const user = await queryOne("SELECT id FROM users WHERE username = $1", [username]);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  
+  const hash = await bcrypt.hash(password, 10);
+  await query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, user.id]);
+  
+  res.json({ ok: true });
+}));
+
 app.post("/api/admin/reset", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
   await query("DELETE FROM votes");
   await query("DELETE FROM results");
@@ -655,9 +669,10 @@ app.get("/api/users/:username/predictions", authMiddleware, asyncRoute(async (re
   const votes = rows.map((r) => {
     const isOwner = target.id === req.user.id;
     const isAdmin = req.user.is_admin;
+    const locked = isVotingLocked(r.matchId);
     
-    // If there is no outcome yet, hide the prediction from others
-    if (!r.outcome && !isOwner && !isAdmin) {
+    // If the match hasn't started yet, hide the prediction from others
+    if (!locked && !isOwner && !isAdmin) {
       return { ...r, prediction: "HIDDEN" };
     }
     return r;

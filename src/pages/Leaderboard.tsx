@@ -172,17 +172,6 @@ const Leaderboard = () => {
           <p className="mt-1 text-xs text-muted-foreground">
             ✅ Correct pick = 2 pts · 🤝 Tied/No Result = 1 pt everyone
           </p>
-          <div className="mt-4 flex justify-center">
-            <a
-              href="https://www.buymeacoffee.com/manoharcb"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-xl bg-[#FFDD00] px-4 py-2 text-xs font-bold text-black hover:bg-[#FFDD00]/90 transition-all shadow-md"
-            >
-              <Coffee size={14} fill="currentColor" />
-              <span>Enjoy the app? Buy me a coffee! ☕</span>
-            </a>
-          </div>
         </div>
 
         {/* Tab Toggler */}
