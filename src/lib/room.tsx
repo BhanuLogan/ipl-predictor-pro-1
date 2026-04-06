@@ -17,17 +17,19 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(() => !!user);
+  const [prevUser, setPrevUser] = useState(user);
 
-  useLayoutEffect(() => {
-    if (!user) {
+  // Synchronously update state on user transition to prevent premature redirects
+  if (user !== prevUser) {
+    setPrevUser(user);
+    if (user) {
+      setLoading(true);
+    } else {
       setRooms([]);
       setActiveRoom(null);
       setLoading(false);
-      return;
     }
-
-    setLoading(true);
-  }, [user]);
+  }
 
   const refreshRooms = useCallback(async () => {
     if (!user) return;
@@ -44,7 +46,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         } else {
           // Stored room no longer valid – clear and auto-select if only one
           localStorage.removeItem("active_room_id");
-          if (myRooms.length === 1) {
+          if (myRooms.length > 0) {
             setActiveRoom(myRooms[0]);
             localStorage.setItem("active_room_id", myRooms[0].id.toString());
           }
