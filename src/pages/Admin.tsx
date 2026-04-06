@@ -187,10 +187,10 @@ const Admin = () => {
         <div className="flex items-center gap-3 mb-3">
           <div className="flex items-center gap-2 flex-1">
             <div
-              className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ backgroundColor: team1.color, color: team1.textColor }}
+              className="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden bg-white shadow-sm border border-border/50"
+              style={team1.logo ? {} : { backgroundColor: team1.color, color: team1.textColor }}
             >
-              {team1.short.slice(0, 2)}
+              {team1.logo ? <img src={team1.logo} alt={team1.short} className="h-full w-full object-contain p-1" /> : team1.short.slice(0, 2)}
             </div>
             <span className="font-semibold text-sm text-foreground">{team1.short}</span>
           </div>
@@ -198,10 +198,10 @@ const Admin = () => {
           <div className="flex items-center gap-2 flex-1 justify-end">
             <span className="font-semibold text-sm text-foreground">{team2.short}</span>
             <div
-              className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ backgroundColor: team2.color, color: team2.textColor }}
+              className="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden bg-white shadow-sm border border-border/50"
+              style={team2.logo ? {} : { backgroundColor: team2.color, color: team2.textColor }}
             >
-              {team2.short.slice(0, 2)}
+              {team2.logo ? <img src={team2.logo} alt={team2.short} className="h-full w-full object-contain p-1" /> : team2.short.slice(0, 2)}
             </div>
           </div>
         </div>
@@ -481,10 +481,10 @@ const Admin = () => {
                         }`}
                       >
                         <div
-                          className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                          style={{ backgroundColor: team.color, color: team.textColor }}
+                          className="h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden bg-white shadow-sm border border-border/50"
+                          style={team.logo ? {} : { backgroundColor: team.color, color: team.textColor }}
                         >
-                          {team.short.slice(0, 2)}
+                          {team.logo ? <img src={team.logo} alt={team.short} className="h-full w-full object-contain p-1" /> : team.short.slice(0, 2)}
                         </div>
                         <span className="font-display text-sm text-foreground">{team.short}</span>
                       </button>

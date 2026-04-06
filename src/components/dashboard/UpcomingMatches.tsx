@@ -42,25 +42,25 @@ const UpcomingMatches = React.memo(({
               {formatMatchDate(match.date, match.time)}
             </p>
             <div className="mt-2.5 flex items-center justify-between">
-              <span
-                className="inline-block rounded-md px-2.5 py-0.5 text-xs font-bold leading-relaxed shadow-sm min-w-[3.5rem] text-center"
-                style={{
-                  backgroundColor: IPL_TEAMS[match.team1]?.color,
-                  color: IPL_TEAMS[match.team1]?.textColor,
-                }}
-              >
-                {match.team1}
-              </span>
-              <span className="text-[10px] font-bold text-muted-foreground uppercase">vs</span>
-              <span
-                className="inline-block rounded-md px-2.5 py-0.5 text-xs font-bold leading-relaxed shadow-sm min-w-[3.5rem] text-center"
-                style={{
-                  backgroundColor: IPL_TEAMS[match.team2]?.color,
-                  color: IPL_TEAMS[match.team2]?.textColor,
-                }}
-              >
-                {match.team2}
-              </span>
+              <div className="flex items-center gap-2">
+                <div 
+                  className="h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold overflow-hidden bg-white shadow-sm border border-border/50"
+                  style={IPL_TEAMS[match.team1]?.logo ? {} : { backgroundColor: IPL_TEAMS[match.team1]?.color, color: IPL_TEAMS[match.team1]?.textColor }}
+                >
+                  {IPL_TEAMS[match.team1]?.logo ? <img src={IPL_TEAMS[match.team1].logo} alt={match.team1} className="h-full w-full object-contain p-0.5" /> : match.team1.slice(0, 2)}
+                </div>
+                <span className="text-sm font-semibold text-foreground">{match.team1}</span>
+              </div>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase mx-2">vs</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">{match.team2}</span>
+                <div 
+                  className="h-7 w-7 shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold overflow-hidden bg-white shadow-sm border border-border/50"
+                  style={IPL_TEAMS[match.team2]?.logo ? {} : { backgroundColor: IPL_TEAMS[match.team2]?.color, color: IPL_TEAMS[match.team2]?.textColor }}
+                >
+                  {IPL_TEAMS[match.team2]?.logo ? <img src={IPL_TEAMS[match.team2].logo} alt={match.team2} className="h-full w-full object-contain p-0.5" /> : match.team2.slice(0, 2)}
+                </div>
+              </div>
             </div>
             <p className="mt-3 flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium italic">
               <MapPin size={10} className="text-primary/70" />
