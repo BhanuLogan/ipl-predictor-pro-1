@@ -17,19 +17,17 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const [activeRoom, setActiveRoom] = useState<Room | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(() => !!user);
-  const [prevUser, setPrevUser] = useState(user);
 
-  // Synchronously update state on user transition to prevent premature redirects
-  if (user !== prevUser) {
-    setPrevUser(user);
-    if (user) {
-      setLoading(true);
-    } else {
+  useLayoutEffect(() => {
+    if (!user) {
       setRooms([]);
       setActiveRoom(null);
       setLoading(false);
+      return;
     }
-  }
+
+    setLoading(true);
+  }, [user]);
 
   const refreshRooms = useCallback(async () => {
     if (!user) return;
@@ -39,22 +37,17 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       setRooms(myRooms);
 
       const storedId = localStorage.getItem("active_room_id");
-      if (storedId) {
-        const found = myRooms.find(r => r.id === parseInt(storedId));
-        if (found) {
-          setActiveRoom(found);
-        } else {
-          // Stored room no longer valid – clear and auto-select if only one
-          localStorage.removeItem("active_room_id");
-          if (myRooms.length > 0) {
-            setActiveRoom(myRooms[0]);
-            localStorage.setItem("active_room_id", myRooms[0].id.toString());
-          }
-        }
-      } else if (myRooms.length > 0) {
-        // No preference stored – auto-select the first room
-        setActiveRoom(myRooms[0]);
-        localStorage.setItem("active_room_id", myRooms[0].id.toString());
+      const preferredRoom =
+        (storedId ? myRooms.find((room) => room.id === Number(storedId)) : null) ??
+        myRooms[0] ??
+        null;
+
+      setActiveRoom(preferredRoom);
+
+      if (preferredRoom) {
+        localStorage.setItem("active_room_id", preferredRoom.id.toString());
+      } else {
+        localStorage.removeItem("active_room_id");
       }
     } catch (e) {
       console.error("Failed to load rooms", e);
