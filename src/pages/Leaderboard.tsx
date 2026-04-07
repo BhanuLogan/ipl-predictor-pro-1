@@ -7,19 +7,9 @@ import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api, type LeaderboardEntry } from "@/lib/api";
 import UserPredictionsDialog from "@/components/UserPredictionsDialog";
-import { getAvatarUrl } from "@/lib/utils";
+import { getAvatarUrl, assignRanks } from "@/lib/utils";
 import Footer from "@/components/Footer";
 
-/* ─── Rank assignment (tie = same rank, next is gap-ranked) ─── */
-function assignRanks(entries: LeaderboardEntry[]): (LeaderboardEntry & { rank: number })[] {
-  return entries.map((entry, i, arr) => {
-    const rank = i === 0 ? 1 : arr[i - 1].points === entry.points
-      ? (arr as any)[i - 1]._rank
-      : i + 1;
-    (entry as any)._rank = rank;
-    return { ...entry, rank };
-  });
-}
 
 /* ─── Skeleton row ─── */
 const SkeletonRow = ({ delay = 0 }: { delay?: number }) => (

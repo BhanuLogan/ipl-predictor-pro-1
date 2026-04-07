@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked, type MatchResult } from "@/lib/data";
+import { assignRanks } from "@/lib/utils";
 
 const PollPage = () => {
   const { matchId } = useParams<{ matchId: string }>();
@@ -15,6 +16,8 @@ const PollPage = () => {
   const [myVotes, setMyVotes] = useState<Record<string, string>>({});
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>({});
   const [results, setResults] = useState<Record<string, MatchResult>>({});
+  const [userRanks, setUserRanks] = useState<Record<string, number>>({});
+  const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({});
   const [loading, setLoading] = useState(true);
 
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
@@ -22,10 +25,11 @@ const PollPage = () => {
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
     try {
-      const [votes, counts, r] = await Promise.all([
+      const [votes, counts, r, boardData] = await Promise.all([
         api.getVotes(activeRoom.id),
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
+        api.getRoomLeaderboard(activeRoom.id),
       ]);
       if (user) {
         const mine: Record<string, string> = {};
@@ -38,6 +42,14 @@ const PollPage = () => {
       }
       setVoteCounts(counts);
       setResults(r);
+      setAllVotes(votes);
+      
+      const ranked = assignRanks(boardData);
+      const ranks: Record<string, number> = {};
+      ranked.forEach(entry => {
+        ranks[entry.username] = entry.rank;
+      });
+      setUserRanks(ranks);
     } catch {} finally {
       setLoading(false);
     }
@@ -111,6 +123,9 @@ const PollPage = () => {
           scoreSummary={results[match.id]?.scoreSummary}
           onVote={handleVote}
           isOpen={!results[match.id]?.winner}
+          allVotes={allVotes[match.id]}
+          userRanks={userRanks}
+          roomId={activeRoom?.id}
         />
       </main>
     </div>

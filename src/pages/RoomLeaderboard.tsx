@@ -6,20 +6,10 @@ import { api, type LeaderboardEntry, type Room } from "@/lib/api";
 import UserPredictionsDialog from "@/components/UserPredictionsDialog";
 import { ArrowLeft, Copy, Check, Coffee } from "lucide-react";
 
-import { getAvatarUrl } from "@/lib/utils";
+import { getAvatarUrl, assignRanks } from "@/lib/utils";
 import Footer from "@/components/Footer";
 
 
-/* ─── Rank helper ─── */
-function assignRanks(entries: LeaderboardEntry[]): (LeaderboardEntry & { rank: number })[] {
-  return entries.map((entry, i, arr) => {
-    const rank = i === 0 ? 1 : arr[i - 1].points === entry.points
-      ? (arr[i - 1] as any)._rank
-      : i + 1;
-    (entry as any)._rank = rank;
-    return { ...entry, rank };
-  });
-}
 
 /* ─── Skeleton loading ─── */
 const SkeletonRow = ({ delay = 0 }: { delay?: number }) => (

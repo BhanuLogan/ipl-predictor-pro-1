@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { IPL_TEAMS, type Match, formatMatchDate, isVotingLocked } from "@/lib/data";
 import { Check, MapPin, Calendar, Share2, Lock, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 
+import UserPredictionsDialog from "./UserPredictionsDialog";
+
 interface MatchPollProps {
   match: Match;
   voteCounts: Record<string, number>; // { teamShort: count }
@@ -13,14 +15,17 @@ interface MatchPollProps {
   onVote: (matchId: string, prediction: string, isBulk?: boolean) => void;
   isOpen: boolean;
   allVotes?: Record<string, string>;
+  userRanks?: Record<string, number>;
+  roomId?: number;
 }
 
-const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes }: MatchPollProps) => {
+const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes, userRanks, roomId }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
   const [isExpanded, setIsExpanded] = useState(!result); // Collapsed by default if completed
   const [applyToAll, setApplyToAll] = useState(false);
+  const [pickUser, setPickUser] = useState<string | null>(null);
 
   // Sync when myPick loads asynchronously (e.g. after page refresh)
   useEffect(() => {
@@ -179,7 +184,9 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
           totalVotes={totalVotes}
           showVotes={isCompleted || locked} // Only show team votes when locked or completed
           voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team1) : []}
-          showVoters={locked}
+          showVoters={locked || isCompleted}
+          userRanks={userRanks}
+          onVoterClick={setPickUser}
         />
 
         <div className="flex flex-col items-center">
@@ -201,7 +208,9 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
           totalVotes={totalVotes}
           showVotes={isCompleted || locked} // Only show team votes when locked or completed
           voters={allVotes ? Object.keys(allVotes).filter(u => allVotes[u] === match.team2) : []}
-          showVoters={locked}
+          showVoters={locked || isCompleted}
+          userRanks={userRanks}
+          onVoterClick={setPickUser}
         />
       </div>
 
@@ -274,6 +283,15 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
           <span>Voting closed at 7:30 PM IST</span>
         </div>
       )}
+
+      <UserPredictionsDialog
+        username={pickUser}
+        roomId={roomId || null}
+        open={!!pickUser}
+        onOpenChange={(o) => {
+          if (!o) setPickUser(null);
+        }}
+      />
     </div>
   );
 };
@@ -291,6 +309,8 @@ function TeamButton({
   showVotes,
   voters,
   showVoters,
+  userRanks,
+  onVoterClick,
 }: {
   team: { name: string; short: string; color: string; textColor: string; logo?: string };
   teamKey: string;
@@ -304,6 +324,8 @@ function TeamButton({
   showVotes: boolean;
   voters?: string[];
   showVoters?: boolean;
+  userRanks?: Record<string, number>;
+  onVoterClick?: (username: string) => void;
 }) {
   const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
 
@@ -355,7 +377,16 @@ function TeamButton({
               <p className="text-[9px] font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-center">Voters</p>
               <div className="flex flex-wrap gap-1 justify-center">
                 {voters.map(v => (
-                  <span key={v} className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted transition-colors">{v}</span>
+                  <button
+                    key={v}
+                    onClick={() => onVoterClick?.(v)}
+                    className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted hover:border-primary/30 transition-colors"
+                  >
+                    {v}
+                    {userRanks && userRanks[v] && (
+                      <span className="ml-1 text-muted-foreground font-semibold">({userRanks[v]})</span>
+                    )}
+                  </button>
                 ))}
               </div>
             </div>
