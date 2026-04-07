@@ -274,7 +274,7 @@ const Leaderboard = () => {
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {entry.voted} voted · {entry.correct} correct · {entry.matches} total
+                        {entry.voted} voted · {entry.correct} correct · {entry.nr} NR · {entry.matches} total
                       </p>
                     </div>
 
@@ -301,6 +301,7 @@ const Leaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Voted</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Wins</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NR</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
                 </tr>
@@ -340,7 +341,8 @@ const Leaderboard = () => {
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.matches}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.voted}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-secondary">{entry.correct}</td>
-                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct - entry.nr}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-muted-foreground">{entry.nr}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium">
                       {entry.nrr == null ? "—" : (entry.nrr / 100).toFixed(3)}
                     </td>

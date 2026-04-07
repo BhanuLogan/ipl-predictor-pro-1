@@ -254,7 +254,7 @@ const RoomLeaderboard = () => {
                         {entry.username}
                         {entry.username === user.username && <span className="ml-2 text-xs text-primary">(You)</span>}
                       </p>
-                      <p className="text-xs text-muted-foreground">{entry.voted} voted · {entry.correct} correct · {entry.matches} total</p>
+                      <p className="text-xs text-muted-foreground">{entry.voted} voted · {entry.correct} correct · {entry.nr} NR · {entry.matches} total</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-display text-3xl text-gradient-gold leading-none">{entry.points}</p>
@@ -279,6 +279,7 @@ const RoomLeaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Voted</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Wins</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NR</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
                 </tr>
@@ -318,7 +319,8 @@ const RoomLeaderboard = () => {
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.matches}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.voted}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-secondary">{entry.correct}</td>
-                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct - entry.nr}</td>
+                    <td className="px-4 py-4 text-center text-sm font-medium text-muted-foreground">{entry.nr}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium">
                       {entry.nrr == null ? "—" : (entry.nrr / 100).toFixed(3)}
                     </td>

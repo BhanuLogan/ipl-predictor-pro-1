@@ -375,19 +375,23 @@ function TeamButton({
             <div className="mt-2 text-left w-full border-t border-muted/50 pt-2 px-1 max-h-24 overflow-y-auto custom-scrollbar">
               <p className="text-[9px] font-semibold text-muted-foreground mb-1 uppercase tracking-wider text-center">Voters</p>
               <div className="flex flex-wrap gap-1 justify-center">
-                {voters.map(v => (
-                  <button
-                    key={v}
-                    onClick={(e) => { e.stopPropagation(); onVoterClick?.(v); }}
-                    type="button"
-                    className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted hover:border-primary/30 transition-colors relative z-10"
-                  >
-                    {v}
-                    {userRanks && userRanks[v] !== undefined && (
-                      <span className="text-muted-foreground font-medium">({userRanks[v]})</span>
-                    )}
-                  </button>
-                ))}
+                {voters.map(v => {
+                  const normalizedUser = v.toLowerCase().trim();
+                  const rank = userRanks?.[normalizedUser];
+                  return (
+                    <button
+                      key={v}
+                      onClick={(e) => { e.stopPropagation(); onVoterClick?.(v); }}
+                      type="button"
+                      className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted hover:border-primary/30 transition-colors relative z-10"
+                    >
+                      {v}
+                      {rank !== undefined && (
+                        <span className="text-muted-foreground font-medium italic">({rank})</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -46,6 +46,7 @@ export interface LeaderboardEntry {
   username: string;
   profile_pic?: string;
   points: number;
+  nr: number;
   correct: number;
   voted: number;
   matches: number;

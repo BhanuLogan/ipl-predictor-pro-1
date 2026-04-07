@@ -604,6 +604,9 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
         END
       ), 0)::int AS points,
       COALESCE(SUM(
+        CASE WHEN r.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
+      ), 0)::int AS nr,
+      COALESCE(SUM(
         CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
       COALESCE(COUNT(r.match_id), 0)::int AS voted,
@@ -766,7 +769,10 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
         END
       ), 0)::int AS points,
       COALESCE(SUM(
-        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr','draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
+        CASE WHEN r.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
+      ), 0)::int AS nr,
+      COALESCE(SUM(
+        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
       COALESCE(COUNT(r.match_id), 0)::int AS voted,
       (SELECT COUNT(*)::int FROM results) AS matches

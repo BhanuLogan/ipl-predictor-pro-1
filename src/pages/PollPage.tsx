@@ -48,7 +48,8 @@ const PollPage = () => {
       const ranked = assignRanks(sortedData);
       const ranks: Record<string, number> = {};
       ranked.forEach(entry => {
-        ranks[entry.username] = entry.rank;
+        // Store keys in lowercase for case-insensitive lookup
+        ranks[entry.username.toLowerCase().trim()] = entry.rank;
       });
       setUserRanks(ranks);
     } catch {} finally {
