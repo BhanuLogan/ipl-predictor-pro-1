@@ -330,16 +330,15 @@ function TeamButton({
   const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
 
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
+    <div
+      onClick={!disabled ? onClick : undefined}
       className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
         selected
           ? "border-primary shadow-lg scale-[1.02]"
           : isWinner
           ? "border-secondary shadow-lg"
           : "border-border hover:border-muted-foreground/30"
-      } ${disabled && !isWinner ? "opacity-70" : ""}`}
+      } ${disabled && !isWinner ? "opacity-70" : ""} ${!disabled ? "cursor-pointer" : ""}`}
     >
       <div
         className="flex h-14 w-14 items-center justify-center rounded-full text-xl font-bold overflow-hidden bg-white shadow-inner"
@@ -379,11 +378,12 @@ function TeamButton({
                 {voters.map(v => (
                   <button
                     key={v}
-                    onClick={() => onVoterClick?.(v)}
-                    className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted hover:border-primary/30 transition-colors"
+                    onClick={(e) => { e.stopPropagation(); onVoterClick?.(v); }}
+                    type="button"
+                    className="rounded bg-background border border-border/50 px-1.5 py-0.5 text-[9px] text-foreground hover:bg-muted hover:border-primary/30 transition-colors relative z-10"
                   >
                     {v}
-                    {userRanks && userRanks[v] && (
+                    {userRanks && userRanks[v] !== undefined && (
                       <span className="ml-1 text-muted-foreground font-semibold">({userRanks[v]})</span>
                     )}
                   </button>
@@ -397,7 +397,7 @@ function TeamButton({
       {isWinner && (
         <span className="absolute -top-2 -right-2 text-lg">🏆</span>
       )}
-    </button>
+    </div>
   );
 }
 

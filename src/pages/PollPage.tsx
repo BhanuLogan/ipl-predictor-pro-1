@@ -44,7 +44,8 @@ const PollPage = () => {
       setResults(r);
       setAllVotes(votes);
       
-      const ranked = assignRanks(boardData);
+      const sortedData = [...boardData].sort((a, b) => b.points - a.points);
+      const ranked = assignRanks(sortedData);
       const ranks: Record<string, number> = {};
       ranked.forEach(entry => {
         ranks[entry.username] = entry.rank;
