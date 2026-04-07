@@ -384,7 +384,7 @@ function TeamButton({
                   >
                     {v}
                     {userRanks && userRanks[v] !== undefined && (
-                      <span className="ml-1 text-muted-foreground font-semibold">({userRanks[v]})</span>
+                      <span className="text-muted-foreground font-medium">({userRanks[v]})</span>
                     )}
                   </button>
                 ))}
