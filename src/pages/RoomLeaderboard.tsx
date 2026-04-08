@@ -144,16 +144,10 @@ const RoomLeaderboard = () => {
           {room ? (
             <>
               <h2 className="font-display text-5xl text-gradient-gold sm:text-6xl">{room.name.toUpperCase()}</h2>
-              <p className="mt-2 text-muted-foreground">Room leaderboard 🏆</p>
-              <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2">
-                <code className="font-mono text-sm font-bold text-foreground tracking-[0.2em]">{room.invite_code}</code>
-                <CopyBtn text={room.invite_code} />
-              </div>
             </>
           ) : (
             <div className="h-14 w-48 mx-auto rounded bg-muted/40 animate-pulse" />
           )}
-          <p className="mt-3 text-xs text-muted-foreground">✅ Correct pick = 2 pts · 🤝 Tied/No Result = 1 pt everyone</p>
         </div>
 
         {/* Tab Toggler */}

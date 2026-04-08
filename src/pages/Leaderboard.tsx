@@ -158,10 +158,6 @@ const Leaderboard = () => {
         {/* Title */}
         <div className="mb-8 text-center">
           <h2 className="font-display text-5xl text-gradient-gold sm:text-6xl">LEADERBOARD</h2>
-          <p className="mt-2 text-muted-foreground">Who's the ultimate cricket oracle? 🏆</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            ✅ Correct pick = 2 pts · 🤝 Tied/No Result = 1 pt everyone
-          </p>
         </div>
 
         {/* Tab Toggler */}
