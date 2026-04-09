@@ -19,17 +19,19 @@ const PollPage = () => {
   const [userRanks, setUserRanks] = useState<Record<string, number>>({});
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({});
   const [loading, setLoading] = useState(true);
+  const [overrides, setOverrides] = useState<Record<string, any>>({});
 
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
     try {
-      const [votes, counts, r, boardData] = await Promise.all([
+      const [votes, counts, r, boardData, ovs] = await Promise.all([
         api.getVotes(activeRoom.id),
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
         api.getRoomLeaderboard(activeRoom.id),
+        api.getMatchOverrides(),
       ]);
       if (user) {
         const mine: Record<string, string> = {};
@@ -52,6 +54,9 @@ const PollPage = () => {
         ranks[entry.username.toLowerCase().trim()] = entry.rank;
       });
       setUserRanks(ranks);
+      const ovMap: Record<string, any> = {};
+      ovs.forEach((o: any) => { ovMap[o.match_id] = o; });
+      setOverrides(ovMap);
     } catch {} finally {
       setLoading(false);
     }
@@ -94,8 +99,8 @@ const PollPage = () => {
      return null;
   }
 
-  const openMatches = getPollOpenMatches(results);
-  const isValid = openMatches.some(m => m.id === match.id) || !!results[match.id]?.winner || isVotingLocked(match);
+  const openMatches = getPollOpenMatches(results, overrides);
+  const isValid = openMatches.some(m => m.id === match.id) || !!results[match.id]?.winner || isVotingLocked(match, overrides[match.id]);
 
   if (!isValid) {
     return (
@@ -128,6 +133,7 @@ const PollPage = () => {
           allVotes={allVotes[match.id]}
           userRanks={userRanks}
           roomId={activeRoom?.id}
+          override={overrides[match.id]}
         />
       </main>
     </div>

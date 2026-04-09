@@ -69,8 +69,7 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
             <ul className="space-y-2.5 text-sm">
               {votes.map((v) => {
                 const match = IPL_SCHEDULE.find((m) => m.id === v.matchId);
-                const isLocked = match ? isVotingLocked(match) : true;
-                const isHidden = username !== user?.username && !isLocked;
+                const isHidden = v.prediction === "HIDDEN";
 
                 const { emoji, hint } = outcomeLabel(v.outcome, v.prediction, isHidden);
 

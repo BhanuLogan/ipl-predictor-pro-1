@@ -165,6 +165,7 @@ const Index = () => {
           completedCount={completedCount}
           results={results}
           overrides={overrides}
+          roomId={activeRoom.id}
         />
 
         {/* Completed Matches – horizontal scrolling cards */}

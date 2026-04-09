@@ -17,9 +17,10 @@ interface MatchPollProps {
   allVotes?: Record<string, string>;
   userRanks?: Record<string, number>;
   roomId?: number;
+  override?: { manual_locked: boolean | null; lock_delay: number };
 }
 
-const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes, userRanks, roomId }: MatchPollProps) => {
+const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes, userRanks, roomId, override }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
@@ -38,7 +39,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
   const team1 = IPL_TEAMS[match.team1];
   const team2 = IPL_TEAMS[match.team2];
   const isCompleted = !!result;
-  const locked = isVotingLocked(match);
+  const locked = isVotingLocked(match, override);
 
   const handleVote = () => {
     if (!selected) return;
