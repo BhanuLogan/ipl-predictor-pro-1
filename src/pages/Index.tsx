@@ -60,14 +60,12 @@ const Index = () => {
     loadData();
 
     // Check for last poll summary
-    if (!sessionStorage.getItem("poll_summary_shown")) {
-      api.getLastPollSummary().then((res) => {
-        if (res && !res.noData) {
-          setSummary(res);
-          setShowSummary(true);
-        }
-      }).catch(() => {});
-    }
+    api.getLastPollSummary().then((res) => {
+      if (res && !res.noData) {
+        setSummary(res);
+        setShowSummary(true);
+      }
+    }).catch(() => {});
 
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
@@ -127,7 +125,6 @@ const Index = () => {
           summary={summary} 
           onClose={() => {
             setShowSummary(false);
-            sessionStorage.setItem("poll_summary_shown", "true");
           }} 
         />
       )}

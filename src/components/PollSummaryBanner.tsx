@@ -21,8 +21,6 @@ const PollSummaryBanner: React.FC<PollSummaryBannerProps> = ({ summary, onClose 
     currentRank,
     prevRank,
     rankChange,
-    winners,
-    winnersCount,
   } = summary;
 
   const t1 = IPL_TEAMS[team1];
@@ -90,9 +88,13 @@ const PollSummaryBanner: React.FC<PollSummaryBannerProps> = ({ summary, onClose 
                    userStatus === 'lost' ? "Tough Luck This Time!" : 
                    "You missed this poll"}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {pointsGained > 0 ? `+${pointsGained} Points earned` : "No points earned"}
-                </p>
+                <div className="flex items-center gap-2">
+                   <p className="text-xs text-muted-foreground">
+                    {pointsGained > 0 ? `+${pointsGained} Points earned` : "No points earned"}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground">•</span>
+                  <p className="text-xs font-bold text-primary">Rank #{currentRank}</p>
+                </div>
               </div>
             </div>
             
@@ -112,30 +114,53 @@ const PollSummaryBanner: React.FC<PollSummaryBannerProps> = ({ summary, onClose 
                   </div>
                 )}
               </div>
-              <p className="text-sm font-bold">Current Rank: <span className="text-primary">#{currentRank}</span></p>
             </div>
           </div>
 
-          {/* Winners Highlights */}
-          <div className="mt-6">
-            <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground">
-              <Trophy size={16} className="text-primary" />
-              <span>WHO WON THE POLL?</span>
+          {/* Community Impact Section */}
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground">
+                <Trophy size={16} className="text-primary" />
+                <span>COMMUNITY IMPACT</span>
+              </div>
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{summary.userOutcomes.length} Participants</span>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {winners.map((name) => (
-                <span key={name} className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                  {name}
-                </span>
+
+            <div className="max-h-[220px] overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+              {summary.userOutcomes.sort((a, b) => b.rankChange - a.rankChange).map((outcome) => (
+                <div key={outcome.username} className="flex items-center justify-between rounded-xl bg-muted/30 p-3 border border-border/50">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-2 w-2 rounded-full ${outcome.status === 'won' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-400 opacity-50'}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground leading-none">{outcome.username}</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground uppercase tracking-tighter">
+                        Picked {outcome.prediction}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground font-medium uppercase leading-none mb-1">Rank</p>
+                      <p className="text-xs font-bold text-foreground">#{outcome.currentRank}</p>
+                    </div>
+                    <div className="w-16 flex justify-end">
+                      {outcome.rankChange > 0 ? (
+                        <div className="flex items-center gap-0.5 text-green-500 text-[10px] font-bold">
+                          <TrendingUp size={12} /> {outcome.rankChange}
+                        </div>
+                      ) : outcome.rankChange < 0 ? (
+                        <div className="flex items-center gap-0.5 text-red-400 text-[10px] font-bold">
+                          <TrendingDown size={12} /> {Math.abs(outcome.rankChange)}
+                        </div>
+                      ) : (
+                        <div className="text-muted-foreground text-[10px] font-bold">-</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               ))}
-              {winnersCount > winners.length && (
-                <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
-                  +{winnersCount - winners.length} others
-                </span>
-              )}
-              {winnersCount === 0 && (
-                <p className="text-xs text-muted-foreground italic">No one predicted correctly this time!</p>
-              )}
             </div>
           </div>
         </div>

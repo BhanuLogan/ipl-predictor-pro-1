@@ -614,7 +614,6 @@ async function getLeaderboardInternal() {
     FROM users u
     LEFT JOIN votes v ON v.user_id = u.id
     LEFT JOIN results r ON r.match_id = v.match_id
-    WHERE NOT u.is_admin
     GROUP BY u.id, u.username, u.profile_pic
   `);
 
@@ -688,11 +687,12 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
     ? (isCorrect ? 'won' : 'lost')
     : 'no_vote';
 
-  // 4. Rank Change Calculation
+  // 4. Rank Change Calculation for ALL users in this match
   const currentBoard = await getLeaderboardInternal();
   
-  // Previous points calculation
+  // Previous points calculation for all users
   const prevBoard = currentBoard.map(user => {
+    // Only subtract if they voted in THIS match
     const vote = votes.find(v => v.user_id === user.user_id);
     let pointsGained = 0;
     let correctGained = 0;
@@ -712,7 +712,7 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
     };
   });
 
-  // Re-sort previous board
+  // Re-sort previous board to get previous ranks
   prevBoard.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.correct !== a.correct) return b.correct - a.correct;
@@ -729,9 +729,24 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
 
   const currentRank = getRank(currentBoard, req.user.id);
   const prevRank = getRank(prevBoard, req.user.id);
-  const pointsGained = (userVote && lastResult.winner === 'nr' || lastResult.winner === 'draw') 
+  const pointsGained = (userVote && (lastResult.winner === 'nr' || lastResult.winner === 'draw')) 
     ? 1 
     : (userVote && userVote.prediction === lastResult.winner ? 2 : 0);
+
+  // User outcomes for everyone who participated
+  const userOutcomes = votes.map(v => {
+    const cRank = getRank(currentBoard, v.user_id);
+    const pRank = getRank(prevBoard, v.user_id);
+    const correct = v.prediction === lastResult.winner || ['nr', 'draw'].includes(lastResult.winner);
+    return {
+      username: v.username,
+      prediction: v.prediction,
+      status: correct ? 'won' : 'lost',
+      currentRank: cRank,
+      prevRank: pRank,
+      rankChange: pRank - cRank
+    };
+  });
 
   res.json({
     matchId,
@@ -745,8 +760,7 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
     currentRank,
     prevRank,
     rankChange: prevRank - currentRank,
-    winners: winners.slice(0, 5),
-    winnersCount: winners.length,
+    userOutcomes,
     totalVoters: votes.length
   });
 }));
@@ -886,7 +900,6 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
     LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1 AND v.created_at >= $2
     LEFT JOIN results r ON r.match_id = v.match_id
-    WHERE NOT u.is_admin
     GROUP BY u.id, u.username, u.profile_pic
   `, [roomId, room.created_at]);
 
