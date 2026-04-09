@@ -73,9 +73,11 @@ const Index = () => {
     api.getLastPollSummary().then((res) => {
       if (res && !res.noData) {
         const lastSeen = localStorage.getItem("lastSeenMatchId");
-        if (res.matchId !== lastSeen) {
+        const forceShow = sessionStorage.getItem("forceShowBanner") === "true";
+        if (forceShow || res.matchId !== lastSeen) {
           setSummary(res);
           setShowSummary(true);
+          sessionStorage.removeItem("forceShowBanner");
         }
       }
     }).catch(() => {});

@@ -5,7 +5,8 @@ import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
 import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X, RefreshCcw } from "lucide-react";
-import { type MatchOverride } from "@/lib/api";
+import { type MatchOverride, type PollSummary } from "@/lib/api";
+import PollSummaryBanner from "@/components/PollSummaryBanner";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
@@ -31,6 +32,8 @@ const Admin = () => {
   const [announcementText, setAnnouncementText] = useState("");
   const [currentAnnouncement, setCurrentAnnouncement] = useState("");
   const [announcementLoading, setAnnouncementLoading] = useState(false);
+  const [summary, setSummary] = useState<PollSummary | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
 
   const loadData = async (roomId?: number) => {
     try {
@@ -63,6 +66,19 @@ const Admin = () => {
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
     loadData();
+
+    // Check for last poll summary
+    api.getLastPollSummary().then((res) => {
+      if (res && !res.noData) {
+        const lastSeen = localStorage.getItem("lastSeenMatchId");
+        const forceShow = sessionStorage.getItem("forceShowBanner") === "true";
+        if (forceShow || res.matchId !== lastSeen) {
+          setSummary(res);
+          setShowSummary(true);
+          sessionStorage.removeItem("forceShowBanner");
+        }
+      }
+    }).catch(() => {});
   }, [user, navigate]);
 
   const handleUnlock = async () => {
@@ -397,6 +413,15 @@ const Admin = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
+      {showSummary && summary && (
+        <PollSummaryBanner 
+          summary={summary} 
+          onClose={() => {
+            setShowSummary(false);
+            if (summary) localStorage.setItem("lastSeenMatchId", summary.matchId);
+          }} 
+        />
+      )}
 
       <main className="container mx-auto max-w-2xl px-4 py-8">
         <div className="mb-8 text-center">
