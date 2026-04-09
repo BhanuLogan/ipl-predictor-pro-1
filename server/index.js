@@ -172,6 +172,8 @@ async function initDb() {
     );
   `);
 
+  await query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL;`);
+
   await query(`
     CREATE TABLE IF NOT EXISTS match_overrides (
       match_id TEXT PRIMARY KEY,
