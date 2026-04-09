@@ -13,7 +13,9 @@ const Header = () => {
 
   const navItems = user?.is_admin
     ? [
+        { path: "/", label: "Polls", icon: Vote },
         { path: "/rooms", label: "Rooms", icon: Users },
+        { path: activeRoom ? `/rooms/${activeRoom.id}` : "/rooms", label: "Leaderboard", icon: Trophy },
         { path: "/admin", label: "Admin", icon: Shield },
       ]
     : [

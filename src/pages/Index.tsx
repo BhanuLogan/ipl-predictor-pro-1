@@ -10,6 +10,8 @@ import OpenPolls from "@/components/dashboard/OpenPolls";
 import CompletedMatches from "@/components/dashboard/CompletedMatches";
 import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import Footer from "@/components/Footer";
+import PollSummaryBanner from "@/components/PollSummaryBanner";
+import type { PollSummary } from "@/lib/api";
 
 const PAGE_SIZE = 10;
 
@@ -24,6 +26,8 @@ const Index = () => {
 
   // Pagination for upcoming
   const [upcomingPage, setUpcomingPage] = useState(1);
+  const [summary, setSummary] = useState<PollSummary | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
@@ -52,9 +56,19 @@ const Index = () => {
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
-    if (user.is_admin) { navigate("/admin"); return; }
     if (!roomLoading && !activeRoom) { navigate("/rooms"); return; }
     loadData();
+
+    // Check for last poll summary
+    if (!sessionStorage.getItem("poll_summary_shown")) {
+      api.getLastPollSummary().then((res) => {
+        if (res && !res.noData) {
+          setSummary(res);
+          setShowSummary(true);
+        }
+      }).catch(() => {});
+    }
+
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
   }, [user, navigate, loadData, activeRoom, roomLoading]);
@@ -108,6 +122,15 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
+      {showSummary && summary && (
+        <PollSummaryBanner 
+          summary={summary} 
+          onClose={() => {
+            setShowSummary(false);
+            sessionStorage.setItem("poll_summary_shown", "true");
+          }} 
+        />
+      )}
 
       <main className="container mx-auto max-w-2xl px-4 py-8">
         {/* Active Room Indicator */}

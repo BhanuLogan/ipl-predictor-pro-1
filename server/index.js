@@ -589,7 +589,7 @@ function computeUserTimingStats(voteRows) {
   return out;
 }
 
-app.get("/api/leaderboard", asyncRoute(async (req, res) => {
+async function getLeaderboardInternal() {
   const board = await query(`
     SELECT
       u.id AS user_id,
@@ -642,7 +642,113 @@ app.get("/api/leaderboard", asyncRoute(async (req, res) => {
     return a.username.localeCompare(b.username);
   });
 
+  return enriched;
+}
+
+app.get("/api/leaderboard", asyncRoute(async (req, res) => {
+  const enriched = await getLeaderboardInternal();
   res.json(enriched);
+}));
+
+app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) => {
+  // 1. Get the latest match with a result
+  const lastResult = await queryOne(`
+    SELECT r.match_id, r.winner, r.score_summary, r.created_at
+    FROM results r
+    ORDER BY r.created_at DESC
+    LIMIT 1
+  `);
+
+  if (!lastResult) {
+    return res.json({ noData: true });
+  }
+
+  const matchId = lastResult.match_id;
+  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  if (!match) return res.json({ noData: true });
+
+  // 2. Get votes for this match
+  const votes = await query(`
+    SELECT v.user_id, u.username, v.prediction
+    FROM votes v
+    JOIN users u ON v.user_id = u.id
+    WHERE v.match_id = $1
+  `, [matchId]);
+
+  const winners = votes.filter(v => v.prediction === lastResult.winner).map(v => v.username);
+  
+  // 3. User specific status
+  const userVote = votes.find(v => v.user_id === req.user.id);
+  const isCorrect = userVote && (
+    userVote.prediction === lastResult.winner || 
+    (['nr', 'draw'].includes(lastResult.winner))
+  );
+  
+  const userStatus = userVote 
+    ? (isCorrect ? 'won' : 'lost')
+    : 'no_vote';
+
+  // 4. Rank Change Calculation
+  const currentBoard = await getLeaderboardInternal();
+  
+  // Previous points calculation
+  const prevBoard = currentBoard.map(user => {
+    const vote = votes.find(v => v.user_id === user.user_id);
+    let pointsGained = 0;
+    let correctGained = 0;
+    if (vote) {
+      if (lastResult.winner === 'nr' || lastResult.winner === 'draw') {
+        pointsGained = 1;
+      } else if (vote.prediction === lastResult.winner) {
+        pointsGained = 2;
+        correctGained = 1;
+      }
+    }
+    return {
+      ...user,
+      points: user.points - pointsGained,
+      correct: user.correct - correctGained,
+      voted: user.voted - (vote ? 1 : 0)
+    };
+  });
+
+  // Re-sort previous board
+  prevBoard.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.correct !== a.correct) return b.correct - a.correct;
+    const valA = a.nrr ?? -Infinity;
+    const valB = b.nrr ?? -Infinity;
+    if (valB !== valA) return valB - valA;
+    return a.username.localeCompare(b.username);
+  });
+
+  const getRank = (board, userId) => {
+    const idx = board.findIndex(u => u.user_id === userId);
+    return idx === -1 ? board.length : idx + 1;
+  };
+
+  const currentRank = getRank(currentBoard, req.user.id);
+  const prevRank = getRank(prevBoard, req.user.id);
+  const pointsGained = (userVote && lastResult.winner === 'nr' || lastResult.winner === 'draw') 
+    ? 1 
+    : (userVote && userVote.prediction === lastResult.winner ? 2 : 0);
+
+  res.json({
+    matchId,
+    team1: match.team1,
+    team2: match.team2,
+    winner: lastResult.winner,
+    scoreSummary: lastResult.score_summary,
+    userVote: userVote ? userVote.prediction : null,
+    userStatus,
+    pointsGained,
+    currentRank,
+    prevRank,
+    rankChange: prevRank - currentRank,
+    winners: winners.slice(0, 5),
+    winnersCount: winners.length,
+    totalVoters: votes.length
+  });
 }));
 
 app.get("/api/users", asyncRoute(async (req, res) => {

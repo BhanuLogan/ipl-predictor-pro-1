@@ -18,6 +18,7 @@ function clearToken() {
   localStorage.removeItem("ipl_token");
   localStorage.removeItem("ipl_user");
   localStorage.removeItem("active_room_id");
+  sessionStorage.removeItem("poll_summary_shown");
 }
 
 async function apiFetch(path: string, options: RequestInit = {}) {
@@ -70,7 +71,28 @@ export interface Room {
   created_by_username?: string;
 }
 
+export interface PollSummary {
+  noData?: boolean;
+  matchId: string;
+  team1: string;
+  team2: string;
+  winner: string;
+  scoreSummary?: string | null;
+  userVote: string | null;
+  userStatus: 'won' | 'lost' | 'no_vote';
+  pointsGained: number;
+  currentRank: number;
+  prevRank: number;
+  rankChange: number;
+  winners: string[];
+  winnersCount: number;
+  totalVoters: number;
+}
+
 export const api = {
+  async getLastPollSummary(): Promise<PollSummary> {
+    return apiFetch("/api/last-poll-summary");
+  },
   // Auth — username + password only
   async register(username: string, password: string) {
     const data = await apiFetch("/api/register", {
