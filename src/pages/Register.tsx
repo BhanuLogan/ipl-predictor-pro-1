@@ -33,8 +33,8 @@ const Register = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
-      <div className="mx-4 w-full max-w-md animate-scale-in rounded-2xl bg-gradient-card border border-border p-8 shadow-2xl">
+    <div className="min-h-screen flex items-center justify-center bg-background/90 backdrop-blur-sm p-6 overflow-y-auto">
+      <div className="w-full max-w-md animate-scale-in rounded-2xl bg-gradient-card border border-border p-8 shadow-2xl my-auto">
         <div className="mb-6 text-center">
           <span className="text-6xl">🏏</span>
           <h2 className="mt-4 font-display text-4xl text-gradient-gold">
