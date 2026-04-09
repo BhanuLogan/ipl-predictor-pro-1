@@ -68,7 +68,7 @@ const ChatRoom: React.FC = () => {
   if (!match || !t1 || !t2) return null;
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-[100dvh] flex-col bg-background overflow-hidden">
       <Header />
       
       {/* Chat Header */}

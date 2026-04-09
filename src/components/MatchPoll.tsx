@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { IPL_TEAMS, type Match, formatMatchDate, isVotingLocked } from "@/lib/data";
-import { Check, MapPin, Calendar, Share2, Lock, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, MapPin, Calendar, Share2, Lock, RefreshCw, ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import UserPredictionsDialog from "./UserPredictionsDialog";
 
@@ -283,6 +284,16 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
           <Lock size={16} />
           <span>Voting closed at 7:30 PM IST</span>
         </div>
+      )}
+
+      {locked && !isCompleted && roomId && (
+        <Link
+          to={`/rooms/${roomId}/chat/${match.id}`}
+          className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-red-500/10 border border-red-500/20 py-3.5 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white shadow-sm"
+        >
+          <MessageCircle size={18} className="animate-pulse" />
+          GO TO CHAT ROOM
+        </Link>
       )}
 
       <UserPredictionsDialog
