@@ -69,13 +69,19 @@ const Index = () => {
     if (!roomLoading && !activeRoom) { navigate("/rooms"); return; }
     loadData();
 
-    // Check for last poll summary
-    api.getLastPollSummary().then((res) => {
-      if (res && !res.noData) {
-        setSummary(res);
-        setShowSummary(true);
-      }
-    }).catch(() => {});
+    // Check for last poll summary - only on first load after login
+    const isJustLoggedIn = sessionStorage.getItem("justLoggedIn") === "true";
+    if (isJustLoggedIn) {
+      api.getLastPollSummary().then((res) => {
+        if (res && !res.noData) {
+          setSummary(res);
+          setShowSummary(true);
+        }
+        sessionStorage.removeItem("justLoggedIn");
+      }).catch(() => {
+        sessionStorage.removeItem("justLoggedIn");
+      });
+    }
 
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);

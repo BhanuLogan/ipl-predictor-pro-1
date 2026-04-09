@@ -94,6 +94,10 @@ export interface ChatMessage {
   username: string;
   profile_pic?: string;
   created_at: string;
+  reply_to_message?: {
+    username: string;
+    message: string;
+  } | null;
 }
 
 export interface PollSummary {

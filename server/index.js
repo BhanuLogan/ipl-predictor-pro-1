@@ -167,6 +167,7 @@ async function initDb() {
       match_id TEXT NOT NULL,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       message TEXT NOT NULL,
+      reply_to_id INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
@@ -264,6 +265,8 @@ const io = new Server(server, {
   }
 });
 
+const roomUsers = new Map();
+
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error("Authentication error"));
@@ -281,24 +284,54 @@ io.on("connection", (socket) => {
   socket.on("join_chat", ({ roomId, matchId }) => {
     const roomKey = `chat_${roomId}_${matchId}`;
     socket.join(roomKey);
+    
+    // Track online users
+    if (!roomUsers.has(roomKey)) roomUsers.set(roomKey, new Map());
+    roomUsers.get(roomKey).set(socket.id, {
+      userId: socket.user.id,
+      username: socket.user.username,
+      profile_pic: socket.user.profile_pic
+    });
+    
+    // Broadcast list
+    const users = Array.from(roomUsers.get(roomKey).values());
+    io.to(roomKey).emit("online_users", users);
+    
     console.log(`${socket.user.username} joined ${roomKey}`);
   });
 
-  socket.on("send_message", async ({ roomId, matchId, message }) => {
+  socket.on("send_message", async ({ roomId, matchId, message, replyToId }) => {
     if (!message || String(message).trim().length === 0) return;
     const msg = String(message).trim().substring(0, 500);
 
     try {
       const saved = await queryOne(`
-        INSERT INTO chat_messages (room_id, match_id, user_id, message)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, room_id, match_id, user_id, message, created_at
-      `, [roomId, matchId, socket.user.id, msg]);
+        INSERT INTO chat_messages (room_id, match_id, user_id, message, reply_to_id)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, room_id, match_id, user_id, message, reply_to_id, created_at
+      `, [roomId, matchId, socket.user.id, msg, replyToId || null]);
+
+      let replyToData = null;
+      if (saved.reply_to_id) {
+        const original = await queryOne(`
+          SELECT m.message, u.username 
+          FROM chat_messages m 
+          JOIN users u ON u.id = m.user_id 
+          WHERE m.id = $1
+        `, [saved.reply_to_id]);
+        if (original) {
+          replyToData = {
+            username: original.username,
+            message: original.message.substring(0, 50).concat(original.message.length > 50 ? "..." : "")
+          };
+        }
+      }
 
       const payload = {
         ...saved,
         username: socket.user.username,
-        profile_pic: socket.user.profile_pic
+        profile_pic: socket.user.profile_pic,
+        reply_to_message: replyToData
       };
 
       io.to(`chat_${roomId}_${matchId}`).emit("new_message", payload);
@@ -309,6 +342,14 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.user.username}`);
+    // Cleanup roomUsers
+    for (const [roomKey, usersMap] of roomUsers.entries()) {
+      if (usersMap.has(socket.id)) {
+        usersMap.delete(socket.id);
+        const users = Array.from(usersMap.values());
+        io.to(roomKey).emit("online_users", users);
+      }
+    }
   });
 });
 
@@ -336,7 +377,7 @@ app.post("/api/register", asyncRoute(async (req, res) => {
     );
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, is_admin: user.is_admin },
+      { id: user.id, username: user.username, is_admin: user.is_admin, profile_pic: user.profile_pic },
       JWT_SECRET,
       { expiresIn: "30d" }
     );
@@ -366,7 +407,7 @@ app.post("/api/login", asyncRoute(async (req, res) => {
   if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
   const token = jwt.sign(
-    { id: user.id, username: user.username, is_admin: user.is_admin },
+    { id: user.id, username: user.username, is_admin: user.is_admin, profile_pic: user.profile_pic },
     JWT_SECRET,
     { expiresIn: "30d" }
   );
@@ -432,7 +473,7 @@ app.put("/api/me", authMiddleware, asyncRoute(async (req, res) => {
   );
 
   const token = jwt.sign(
-    { id: updatedUser.id, username: updatedUser.username, is_admin: updatedUser.is_admin },
+    { id: updatedUser.id, username: updatedUser.username, is_admin: updatedUser.is_admin, profile_pic: updatedUser.profile_pic },
     JWT_SECRET,
     { expiresIn: "30d" }
   );
@@ -1072,15 +1113,27 @@ app.get("/api/rooms/:roomId/chat/:matchId", authMiddleware, asyncRoute(async (re
   }
 
   const messages = await query(`
-    SELECT m.id, m.room_id, m.match_id, m.user_id, m.message, m.created_at, u.username, u.profile_pic
+    SELECT 
+      m.*, u.username, u.profile_pic,
+      r.message as reply_message, ru.username as reply_username
     FROM chat_messages m
     JOIN users u ON u.id = m.user_id
+    LEFT JOIN chat_messages r ON r.id = m.reply_to_id
+    LEFT JOIN users ru ON ru.id = r.user_id
     WHERE m.room_id = $1 AND m.match_id = $2
     ORDER BY m.created_at ASC
     LIMIT 100
   `, [roomId, matchId]);
   
-  res.json(messages);
+  const formatted = messages.map(m => ({
+    ...m,
+    reply_to_message: m.reply_message ? {
+      username: m.reply_username,
+      message: m.reply_message.substring(0, 50).concat(m.reply_message.length > 50 ? "..." : "")
+    } : null
+  }));
+
+  res.json(formatted);
 }));
 
 // Delete room (creator or admin)
