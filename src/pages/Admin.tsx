@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
-import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X } from "lucide-react";
+import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X, RefreshCcw } from "lucide-react";
 import { type MatchOverride } from "@/lib/api";
 
 const Admin = () => {
@@ -532,6 +532,27 @@ const Admin = () => {
                   ))}
                   {rooms.length === 0 && <p className="text-xs text-muted-foreground italic">No rooms created yet.</p>}
                 </div>
+              </div>
+              {/* Maintenance & Sync Actions */}
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-primary">
+                    <RefreshCcw size={16} className={syncing ? "animate-spin" : ""} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Automated Match Sync</span>
+                  </div>
+                  {syncing && <span className="text-[10px] font-bold text-primary animate-pulse">Syncing matches...</span>}
+                </div>
+                <p className="mb-4 text-[11px] text-muted-foreground leading-relaxed">
+                  Automatically fetch and update match results from Cricbuzz RapidAPI. This will check all completed matches and update winners & scores.
+                </p>
+                <button
+                  onClick={handleSyncResults}
+                  disabled={syncing}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50 shadow-lg shadow-primary/10"
+                >
+                  <RefreshCcw size={16} className={syncing ? "animate-spin" : ""} />
+                  {syncing ? "SYNCING DATA..." : "SYNC FROM CRICBUZZ"}
+                </button>
               </div>
             </div>
 
