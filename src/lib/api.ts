@@ -79,6 +79,23 @@ export interface UserOutcome {
   rankChange: number;
 }
 
+export interface MatchOverride {
+  match_id: string;
+  manual_locked: boolean | null;
+  lock_delay: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  room_id: number;
+  match_id: string;
+  user_id: number;
+  message: string;
+  username: string;
+  profile_pic?: string;
+  created_at: string;
+}
+
 export interface PollSummary {
   noData?: boolean;
   matchId: string;
@@ -269,5 +286,20 @@ export const api = {
 
   async getAllRoomsAdmin(): Promise<Room[]> {
     return apiFetch("/api/admin/rooms");
+  },
+
+  async getChatHistory(roomId: number, matchId: string): Promise<ChatMessage[]> {
+    return apiFetch(`/api/rooms/${roomId}/chat/${matchId}`);
+  },
+
+  async getMatchOverrides(): Promise<MatchOverride[]> {
+    return apiFetch("/api/match-overrides");
+  },
+
+  async setMatchOverride(matchId: string, manual_locked: boolean | null, lock_delay: number): Promise<void> {
+    return apiFetch("/api/admin/match-override", {
+      method: "POST",
+      body: JSON.stringify({ matchId, manual_locked, lock_delay }),
+    });
   },
 };

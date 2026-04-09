@@ -5,11 +5,24 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
+const http = require("http");
+const { Server } = require("socket.io");
 const IPL_SCHEDULE = require("./schedule");
 
-function isVotingLocked(matchId) {
+async function isVotingLocked(matchId) {
   const match = IPL_SCHEDULE.find((m) => m.id === matchId);
   if (!match) return false;
+  
+  const override = await queryOne("SELECT manual_locked, lock_delay FROM match_overrides WHERE match_id = $1", [matchId]);
+  if (override) {
+    if (override.manual_locked !== null) return override.manual_locked;
+    const now = new Date();
+    const timeStr = match.time || "19:30";
+    const lockTime = new Date(`${match.date}T${timeStr}:00+05:30`);
+    const finalLockTime = new Date(lockTime.getTime() + (override.lock_delay * 60000));
+    return now >= finalLockTime;
+  }
+
   const now = new Date();
   const timeStr = match.time || "19:30";
   const lockTime = new Date(`${match.date}T${timeStr}:00+05:30`);
@@ -147,6 +160,27 @@ async function initDb() {
     );
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id SERIAL PRIMARY KEY,
+      room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      match_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS match_overrides (
+      match_id TEXT PRIMARY KEY,
+      manual_locked BOOLEAN DEFAULT NULL,
+      lock_delay INTEGER DEFAULT 0
+    );
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_chat_room_match ON chat_messages(room_id, match_id);`);
+
   const existing = await queryOne(
     "SELECT id FROM users WHERE username = $1",
     [ADMIN_USERNAME]
@@ -211,6 +245,63 @@ function asyncRoute(handler) {
     });
   };
 }
+
+// ─── Socket.io Setup ───
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error("Authentication error"));
+  try {
+    socket.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    next(new Error("Authentication error"));
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log(`User connected: ${socket.user.username}`);
+
+  socket.on("join_chat", ({ roomId, matchId }) => {
+    const roomKey = `chat_${roomId}_${matchId}`;
+    socket.join(roomKey);
+    console.log(`${socket.user.username} joined ${roomKey}`);
+  });
+
+  socket.on("send_message", async ({ roomId, matchId, message }) => {
+    if (!message || String(message).trim().length === 0) return;
+    const msg = String(message).trim().substring(0, 500);
+
+    try {
+      const saved = await queryOne(`
+        INSERT INTO chat_messages (room_id, match_id, user_id, message)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, room_id, match_id, user_id, message, created_at
+      `, [roomId, matchId, socket.user.id, msg]);
+
+      const payload = {
+        ...saved,
+        username: socket.user.username,
+        profile_pic: socket.user.profile_pic
+      };
+
+      io.to(`chat_${roomId}_${matchId}`).emit("new_message", payload);
+    } catch (e) {
+      console.error("Chat Error:", e);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.user.username}`);
+  });
+});
 
 app.post("/api/register", asyncRoute(async (req, res) => {
   try {
@@ -366,7 +457,7 @@ app.get("/api/votes", authMiddleware, asyncRoute(async (req, res) => {
   const grouped = {};
   for (const r of rows) {
     if (!grouped[r.match_id]) grouped[r.match_id] = {};
-    const locked = isVotingLocked(r.match_id);
+    const locked = await isVotingLocked(r.match_id);
     if (!locked && r.username !== req.user.username && !req.user.is_admin) {
       continue;
     }
@@ -390,7 +481,8 @@ app.get("/api/vote-counts", asyncRoute(async (req, res) => {
   const grouped = {};
   for (const r of rows) {
     if (!grouped[r.match_id]) grouped[r.match_id] = {};
-    if (isVotingLocked(r.match_id)) {
+    const locked = await isVotingLocked(r.match_id);
+    if (locked) {
       grouped[r.match_id][r.prediction] = r.cnt;
     } else {
       grouped[r.match_id]._total = (grouped[r.match_id]._total || 0) + r.cnt;
@@ -428,7 +520,8 @@ app.post("/api/vote/bulk", authMiddleware, securityMiddleware, asyncRoute(async 
     return res.status(400).json({ error: "matchId and prediction required" });
   }
 
-  if (isVotingLocked(matchId)) {
+  const isLocked = await isVotingLocked(matchId);
+  if (isLocked) {
     return res.status(400).json({ error: "Voting is locked for this match" });
   }
 
@@ -544,6 +637,9 @@ app.post("/api/result", authMiddleware, adminMiddleware, asyncRoute(async (req, 
          END`,
       [matchId, winner, summary]
     );
+
+    // Clear chat history for this match as it's now completed
+    await query("DELETE FROM chat_messages WHERE match_id = $1", [matchId]);
   }
 
   res.json({ ok: true });
@@ -789,18 +885,20 @@ app.get("/api/users/:username/predictions", authMiddleware, asyncRoute(async (re
     params
   );
 
-  const votes = rows.map((r) => {
+  const votesResult = [];
+  for (const r of rows) {
     const isOwner = target.id === req.user.id;
     const isAdmin = req.user.is_admin;
-    const locked = isVotingLocked(r.matchId);
+    const locked = await isVotingLocked(r.matchId);
     
     // If the match hasn't started yet, hide the prediction from others
     if (!locked && !isOwner && !isAdmin) {
-      return { ...r, prediction: "HIDDEN" };
+      votesResult.push({ ...r, prediction: "HIDDEN" });
+    } else {
+      votesResult.push(r);
     }
-    return r;
-  });
-  res.json({ votes });
+  }
+  res.json({ votes: votesResult });
 }));
 
 // ─── Room routes ────────────────────────────────────────────────────────────
@@ -954,6 +1052,28 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ...room, members: members.map(m => m.username) });
 }));
 
+// Get chat history
+app.get("/api/rooms/:roomId/chat/:matchId", authMiddleware, asyncRoute(async (req, res) => {
+  const { roomId, matchId } = req.params;
+  
+  // Verify membership
+  const membership = await queryOne("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2", [roomId, req.user.id]);
+  if (!membership && !req.user.is_admin) {
+    return res.status(403).json({ error: "Not a member of this room" });
+  }
+
+  const messages = await query(`
+    SELECT m.id, m.room_id, m.match_id, m.user_id, m.message, m.created_at, u.username, u.profile_pic
+    FROM chat_messages m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.room_id = $1 AND m.match_id = $2
+    ORDER BY m.created_at ASC
+    LIMIT 100
+  `, [roomId, matchId]);
+  
+  res.json(messages);
+}));
+
 // Delete room (creator or admin)
 app.delete("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
   const roomId = parseInt(req.params.id);
@@ -980,6 +1100,29 @@ app.get("/api/admin/rooms", authMiddleware, adminMiddleware, asyncRoute(async (r
     ORDER BY r.name ASC
   `);
   res.json(rooms);
+}));
+
+// Admin: Set match override
+app.post("/api/admin/match-override", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { matchId, manual_locked, lock_delay } = req.body;
+  if (!matchId) return res.status(400).json({ error: "matchId required" });
+
+  await query(`
+    INSERT INTO match_overrides (match_id, manual_locked, lock_delay)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (match_id)
+    DO UPDATE SET 
+      manual_locked = EXCLUDED.manual_locked,
+      lock_delay = EXCLUDED.lock_delay
+  `, [matchId, manual_locked === undefined ? null : manual_locked, lock_delay || 0]);
+
+  res.json({ ok: true });
+}));
+
+// Get all overrides
+app.get("/api/match-overrides", authMiddleware, asyncRoute(async (req, res) => {
+  const rows = await query("SELECT * FROM match_overrides");
+  res.json(rows);
 }));
 
 // ─── Automated Result Service (Cricbuzz API) ───────────────────────────────
@@ -1220,9 +1363,11 @@ async function checkRecentMatches(isManual = false) {
              DO UPDATE SET
                winner = EXCLUDED.winner,
                score_summary = COALESCE(EXCLUDED.score_summary, results.score_summary)`,
-            [match.id, winner, scoreSummary]
-          );
-          updatedCount++;
+             [match.id, winner, scoreSummary]
+           );
+           // Clear chat history
+           await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
+           updatedCount++;
         }
       } else {
         console.log(`⏳ AutomatedResultService: Match ${match.id} still in progress (Status: ${status}).`);
@@ -1264,8 +1409,8 @@ app.use((err, req, res, next) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`IPL Predictor API running on http://localhost:${PORT}`);
+    server.listen(PORT, () => {
+      console.log(`IPL Predictor API with Chat running on http://localhost:${PORT}`);
     });
   })
   .catch((err) => {

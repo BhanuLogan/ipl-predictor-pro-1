@@ -4,7 +4,8 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
-import { Check, CloudRain, Trash2, Users, Plus } from "lucide-react";
+import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2 } from "lucide-react";
+import { type MatchOverride } from "@/lib/api";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
@@ -25,17 +26,23 @@ const Admin = () => {
   const [changePwUsername, setChangePwUsername] = useState("");
   const [changePwPassword, setChangePwPassword] = useState("");
   const [changePwStatus, setChangePwStatus] = useState("");
+  const [overrides, setOverrides] = useState<Record<string, MatchOverride>>({});
+  const [overrideLoading, setOverrideLoading] = useState<string | null>(null);
 
   const loadData = async (roomId?: number) => {
     try {
       const actualRoomId = roomId ?? selectedRoomId;
-      const [r, v, rms] = await Promise.all([
+      const [r, v, rms, ovs] = await Promise.all([
         api.getResults(),
         actualRoomId ? api.getVotes(actualRoomId) : Promise.resolve({}),
         user?.is_admin ? api.getAllRoomsAdmin() : Promise.resolve([]),
+        api.getMatchOverrides(),
       ]);
       setResults(r);
       setVotes(v);
+      const ovMap: Record<string, MatchOverride> = {};
+      ovs.forEach((o: MatchOverride) => { ovMap[o.match_id] = o; });
+      setOverrides(ovMap);
       if (user?.is_admin) {
         setRooms(rms);
         if (!actualRoomId && rms.length > 0) {
@@ -136,12 +143,24 @@ const Admin = () => {
     }
   };
 
+  const handleSetOverride = async (matchId: string, manual_locked: boolean | null, lock_delay: number) => {
+    setOverrideLoading(matchId);
+    try {
+      await api.setMatchOverride(matchId, manual_locked, lock_delay);
+      await loadData();
+    } catch (err: any) {
+      alert("Failed to set override: " + err.message);
+    } finally {
+      setOverrideLoading(null);
+    }
+  };
+
   if (!user) return null;
 
   // Categorize matches: current/active polls (open, no result) and completed (has result)
   // Only show matches that are locked (started) or the current open poll — hide future upcoming
   const openPollIds = new Set(getPollOpenMatches(results).map(m => m.id));
-  const currentPolls = IPL_SCHEDULE.filter(m => !results[m.id] && (isVotingLocked(m) || openPollIds.has(m.id)));
+  const currentPolls = IPL_SCHEDULE.filter(m => !results[m.id] && (isVotingLocked(m, overrides[m.id]) || openPollIds.has(m.id)));
   const completedMatches = IPL_SCHEDULE.filter(m => results[m.id]).reverse();
 
   const renderMatch = (match: typeof IPL_SCHEDULE[0], i: number, index: number) => {
@@ -150,7 +169,8 @@ const Admin = () => {
     const team2 = IPL_TEAMS[match.team2];
     const matchVotes = votes[match.id] || {};
     const voteEntries = Object.entries(matchVotes);
-    const locked = isVotingLocked(match);
+    const override = overrides[match.id];
+    const locked = isVotingLocked(match, override);
 
     return (
       <div
@@ -205,6 +225,55 @@ const Admin = () => {
             </div>
           </div>
         </div>
+
+        {/* Override Controls */}
+        {!result && (
+          <div className="mb-4 rounded-lg bg-background/50 border border-border/50 p-2.5 space-y-2.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                <Settings2 size={12} />
+                Match Controls
+              </div>
+              {overrideLoading === match.id && <span className="text-[10px] animate-pulse text-primary">Updating...</span>}
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <div className="flex bg-muted rounded-lg p-0.5 flex-1">
+                {[
+                  { label: "Auto", value: null, icon: Timer },
+                  { label: "Lock", value: true, icon: Lock },
+                  { label: "Open", value: false, icon: Unlock }
+                ].map((opt) => {
+                  const active = (override?.manual_locked ?? null) === opt.value;
+                  return (
+                    <button
+                      key={String(opt.value)}
+                      onClick={() => handleSetOverride(match.id, opt.value as any, override?.lock_delay || 0)}
+                      className={`flex flex-1 items-center justify-center gap-1.5 py-1.5 rounded-md text-[10px] font-bold transition-all ${
+                        active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <opt.icon size={10} />
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              <div className="flex items-center gap-2 bg-muted rounded-lg px-2.5 py-1 min-w-[100px]">
+                <Timer size={10} className="text-muted-foreground" />
+                <input 
+                  type="number"
+                  placeholder="Delay"
+                  value={override?.lock_delay || 0}
+                  onChange={(e) => handleSetOverride(match.id, override?.manual_locked ?? null, parseInt(e.target.value) || 0)}
+                  className="w-full bg-transparent text-[10px] font-bold focus:outline-none"
+                />
+                <span className="text-[8px] font-bold text-muted-foreground">MIN</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Show individual votes to admin */}
         {voteEntries.length > 0 && (

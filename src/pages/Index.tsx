@@ -11,7 +11,7 @@ import CompletedMatches from "@/components/dashboard/CompletedMatches";
 import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import Footer from "@/components/Footer";
 import PollSummaryBanner from "@/components/PollSummaryBanner";
-import type { PollSummary } from "@/lib/api";
+import type { PollSummary, MatchOverride } from "@/lib/api";
 
 const PAGE_SIZE = 10;
 
@@ -23,6 +23,7 @@ const Index = () => {
   const [voteCounts, setVoteCounts] = useState<Record<string, Record<string, number>>>();
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({});
   const [results, setResults] = useState<Record<string, MatchResult>>({});
+  const [overrides, setOverrides] = useState<Record<string, MatchOverride>>({});
 
   // Pagination for upcoming
   const [upcomingPage, setUpcomingPage] = useState(1);
@@ -32,10 +33,11 @@ const Index = () => {
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
     try {
-      const [votes, counts, r] = await Promise.all([
+      const [votes, counts, r, ovs] = await Promise.all([
         api.getVotes(activeRoom.id),
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
+        api.getMatchOverrides(),
       ]);
       if (user) {
         const mine: Record<string, string> = {};
@@ -49,6 +51,10 @@ const Index = () => {
       setAllVotes(votes);
       setVoteCounts(counts);
       setResults(r);
+      
+      const ovMap: Record<string, MatchOverride> = {};
+      ovs.forEach(o => { ovMap[o.match_id] = o; });
+      setOverrides(ovMap);
     } catch {
       // API not available
     }
@@ -84,7 +90,7 @@ const Index = () => {
   };
 
   // Memoized Lists
-  const openPolls = useMemo(() => getPollOpenMatches(results), [results]);
+  const openPolls = useMemo(() => getPollOpenMatches(results, overrides), [results, overrides]);
 
   const pastMatches = useMemo(() => {
     return IPL_SCHEDULE.filter(m => results[m.id]).reverse();
@@ -158,6 +164,7 @@ const Index = () => {
           onVote={handleVote}
           completedCount={completedCount}
           results={results}
+          overrides={overrides}
         />
 
         {/* Completed Matches – horizontal scrolling cards */}
@@ -180,6 +187,8 @@ const Index = () => {
           upcomingPage={upcomingPage}
           totalUpcomingPages={totalUpcomingPages}
           setUpcomingPage={setUpcomingPage}
+          roomId={activeRoom.id}
+          overrides={overrides}
         />
 
         <Footer />

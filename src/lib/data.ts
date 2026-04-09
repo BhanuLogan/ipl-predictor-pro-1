@@ -101,28 +101,67 @@ export const IPL_SCHEDULE: Match[] = [
 ];
 
 // Poll open logic: match poll is open if before match time and previous match has result (or first match)
-export function getPollOpenMatches(results: Record<string, MatchResult>): Match[] {
+// Also always includes matches that have a manual override (forced lock or forced open)
+export function getPollOpenMatches(
+  results: Record<string, MatchResult>,
+  overrides?: Record<string, { manual_locked: boolean | null; lock_delay: number }>
+): Match[] {
   const open: Match[] = [];
+  const openIds = new Set<string>();
+
+  // Helper to add uniquely
+  const add = (m: Match) => {
+    if (!openIds.has(m.id)) {
+      open.push(m);
+      openIds.add(m.id);
+    }
+  };
+
+  // 1. Logic based on schedule and results
   for (let i = 0; i < IPL_SCHEDULE.length; i++) {
     const m = IPL_SCHEDULE[i];
     if (results[m.id]) continue;
-    if (i === 0) { open.push(m); continue; }
-    const prevId = IPL_SCHEDULE[i - 1].id;
-    if (results[prevId]) {
-      open.push(m);
-      // If next match is on the same day, open it too
+    
+    // First match or match after a completed match
+    if (i === 0 || results[IPL_SCHEDULE[i - 1].id]) {
+      add(m);
+      // Doubleheader logic: if next match is same day, open it too
       const next = IPL_SCHEDULE[i + 1];
       if (next && !results[next.id] && next.date === m.date) {
-        open.push(next);
-        i++; // skip next since we already added it
+        add(next);
       }
+      break; // Found the "current" group
     }
   }
-  return open;
+
+  // 2. Add any matches that have a manual override
+  if (overrides) {
+    Object.keys(overrides).forEach(id => {
+      const match = IPL_SCHEDULE.find(m => m.id === id);
+      if (match && !results[match.id]) {
+        add(match);
+      }
+    });
+  }
+
+  // Final sort by schedule
+  return open.sort((a, b) => IPL_SCHEDULE.indexOf(a) - IPL_SCHEDULE.indexOf(b));
 }
 
 // Check if voting is locked (after match start time on match day)
-export function isVotingLocked(match: Match): boolean {
+export function isVotingLocked(
+  match: Match, 
+  override?: { manual_locked: boolean | null; lock_delay: number }
+): boolean {
+  if (override) {
+    if (override.manual_locked !== null) return override.manual_locked;
+    const now = new Date();
+    const timeStr = match.time || "19:30";
+    const lockTime = new Date(`${match.date}T${timeStr}:00+05:30`);
+    const finalLockTime = new Date(lockTime.getTime() + (override.lock_delay * 60000));
+    return now >= finalLockTime;
+  }
+
   const now = new Date();
   const timeStr = match.time || "19:30";
   const lockTime = new Date(`${match.date}T${timeStr}:00+05:30`);

@@ -1,5 +1,6 @@
 import React from "react";
-import { MapPin } from "lucide-react";
+import { MapPin, MessageCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   Pagination,
   PaginationContent,
@@ -8,7 +9,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { formatMatchDate, IPL_TEAMS, type Match } from "@/lib/data";
+import { formatMatchDate, IPL_TEAMS, type Match, isVotingLocked } from "@/lib/data";
 
 interface Props {
   upcomingLocked: Match[];
@@ -16,6 +17,8 @@ interface Props {
   upcomingPage: number;
   totalUpcomingPages: number;
   setUpcomingPage: (page: number) => void;
+  roomId: number;
+  overrides: Record<string, any>;
 }
 
 const UpcomingMatches = React.memo(({
@@ -24,6 +27,8 @@ const UpcomingMatches = React.memo(({
   upcomingPage,
   totalUpcomingPages,
   setUpcomingPage,
+  roomId,
+  overrides,
 }: Props) => {
   if (upcomingLocked.length === 0) return null;
 
@@ -66,6 +71,16 @@ const UpcomingMatches = React.memo(({
               <MapPin size={10} className="text-primary/70" />
               {match.venue.split(",")[0]}
             </p>
+            
+            {isVotingLocked(match, overrides[match.id]) && (
+              <Link
+                to={`/rooms/${roomId}/chat/${match.id}`}
+                className="mt-4 flex items-center justify-center gap-2 w-full rounded-lg bg-red-500/10 border border-red-500/20 py-2.5 text-xs font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white"
+              >
+                <MessageCircle size={14} className="animate-pulse" />
+                GO TO CHAT ROOM
+              </Link>
+            )}
           </div>
         ))}
       </div>

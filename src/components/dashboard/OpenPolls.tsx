@@ -12,16 +12,17 @@ interface Props {
   onVote: (matchId: string, prediction: string, isBulk?: boolean) => Promise<void>;
   completedCount: number;
   results: Record<string, any>;
+  overrides: Record<string, any>;
 }
 
-const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, results }: Props) => {
+const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, results, overrides }: Props) => {
   if (openPolls.length > 0) {
     return (
       <div className="mb-8">
         <div className="mb-4 flex items-center gap-2">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive" />
           <h2 className="font-display text-3xl text-gradient-gold">
-            {openPolls.some(m => isVotingLocked(m))
+            {openPolls.some(m => isVotingLocked(m, overrides[m.id]))
               ? "LIVE MATCH IN PROGRESS"
               : `LIVE POLL${openPolls.length > 1 ? "S" : ""} — VOTE NOW!`}
           </h2>

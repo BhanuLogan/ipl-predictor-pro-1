@@ -15,6 +15,7 @@ import Rooms from "./pages/Rooms";
 import RoomLeaderboard from "./pages/RoomLeaderboard";
 import NotFound from "./pages/NotFound";
 import JoinRoom from "./pages/JoinRoom";
+import ChatRoom from "./pages/ChatRoom";
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ const App = () => (
               <Route path="/leaderboard" element={<Leaderboard />} />
               <Route path="/rooms" element={<Rooms />} />
               <Route path="/rooms/:id" element={<RoomLeaderboard />} />
+              <Route path="/rooms/:roomId/chat/:matchId" element={<ChatRoom />} />
               <Route path="/join/:inviteCode" element={<JoinRoom />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/login" element={<Login />} />
