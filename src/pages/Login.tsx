@@ -80,13 +80,22 @@ const Login = () => {
         </p>
 
         <div className="mt-6 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">
-          <p className="font-semibold text-foreground">How it works:</p>
-          <ul className="mt-2 space-y-1">
-            <li>🎯 Predict the winner for each match</li>
-            <li>✅ Correct prediction = <span className="font-bold text-primary">2 points</span></li>
-            <li>🤝 Draw/No Result = <span className="font-bold text-secondary">1 point</span> for all</li>
-            <li>🏆 Climb the leaderboard!</li>
-          </ul>
+          <p className="font-semibold text-foreground italic">
+            Note: Contact admin to change password or report any issues.
+          </p>
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="font-semibold text-foreground">How it works:</p>
+            <ul className="mt-2 space-y-1">
+              <li>🎯 Predict the winner for each match</li>
+              <li>✅ Correct prediction = <span className="font-bold text-primary">2 points</span></li>
+              <li>🤝 Draw/No Result = <span className="font-bold text-secondary">1 point</span> for all</li>
+              <li>🏆 Climb the leaderboard!</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="mt-8 text-center text-[10px] uppercase tracking-widest text-muted-foreground/50">
+          Made with ❤️ by <span className="font-bold text-primary/70">Manohar</span>
         </div>
       </div>
     </div>
