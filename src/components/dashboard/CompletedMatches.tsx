@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { IPL_TEAMS, formatMatchDate } from "@/lib/data";
-import { Calendar, ChevronLeft, ChevronRight, Check, X } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight, Check, X, MessageCircle } from "lucide-react";
 import type { Match, MatchResult } from "@/lib/data";
 
 const LOAD_BATCH = 10;
@@ -15,12 +16,14 @@ interface Props {
   myVotes: Record<string, string>;
   results: Record<string, MatchResult>;
   onVote: (matchId: string, prediction: string, isBulk?: boolean) => Promise<void>;
+  roomId: number;
 }
 
-const CompletedMatchCard = React.memo(({ match, result, myPick }: {
+const CompletedMatchCard = React.memo(({ match, result, myPick, roomId }: {
   match: Match;
   result: MatchResult;
   myPick: string | null;
+  roomId: number;
 }) => {
   const team1 = IPL_TEAMS[match.team1];
   const team2 = IPL_TEAMS[match.team2];
@@ -28,7 +31,6 @@ const CompletedMatchCard = React.memo(({ match, result, myPick }: {
   const isNR = winner === "nr";
   const isDraw = winner === "draw";
   const myPickCorrect = myPick && (isNR || isDraw || myPick === winner);
-  const myPickWrong = myPick && !isNR && !isDraw && myPick !== winner;
 
   return (
     <div className="flex-none w-[220px] rounded-2xl border border-border bg-gradient-card p-4 shadow-md flex flex-col gap-3 hover:border-primary/30 transition-all">
@@ -117,6 +119,15 @@ const CompletedMatchCard = React.memo(({ match, result, myPick }: {
           <p className="text-[10px] text-muted-foreground text-center">No prediction</p>
         </div>
       )}
+
+      {/* Chat link */}
+      <Link
+        to={`/rooms/${roomId}/chat/${match.id}`}
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      >
+        <MessageCircle size={11} />
+        View Chat
+      </Link>
     </div>
   );
 });
@@ -128,6 +139,7 @@ const CompletedMatches = React.memo(({
   voteCounts: _voteCounts,
   myVotes,
   results,
+  roomId,
 }: Props) => {
   const [visibleCount, setVisibleCount] = useState(LOAD_BATCH);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -144,7 +156,6 @@ const CompletedMatches = React.memo(({
   };
   const scrollRight = () => {
     scrollRef.current?.scrollBy({ left: 460, behavior: "smooth" });
-    // Lazy load more when scrolling right near end
     if (hasMore) {
       const el = scrollRef.current;
       if (el && el.scrollLeft + el.clientWidth >= el.scrollWidth - 460) {
@@ -196,6 +207,7 @@ const CompletedMatches = React.memo(({
             match={match}
             result={results[match.id]}
             myPick={myVotes[match.id] || null}
+            roomId={roomId}
           />
         ))}
         {hasMore && (

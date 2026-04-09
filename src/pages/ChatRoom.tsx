@@ -38,7 +38,7 @@ const ReactionBar = ({
     reactions.find((r) => r.emoji === emoji)?.userIds?.includes(currentUserId!) ?? false;
 
   return (
-    <div className="flex items-center gap-1 mt-1.5 flex-wrap justify-center">
+    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
       {reactions.map((r) => {
         const names = r.usernames ?? [];
         const tooltipText = names.length > 0
@@ -120,35 +120,46 @@ const BotMessage = ({
     msg.message.startsWith("What's up");
 
   return (
-    <div className="flex flex-col items-center my-3">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-sm">🏏</span>
-        <span className="text-[10px] font-bold text-amber-400/90 uppercase tracking-widest">
-          {msg.bot_name || "ScoreBot"}
-        </span>
-        <span className="text-[9px] text-muted-foreground/50">
-          {format(new Date(msg.created_at), "h:mm a")}
-        </span>
+    <div className="flex gap-2.5 mt-4">
+      {/* Bot avatar */}
+      <div className="h-8 w-8 rounded-full flex-shrink-0 overflow-hidden border-2 border-amber-500/40 shadow-sm">
+        <img src="/bot-avatar.svg" alt="bot" className="h-full w-full object-cover" />
       </div>
 
-      <div
-        className={`max-w-[92%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 text-center ${
-          isIntro
-            ? "bg-amber-500/10 border border-amber-500/25 shadow-sm"
-            : "bg-muted/50 border border-border/40"
-        }`}
-      >
-        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed break-words">
-          {msg.message}
-        </p>
-      </div>
+      <div className="flex flex-col max-w-[85%] sm:max-w-[72%]">
+        {/* Name + time */}
+        <div className="flex items-center gap-1.5 px-1 mb-1">
+          <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">
+            {msg.bot_name || "ScoreBot"}
+          </span>
+          <span className="text-[9px] text-muted-foreground/50">
+            {format(new Date(msg.created_at), "h:mm a")}
+          </span>
+        </div>
 
-      <ReactionBar
-        messageId={msg.id}
-        reactions={reactions}
-        currentUserId={currentUserId}
-        onReact={onReact}
-      />
+        {/* Bubble */}
+        <div
+          className={`rounded-2xl rounded-tl-none px-4 py-2.5 ${
+            isIntro
+              ? "bg-amber-500/10 border border-amber-500/25 shadow-sm"
+              : "bg-muted/50 border border-border/40"
+          }`}
+        >
+          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed break-words">
+            {msg.message}
+          </p>
+        </div>
+
+        {/* Reactions */}
+        <div className="mt-1 pl-1">
+          <ReactionBar
+            messageId={msg.id}
+            reactions={reactions}
+            currentUserId={currentUserId}
+            onReact={onReact}
+          />
+        </div>
+      </div>
     </div>
   );
 };
@@ -163,6 +174,7 @@ const ChatRoom: React.FC = () => {
   const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [reactions, setReactions] = useState<Record<number, MessageReaction[]>>({});
+  const [botEnabled, setBotEnabled] = useState<boolean>(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const match = IPL_SCHEDULE.find((m) => m.id === matchId);
@@ -191,10 +203,15 @@ const ChatRoom: React.FC = () => {
 
     if (!roomId || !matchId) return;
 
-    // Load history
+    // Load history + bot setting
     api.getChatHistory(Number(roomId), matchId).then((msgs) => {
       setMessages(msgs);
       mergeReactions(msgs);
+    }).catch(console.error);
+
+    api.getMatchBotSettings().then((settings) => {
+      const s = settings.find((s) => s.match_id === matchId);
+      setBotEnabled(s ? s.bot_enabled : true);
     }).catch(console.error);
 
     // Socket setup
@@ -215,10 +232,15 @@ const ChatRoom: React.FC = () => {
       setReactions((prev) => ({ ...prev, [messageId]: updated }));
     });
 
+    socket.on("bot_settings_update", ({ matchId: mid, bot_enabled }: { matchId: string; bot_enabled: boolean }) => {
+      if (mid === matchId) setBotEnabled(bot_enabled);
+    });
+
     return () => {
       socket.off("new_message");
       socket.off("online_users");
       socket.off("reaction_update");
+      socket.off("bot_settings_update");
     };
   }, [roomId, matchId, navigate, mergeReactions]);
 
@@ -306,9 +328,17 @@ const ChatRoom: React.FC = () => {
               <h1 className="font-display text-base font-bold leading-none truncate">
                 {t1.short} vs {t2.short}
               </h1>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="flex items-center gap-2 mt-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
                 <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Live Chat</span>
+                <span className={`flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${
+                  botEnabled
+                    ? "text-primary border-primary/30 bg-primary/10"
+                    : "text-muted-foreground border-border/40 bg-muted/40"
+                }`}>
+                  <span className={`h-1 w-1 rounded-full ${botEnabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
+                  Bot {botEnabled ? "On" : "Off"}
+                </span>
               </div>
             </div>
           </div>
@@ -451,7 +481,7 @@ const ChatRoom: React.FC = () => {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={replyingTo ? "Type your reply..." : "Chat or /BotName score, /BotName help..."}
+              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or /BotName score, /BotName help..." : "Type a message..."}
               className="flex-1 rounded-xl border border-border bg-muted px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               maxLength={500}
             />

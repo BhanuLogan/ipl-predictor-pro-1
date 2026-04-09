@@ -211,6 +211,13 @@ async function initDb() {
   BOT_USER_ID = botRow?.id || null;
 
   await query(`
+    CREATE TABLE IF NOT EXISTS match_bot_settings (
+      match_id TEXT PRIMARY KEY,
+      bot_enabled BOOLEAN NOT NULL DEFAULT TRUE
+    );
+  `);
+
+  await query(`
     CREATE TABLE IF NOT EXISTS announcements (
       id SERIAL PRIMARY KEY,
       text TEXT NOT NULL,
@@ -1301,6 +1308,26 @@ app.get("/api/match-overrides", authMiddleware, asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
+// ─── Bot Settings ──────────────────────────────────────────────────────────
+
+app.get("/api/match-bot-settings", authMiddleware, asyncRoute(async (req, res) => {
+  const rows = await query("SELECT * FROM match_bot_settings");
+  res.json(rows);
+}));
+
+app.post("/api/admin/match-bot-settings", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { matchId, bot_enabled } = req.body;
+  if (!matchId || bot_enabled === undefined) return res.status(400).json({ error: "matchId and bot_enabled required" });
+  await query(
+    `INSERT INTO match_bot_settings (match_id, bot_enabled) VALUES ($1, $2)
+     ON CONFLICT (match_id) DO UPDATE SET bot_enabled = $2`,
+    [matchId, !!bot_enabled]
+  );
+  // Notify all clients in the match chatrooms
+  io.emit("bot_settings_update", { matchId, bot_enabled: !!bot_enabled });
+  res.json({ ok: true });
+}));
+
 // ─── Automated Result Service (Cricbuzz API) ───────────────────────────────
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
@@ -1769,6 +1796,7 @@ async function postBotMessage(roomId, matchId, text, botName) {
 const introPostedSet = new Set(); // `${roomId}_${matchId}`
 
 async function postIntroIfNeeded(roomId, matchId) {
+  if (!await isBotEnabled(matchId)) return;
   // Only post intro if match has started
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
   if (!match) return;
@@ -1789,6 +1817,11 @@ async function postIntroIfNeeded(roomId, matchId) {
   const botName = getBotName(matchId);
   await postBotMessage(roomId, matchId, getBotIntro(botName, matchId), botName);
   console.log(`[Bot] Posted intro for match ${matchId} in room ${roomId} (${botName})`);
+}
+
+async function isBotEnabled(matchId) {
+  const row = await queryOne("SELECT bot_enabled FROM match_bot_settings WHERE match_id = $1", [matchId]);
+  return row === null ? true : row.bot_enabled; // default ON
 }
 
 // ─── Bot Query Handler ─────────────────────────────────────────────────────
@@ -1847,6 +1880,7 @@ function parseMiniScore(miniscore) {
 }
 
 async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
+  if (!await isBotEnabled(matchId)) return; // silently ignore when bot is off
   const q = rawQuery.trim().toLowerCase().replace(/[?!.,]+$/, '');
   const botName = getBotName(matchId);
   const liveData = liveScoreCache.get(matchId);
@@ -2122,6 +2156,7 @@ async function pollCommentary() {
 
     for (const [matchId, state] of commentaryCache.entries()) {
       if (completedIds.has(matchId) || !state.cricbuzzMatchId) continue;
+      if (!await isBotEnabled(matchId)) continue;
 
       try {
         const resp = await axios.get(

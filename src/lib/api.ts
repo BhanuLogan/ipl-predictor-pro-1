@@ -344,4 +344,15 @@ export const api = {
       body: JSON.stringify({ messageId, emoji }),
     });
   },
+
+  async getMatchBotSettings(): Promise<{ match_id: string; bot_enabled: boolean }[]> {
+    return apiFetch('/api/match-bot-settings');
+  },
+
+  async setMatchBotSetting(matchId: string, bot_enabled: boolean): Promise<void> {
+    return apiFetch('/api/admin/match-bot-settings', {
+      method: 'POST',
+      body: JSON.stringify({ matchId, bot_enabled }),
+    });
+  },
 };

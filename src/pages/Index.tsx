@@ -207,6 +207,7 @@ const Index = () => {
           myVotes={myVotes}
           results={results}
           onVote={handleVote}
+          roomId={activeRoom.id}
         />
 
         {/* Upcoming Matches */}
