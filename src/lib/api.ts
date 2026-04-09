@@ -302,4 +302,21 @@ export const api = {
       body: JSON.stringify({ matchId, manual_locked, lock_delay }),
     });
   },
+
+  async getAnnouncement(): Promise<{ text: string }> {
+    return apiFetch("/api/announcements");
+  },
+
+  async setAnnouncement(text: string): Promise<void> {
+    return apiFetch("/api/admin/announcements", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+  },
+
+  async clearAnnouncement(): Promise<void> {
+    return apiFetch("/api/admin/announcements", {
+      method: "DELETE",
+    });
+  },
 };

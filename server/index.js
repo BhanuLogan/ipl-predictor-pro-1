@@ -181,6 +181,15 @@ async function initDb() {
 
   await query(`CREATE INDEX IF NOT EXISTS idx_chat_room_match ON chat_messages(room_id, match_id);`);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS announcements (
+      id SERIAL PRIMARY KEY,
+      text TEXT NOT NULL,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
   const existing = await queryOne(
     "SELECT id FROM users WHERE username = $1",
     [ADMIN_USERNAME]
@@ -1117,6 +1126,30 @@ app.post("/api/admin/match-override", authMiddleware, adminMiddleware, asyncRout
   `, [matchId, manual_locked === undefined ? null : manual_locked, lock_delay || 0]);
 
   res.json({ ok: true });
+}));
+
+// Admin: Set announcement
+app.post("/api/admin/announcements", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { text } = req.body;
+  if (text === undefined) return res.status(400).json({ error: "text required" });
+
+  await query("UPDATE announcements SET is_active = FALSE");
+  if (text.trim()) {
+    await query("INSERT INTO announcements (text) VALUES ($1)", [text.trim()]);
+  }
+  res.json({ ok: true });
+}));
+
+// Admin: Clear announcements
+app.delete("/api/admin/announcements", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  await query("UPDATE announcements SET is_active = FALSE");
+  res.json({ ok: true });
+}));
+
+// Get active announcement
+app.get("/api/announcements", asyncRoute(async (req, res) => {
+  const row = await queryOne("SELECT text FROM announcements WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 1");
+  res.json(row || { text: "" });
 }));
 
 // Get all overrides

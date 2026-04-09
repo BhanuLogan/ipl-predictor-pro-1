@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
-import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2 } from "lucide-react";
+import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X } from "lucide-react";
 import { type MatchOverride } from "@/lib/api";
 
 const Admin = () => {
@@ -28,21 +28,26 @@ const Admin = () => {
   const [changePwStatus, setChangePwStatus] = useState("");
   const [overrides, setOverrides] = useState<Record<string, MatchOverride>>({});
   const [overrideLoading, setOverrideLoading] = useState<string | null>(null);
+  const [announcementText, setAnnouncementText] = useState("");
+  const [currentAnnouncement, setCurrentAnnouncement] = useState("");
+  const [announcementLoading, setAnnouncementLoading] = useState(false);
 
   const loadData = async (roomId?: number) => {
     try {
       const actualRoomId = roomId ?? selectedRoomId;
-      const [r, v, rms, ovs] = await Promise.all([
+      const [r, v, rms, ovs, ann] = await Promise.all([
         api.getResults(),
         actualRoomId ? api.getVotes(actualRoomId) : Promise.resolve({}),
         user?.is_admin ? api.getAllRoomsAdmin() : Promise.resolve([]),
         api.getMatchOverrides(),
+        api.getAnnouncement(),
       ]);
       setResults(r);
       setVotes(v);
       const ovMap: Record<string, MatchOverride> = {};
       ovs.forEach((o: MatchOverride) => { ovMap[o.match_id] = o; });
       setOverrides(ovMap);
+      setCurrentAnnouncement(ann.text);
       if (user?.is_admin) {
         setRooms(rms);
         if (!actualRoomId && rms.length > 0) {
@@ -152,6 +157,32 @@ const Admin = () => {
       alert("Failed to set override: " + err.message);
     } finally {
       setOverrideLoading(null);
+    }
+  };
+
+  const handleBroadcastAnnouncement = async () => {
+    setAnnouncementLoading(true);
+    try {
+      await api.setAnnouncement(announcementText);
+      await loadData();
+      setAnnouncementText("");
+    } catch (err: any) {
+      alert("Failed to broadcast: " + err.message);
+    } finally {
+      setAnnouncementLoading(false);
+    }
+  };
+
+  const handleClearAnnouncement = async () => {
+    if (!confirm("Clear current broadcast?")) return;
+    setAnnouncementLoading(true);
+    try {
+      await api.clearAnnouncement();
+      await loadData();
+    } catch (err: any) {
+      alert("Failed to clear: " + err.message);
+    } finally {
+      setAnnouncementLoading(false);
     }
   };
 
@@ -403,23 +434,46 @@ const Admin = () => {
         ) : (
           <div className="space-y-3">
             <div className="mb-4 space-y-4">
-              <div className="flex items-center justify-between rounded-xl bg-secondary/10 border border-secondary/20 p-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-secondary">🛡️ Admin mode active</span>
+              {/* Announcement Management */}
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                <div className="mb-3 flex items-center gap-2 text-amber-500">
+                  <Megaphone size={16} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Live Broadcast Marquee</span>
+                </div>
+                
+                {currentAnnouncement && (
+                  <div className="mb-3 flex items-center justify-between gap-4 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+                    <p className="text-[11px] font-bold text-amber-600 truncate flex-1 leading-tight">
+                      Active: {currentAnnouncement}
+                    </p>
+                    <button
+                      onClick={handleClearAnnouncement}
+                      className="rounded-md p-1 text-amber-600 hover:bg-amber-500 hover:text-white transition-all"
+                      title="Clear broadcast"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={announcementText}
+                    onChange={(e) => setAnnouncementText(e.target.value)}
+                    placeholder="Type marquee message..."
+                    className="flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                    maxLength={150}
+                  />
                   <button
-                    onClick={handleSyncResults}
-                    disabled={syncing}
-                    className={`rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-sm transition-all hover:brightness-110 disabled:opacity-50 ${syncing ? "animate-pulse" : ""}`}
+                    onClick={handleBroadcastAnnouncement}
+                    disabled={announcementLoading || !announcementText.trim()}
+                    className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white transition-all hover:brightness-110 disabled:opacity-50"
                   >
-                    {syncing ? "⌛ SYNCING..." : "🔄 SYNC FROM CRICBUZZ"}
+                    <Send size={16} />
+                    {announcementLoading ? "..." : "Broadcast"}
                   </button>
                 </div>
-                <button
-                  onClick={handleReset}
-                  className="rounded-lg bg-destructive px-4 py-1.5 text-xs font-semibold text-destructive-foreground hover:brightness-110"
-                >
-                  🗑️ RESET ALL DATA
-                </button>
               </div>
 
               {/* User Management Section */}

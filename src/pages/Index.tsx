@@ -12,6 +12,7 @@ import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import Footer from "@/components/Footer";
 import PollSummaryBanner from "@/components/PollSummaryBanner";
 import type { PollSummary, MatchOverride } from "@/lib/api";
+import AnnouncementMarquee from "@/components/AnnouncementMarquee";
 
 const PAGE_SIZE = 10;
 
@@ -24,6 +25,7 @@ const Index = () => {
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({});
   const [results, setResults] = useState<Record<string, MatchResult>>({});
   const [overrides, setOverrides] = useState<Record<string, MatchOverride>>({});
+  const [announcement, setAnnouncement] = useState("");
 
   // Pagination for upcoming
   const [upcomingPage, setUpcomingPage] = useState(1);
@@ -33,11 +35,12 @@ const Index = () => {
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
     try {
-      const [votes, counts, r, ovs] = await Promise.all([
+      const [votes, counts, r, ovs, ann] = await Promise.all([
         api.getVotes(activeRoom.id),
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
         api.getMatchOverrides(),
+        api.getAnnouncement(),
       ]);
       if (user) {
         const mine: Record<string, string> = {};
@@ -55,6 +58,7 @@ const Index = () => {
       const ovMap: Record<string, MatchOverride> = {};
       ovs.forEach(o => { ovMap[o.match_id] = o; });
       setOverrides(ovMap);
+      setAnnouncement(ann.text);
     } catch {
       // API not available
     }
@@ -135,7 +139,9 @@ const Index = () => {
         />
       )}
 
-      <main className="container mx-auto max-w-2xl px-4 py-8">
+      <main className="container mx-auto px-4 py-8 max-w-2xl relative z-10">
+        <AnnouncementMarquee text={announcement} />
+        
         {/* Active Room Indicator */}
         <div className="mb-6 flex items-center justify-between rounded-2xl border border-primary/20 bg-primary/5 px-6 py-4">
           <div className="flex items-center gap-3">

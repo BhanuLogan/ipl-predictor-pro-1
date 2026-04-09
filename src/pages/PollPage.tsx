@@ -7,6 +7,7 @@ import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked, type MatchResult } from "@/lib/data";
 import { assignRanks } from "@/lib/utils";
+import AnnouncementMarquee from "@/components/AnnouncementMarquee";
 
 const PollPage = () => {
   const { matchId } = useParams<{ matchId: string }>();
@@ -20,18 +21,20 @@ const PollPage = () => {
   const [allVotes, setAllVotes] = useState<Record<string, Record<string, string>>>({});
   const [loading, setLoading] = useState(true);
   const [overrides, setOverrides] = useState<Record<string, any>>({});
+  const [announcement, setAnnouncement] = useState("");
 
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
     try {
-      const [votes, counts, r, boardData, ovs] = await Promise.all([
+      const [votes, counts, r, boardData, ovs, ann] = await Promise.all([
         api.getVotes(activeRoom.id),
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
         api.getRoomLeaderboard(activeRoom.id),
         api.getMatchOverrides(),
+        api.getAnnouncement(),
       ]);
       if (user) {
         const mine: Record<string, string> = {};
@@ -57,6 +60,7 @@ const PollPage = () => {
       const ovMap: Record<string, any> = {};
       ovs.forEach((o: any) => { ovMap[o.match_id] = o; });
       setOverrides(ovMap);
+      setAnnouncement(ann.text);
     } catch {} finally {
       setLoading(false);
     }
@@ -120,6 +124,7 @@ const PollPage = () => {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container mx-auto max-w-2xl px-4 py-8">
+        <AnnouncementMarquee text={announcement} />
         <Link to="/" className="mb-4 inline-block text-sm text-primary hover:underline">← Back to all polls</Link>
         <MatchPoll
           match={match}
