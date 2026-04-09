@@ -13,6 +13,7 @@ import Footer from "@/components/Footer";
 import PollSummaryBanner from "@/components/PollSummaryBanner";
 import type { PollSummary, MatchOverride } from "@/lib/api";
 import AnnouncementMarquee from "@/components/AnnouncementMarquee";
+import { getSocket, connectSocket } from "@/lib/socket";
 
 const PAGE_SIZE = 10;
 
@@ -26,6 +27,7 @@ const Index = () => {
   const [results, setResults] = useState<Record<string, MatchResult>>({});
   const [overrides, setOverrides] = useState<Record<string, MatchOverride>>({});
   const [announcement, setAnnouncement] = useState("");
+  const [liveScores, setLiveScores] = useState<Record<string, { score: string | null; status: string | null; updatedAt: string }>>({});
 
   // Pagination for upcoming
   const [upcomingPage, setUpcomingPage] = useState(1);
@@ -35,12 +37,13 @@ const Index = () => {
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
     try {
-      const [votes, counts, r, ovs, ann] = await Promise.all([
+      const [votes, counts, r, ovs, ann, liveScoreData] = await Promise.all([
         api.getVotes(activeRoom.id),
         api.getVoteCounts(activeRoom.id),
         api.getResults(),
         api.getMatchOverrides(),
         api.getAnnouncement(),
+        api.getLiveScores(),
       ]);
       if (user) {
         const mine: Record<string, string> = {};
@@ -54,11 +57,12 @@ const Index = () => {
       setAllVotes(votes);
       setVoteCounts(counts);
       setResults(r);
-      
+
       const ovMap: Record<string, MatchOverride> = {};
       ovs.forEach(o => { ovMap[o.match_id] = o; });
       setOverrides(ovMap);
       setAnnouncement(ann.text);
+      setLiveScores(liveScoreData);
     } catch {
       // API not available
     }
@@ -69,22 +73,34 @@ const Index = () => {
     if (!roomLoading && !activeRoom) { navigate("/rooms"); return; }
     loadData();
 
-    // Check for last poll summary - show if a new match is available that wasn't seen yet
-    api.getLastPollSummary().then((res) => {
-      if (res && !res.noData) {
-        const lastSeen = localStorage.getItem("lastSeenMatchId");
-        const forceShow = sessionStorage.getItem("forceShowBanner") === "true";
-        if (forceShow || res.matchId !== lastSeen) {
+    // Check for last poll summary - only on first load after login
+    const isJustLoggedIn = sessionStorage.getItem("justLoggedIn") === "true";
+    if (isJustLoggedIn) {
+      api.getLastPollSummary().then((res) => {
+        if (res && !res.noData) {
           setSummary(res);
           setShowSummary(true);
-          sessionStorage.removeItem("forceShowBanner");
         }
-      }
-    }).catch(() => {});
+        sessionStorage.removeItem("justLoggedIn");
+      }).catch(() => {
+        sessionStorage.removeItem("justLoggedIn");
+      });
+    }
 
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
   }, [user, navigate, loadData, activeRoom, roomLoading]);
+
+  // Real-time live score updates via Socket.IO
+  useEffect(() => {
+    const sock = getSocket();
+    const handler = (data: { matchId: string; score: string | null; status: string | null; updatedAt: string }) => {
+      setLiveScores(prev => ({ ...prev, [data.matchId]: data }));
+    };
+    sock.on('live_score', handler);
+    if (!sock.connected) connectSocket();
+    return () => { sock.off('live_score', handler); };
+  }, []);
 
   const handleVote = async (matchId: string, prediction: string, isBulk?: boolean) => {
     if (!activeRoom) return;
@@ -140,7 +156,6 @@ const Index = () => {
           summary={summary} 
           onClose={() => {
             setShowSummary(false);
-            if (summary) localStorage.setItem("lastSeenMatchId", summary.matchId);
           }} 
         />
       )}
@@ -178,6 +193,7 @@ const Index = () => {
           results={results}
           overrides={overrides}
           roomId={activeRoom.id}
+          liveScores={liveScores}
         />
 
         {/* Completed Matches – horizontal scrolling cards */}

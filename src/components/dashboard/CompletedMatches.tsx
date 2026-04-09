@@ -95,6 +95,11 @@ const CompletedMatchCard = React.memo(({ match, result, myPick }: {
             {result.scoreSummary}
           </p>
         )}
+        {result.toss && (
+          <p className="text-[9px] text-muted-foreground/60 leading-snug">
+            🪙 {result.toss}
+          </p>
+        )}
       </div>
 
       {/* My prediction */}
