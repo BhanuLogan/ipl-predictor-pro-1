@@ -69,19 +69,16 @@ const Index = () => {
     if (!roomLoading && !activeRoom) { navigate("/rooms"); return; }
     loadData();
 
-    // Check for last poll summary - only on first load after login
-    const isJustLoggedIn = sessionStorage.getItem("justLoggedIn") === "true";
-    if (isJustLoggedIn) {
-      api.getLastPollSummary().then((res) => {
-        if (res && !res.noData) {
+    // Check for last poll summary - show if a new match is available that wasn't seen yet
+    api.getLastPollSummary().then((res) => {
+      if (res && !res.noData) {
+        const lastSeen = localStorage.getItem("lastSeenMatchId");
+        if (res.matchId !== lastSeen) {
           setSummary(res);
           setShowSummary(true);
         }
-        sessionStorage.removeItem("justLoggedIn");
-      }).catch(() => {
-        sessionStorage.removeItem("justLoggedIn");
-      });
-    }
+      }
+    }).catch(() => {});
 
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
@@ -141,6 +138,7 @@ const Index = () => {
           summary={summary} 
           onClose={() => {
             setShowSummary(false);
+            if (summary) localStorage.setItem("lastSeenMatchId", summary.matchId);
           }} 
         />
       )}
