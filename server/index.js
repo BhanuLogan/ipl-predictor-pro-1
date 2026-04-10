@@ -2961,66 +2961,71 @@ ${context}`
 
 // ─── Ball-by-ball Commentary ───────────────────────────────────────────────
 
-/** Format a single ESPN playbyplay item into a ball-by-ball chat message */
+/** Format a single ESPN playbyplay item into a ball-by-ball chat message.
+ *  Field names verified against live ESPN cricket API (/playbyplay?event=1527689).
+ *
+ *  Actual playType.description values:
+ *    "out"    → wicket  |  "four"   → boundary four
+ *    "run"    → runs    |  "no run" → dot ball
+ *    "wide"   → wide    |  "bye"    → bye
+ *    "no ball"→ no ball
+ *  Sixes have playType="run" with scoreValue=6 (no dedicated "six" type).
+ *  Batter/bowler names are at athlete.name — shortName does not exist.
+ */
 function formatESPNCommentaryItem(item, matchScore) {
   const shortText = (item.shortText || '').trim();
-  const commText = (item.text || '').replace(/<[^>]+>/g, '').trim();
+  const commText  = (item.text || '').replace(/<[^>]+>/g, '').trim();
   if (!shortText && !commText) return null;
 
-  // ── Over position (ESPN cricket stores as decimal: 5.3 = over 5, ball 3) ──
-  const overOvers = item.over?.overs ?? item.over?.current ?? item.period;
-  const overStr = overOvers != null ? `Over ${overOvers}` : null;
+  // ── Line 1: Over • Event ─────────────────────────────────────────────────
+  const overOvers = item.over?.overs;
+  const overStr   = overOvers != null ? `Over ${overOvers}` : null;
 
-  // ── Event type — check structured fields then fall back to text heuristics ──
-  const typeDesc = (item.type?.description || item.playType?.description || '').toLowerCase();
-  const scoreVal = Number(item.scoreValue ?? item.runsScored ?? item.run ?? 0);
-  const isWicket = item.dismissal?.dismissal === true
-    || typeDesc === 'wicket' || typeDesc.includes('wicket')
-    || /\b(out|dismissed|wicket)\b/i.test(shortText);
-  const isSix    = scoreVal === 6 || typeDesc === 'six';
-  const isFour   = scoreVal === 4 || typeDesc === 'four';
-  const isWide   = typeDesc.includes('wide');
-  const isNoBall = typeDesc.includes('no ball') || typeDesc.includes('noball');
-  const isDot    = !isWicket && !isSix && !isFour && !isWide && !isNoBall && scoreVal === 0;
+  const typeDesc = (item.playType?.description || '').toLowerCase();
+  const scoreVal = Number(item.scoreValue ?? 0);
+
+  const isWicket  = item.dismissal?.dismissal === true || typeDesc === 'out';
+  const isSix     = scoreVal === 6;               // "run" + scoreValue=6
+  const isFour    = typeDesc === 'four' || scoreVal === 4;
+  const isWide    = typeDesc === 'wide';
+  const isNoBall  = typeDesc === 'no ball' || typeDesc === 'noball';
+  const isDot     = typeDesc === 'no run' ||
+    (!isWicket && !isSix && !isFour && !isWide && !isNoBall && scoreVal === 0);
 
   let eventLabel;
-  if (isWicket)    eventLabel = '❌ WICKET!';
-  else if (isSix)  eventLabel = '🚀 SIX!';
-  else if (isFour) eventLabel = '💥 FOUR!';
-  else if (isWide) eventLabel = '↔️ Wide';
+  if (isWicket)      eventLabel = '❌ WICKET!';
+  else if (isSix)    eventLabel = '🚀 SIX!';
+  else if (isFour)   eventLabel = '💥 FOUR!';
+  else if (isWide)   eventLabel = '↔️ Wide';
   else if (isNoBall) eventLabel = '⚠️ No Ball';
-  else if (isDot)  eventLabel = '⬛ Dot';
-  else             eventLabel = `+${scoreVal}`;
+  else if (isDot)    eventLabel = '⬛ Dot';
+  else               eventLabel = `+${scoreVal}`;
 
   const line1 = [overStr, eventLabel].filter(Boolean).join('  •  ');
 
-  // ── Batter (multiple field-name fallbacks for ESPN cricket) ──
-  const batter = item.batsman?.athlete?.shortName
-    || item.batsman?.athlete?.fullName
-    || item.batsman?.name;
-  const batterRuns  = item.batsman?.totalRuns ?? item.batsman?.runs ?? 0;
-  const batterBalls = item.batsman?.faced ?? item.batsman?.balls ?? 0;
+  // ── Line 2: 🏏 Batter runs(balls)   ⚾ Bowler wkts/runs ─────────────────
+  const batter      = item.batsman?.athlete?.name;   // ESPN uses .name, not .shortName
+  const batterRuns  = item.batsman?.totalRuns ?? 0;
+  const batterBalls = item.batsman?.faced ?? 0;
 
-  // ── Bowler ──
-  const bowler = item.bowler?.athlete?.shortName
-    || item.bowler?.athlete?.fullName
-    || item.bowler?.name;
+  const bowler     = item.bowler?.athlete?.name;
   const bowlerWkts = item.bowler?.wickets ?? 0;
-  const bowlerRuns = item.bowler?.conceded ?? item.bowler?.runs ?? 0;
+  const bowlerRuns = item.bowler?.conceded ?? 0;
 
   const battingStr = batter ? `🏏 ${batter} ${batterRuns}(${batterBalls})` : null;
   const bowlingStr = bowler ? `⚾ ${bowler} ${bowlerWkts}/${bowlerRuns}` : null;
   const line2 = [battingStr, bowlingStr].filter(Boolean).join('   ');
 
-  // ── Team score ──
+  // ── Line 3: 📊 Team score ────────────────────────────────────────────────
   let line3 = '';
   if (matchScore) {
     line3 = `📊 ${matchScore}`;
-  } else if (item.team?.abbreviation && item.innings?.totalRuns != null) {
-    line3 = `📊 ${item.team.abbreviation} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'} ov)`;
+  } else if (item.innings?.totalRuns != null) {
+    const teamName = item.team?.name || '';
+    line3 = `📊 ${teamName} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'} ov)`;
   }
 
-  // ── Commentary text: shortText (summary) + full text below ──
+  // ── Lines 4-5: shortText summary + full commentary ───────────────────────
   const textParts = [];
   if (shortText) textParts.push(shortText);
   if (commText && commText !== shortText) textParts.push(commText);
