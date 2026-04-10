@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Send, MessageCircle } from "lucide-react";
+import { ArrowLeft, Send, MessageCircle, X } from "lucide-react";
 import { api, ChatMessage, MessageReaction, User } from "@/lib/api";
 import { connectSocket, getSocket } from "@/lib/socket";
 import Header from "@/components/Header";
@@ -54,58 +54,45 @@ const ReactionBar = ({
   const hasReacted = (emoji: string) =>
     reactions.find((r) => r.emoji === emoji)?.userIds?.includes(currentUserId!) ?? false;
 
+  const active = reactions.filter((r) => r.count > 0);
+
   return (
-    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-      {reactions.map((r) => {
-        const names = r.usernames ?? [];
-        const tooltipText = names.length > 0
-          ? names.length <= 3
-            ? names.join(", ")
-            : `${names.slice(0, 3).join(", ")} +${names.length - 3} more`
-          : "";
-        return (
-          <div key={r.emoji} className="relative group/reaction">
+    <div className="flex items-center gap-1 mt-1">
+      {/* Existing reactions — horizontal scroll, no wrap */}
+      {active.length > 0 && (
+        <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none max-w-[220px]">
+          {active.map((r) => (
             <button
+              key={r.emoji}
               onClick={() => onReact(messageId, r.emoji)}
-              className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs border transition-all ${
+              className={`flex-shrink-0 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] border transition-all ${
                 hasReacted(r.emoji)
                   ? "bg-primary/20 border-primary/40 text-primary"
-                  : "bg-muted/60 border-border/50 text-foreground hover:bg-muted"
+                  : "bg-muted/50 border-border/40 text-foreground hover:bg-muted"
               }`}
             >
-              <span>{r.emoji}</span>
-              <span className="font-medium">{r.count}</span>
+              <span className="leading-none">{r.emoji}</span>
+              <span className="font-semibold tabular-nums">{r.count}</span>
             </button>
-            {tooltipText && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/reaction:block z-30 pointer-events-none">
-                <div className="bg-popover border border-border rounded-lg px-2.5 py-1.5 shadow-lg text-center whitespace-nowrap">
-                  <p className="text-[10px] font-semibold text-foreground">{tooltipText}</p>
-                  <p className="text-[9px] text-muted-foreground">reacted with {r.emoji}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
 
-      {/* Add reaction button */}
-      <div className="relative" ref={pickerRef}>
+      {/* Add reaction picker */}
+      <div className="relative flex-shrink-0" ref={pickerRef}>
         <button
           onClick={() => setPickerOpen((p) => !p)}
-          className="rounded-full border border-border/50 bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted transition-all"
+          className="h-5 w-5 flex items-center justify-center rounded-full border border-border/50 bg-muted/40 text-[10px] text-muted-foreground hover:bg-muted transition-all leading-none"
           title="Add reaction"
         >
           +
         </button>
         {pickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1 grid grid-cols-4 gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20">
+          <div className="absolute bottom-full left-0 mb-1.5 grid grid-cols-4 gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20 w-max">
             {REACTION_EMOJIS.map((e) => (
               <button
                 key={e}
-                onClick={() => {
-                  onReact(messageId, e);
-                  setPickerOpen(false);
-                }}
+                onClick={() => { onReact(messageId, e); setPickerOpen(false); }}
                 className="hover:scale-125 transition-transform text-base leading-none p-0.5"
               >
                 {e}
@@ -552,35 +539,6 @@ const ChatRoom: React.FC = () => {
               </button>
             </div>
           )}
-          {/* Bot command suggestions */}
-          {suggestions.length > 0 && matchId && (
-            <div className="rounded-xl border border-border bg-card shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
-              <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/40">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
-                  {getBotName(matchId)} commands
-                </span>
-                <span className="text-[9px] text-muted-foreground ml-auto">↑↓ navigate · Tab/Enter to select · Esc to close</span>
-              </div>
-              {suggestions.map((s, i) => (
-                <button
-                  key={s.cmd}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); applySuggestion(s.cmd); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
-                    i === selectedSuggestion ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"
-                  }`}
-                >
-                  <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
-                    i === selectedSuggestion ? "bg-primary/20 text-primary" : "bg-muted text-amber-400"
-                  }`}>
-                    /{getBotName(matchId)} {s.cmd}
-                  </code>
-                  <span className="text-xs text-muted-foreground">{s.desc}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
           <div className="flex gap-2">
             <input
               ref={inputRef}
@@ -603,6 +561,51 @@ const ChatRoom: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* Bot command sidebar */}
+      {suggestions.length > 0 && matchId && (
+        <>
+          {/* Backdrop (mobile only) */}
+          <div
+            className="fixed inset-0 z-30 bg-black/30 sm:hidden"
+            onClick={() => { setSuggestions([]); setSelectedSuggestion(-1); }}
+          />
+          <div className="fixed inset-y-0 right-0 z-40 flex flex-col w-64 bg-card border-l border-border shadow-2xl animate-in slide-in-from-right duration-200">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40 flex-shrink-0">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">
+                Kira commands
+              </span>
+              <button
+                onClick={() => { setSuggestions([]); setSelectedSuggestion(-1); }}
+                className="p-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+              {suggestions.map((s, i) => (
+                <button
+                  key={s.cmd}
+                  onMouseDown={(e) => { e.preventDefault(); applySuggestion(s.cmd); }}
+                  className={`w-full flex flex-col gap-0.5 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                    i === selectedSuggestion
+                      ? "bg-primary/10 border border-primary/20"
+                      : "hover:bg-muted/60 border border-transparent"
+                  }`}
+                >
+                  <code className="text-[11px] font-mono font-bold text-amber-400">
+                    /Kira {s.cmd}
+                  </code>
+                  <span className="text-[11px] text-muted-foreground leading-snug">{s.desc}</span>
+                </button>
+              ))}
+            </div>
+            <div className="px-4 py-2 border-t border-border/50 bg-muted/20 flex-shrink-0">
+              <p className="text-[9px] text-muted-foreground">↑↓ navigate · Tab / Enter to pick · Esc to close</p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };
