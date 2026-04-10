@@ -308,6 +308,8 @@ const io = new Server(server, {
 });
 
 const roomUsers = new Map();
+const roomSeenState = new Map(); // roomKey -> Map<userId, { userId, username, profilePic, messageId }>
+const autoRoastTimestamps = new Map(); // `${roomId}_${matchId}` -> lastTimestamp
 let BOT_USER_ID = null; // set in initDb
 
 io.use((socket, next) => {
@@ -411,19 +413,52 @@ io.on("connection", (socket) => {
       };
 
       io.to(`chat_${roomId}_${matchId}`).emit("new_message", payload);
+
+      // Auto-roast: check for team mentions in chat (rate-limited to once per 60s per room)
+      const roastKey = `${roomId}_${matchId}`;
+      const lastRoast = autoRoastTimestamps.get(roastKey) || 0;
+      if (Date.now() - lastRoast > 60000 && await isBotEnabled(matchId)) {
+        const roastReply = getTeamMentionRoast(msg, matchId);
+        if (roastReply) {
+          autoRoastTimestamps.set(roastKey, Date.now());
+          postBotMessage(roomId, matchId, roastReply, getBotName(matchId)).catch(e =>
+            console.error('[Bot] Roast error:', e.message)
+          );
+        }
+      }
     } catch (e) {
       console.error("Chat Error:", e);
     }
   });
 
+  // ── Seen receipts ────────────────────────────────────────────────────────
+  socket.on("mark_seen", ({ roomId, matchId, messageId }) => {
+    if (!messageId) return;
+    const roomKey = `chat_${roomId}_${matchId}`;
+    if (!roomSeenState.has(roomKey)) roomSeenState.set(roomKey, new Map());
+    roomSeenState.get(roomKey).set(socket.user.id, {
+      userId: socket.user.id,
+      username: socket.user.username,
+      profilePic: socket.user.profile_pic,
+      messageId,
+    });
+    const seenBy = Array.from(roomSeenState.get(roomKey).values());
+    io.to(roomKey).emit("seen_update", { seenBy });
+  });
+
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.user.username}`);
-    // Cleanup roomUsers
     for (const [roomKey, usersMap] of roomUsers.entries()) {
       if (usersMap.has(socket.id)) {
         usersMap.delete(socket.id);
         const users = Array.from(usersMap.values());
         io.to(roomKey).emit("online_users", users);
+        // Remove from seen state and broadcast update
+        if (roomSeenState.has(roomKey)) {
+          roomSeenState.get(roomKey).delete(socket.user.id);
+          const seenBy = Array.from(roomSeenState.get(roomKey).values());
+          io.to(roomKey).emit("seen_update", { seenBy });
+        }
       }
     }
   });
@@ -1926,6 +1961,61 @@ function getHelpText(botName) {
     `/kira [question] — ask me anything`;
 }
 
+// ── Team-mention auto-roast (no AI needed, just personality) ──────────────
+const CSK_ROASTS = [
+  `CSK? You mean the team that recycles 40-year-olds and calls it "experience"? 😂🧓`,
+  `CSK — where careers go to retire. Love the vibe tho 🌊`,
+  `Ah yes, CSK. The only team where the average player age is "grandfather mode" 👴🏏`,
+  `CSK fans wake up! Your team's strategy is basically "hope Dhoni bats at No.7 and prays" 🙏`,
+  `Chennai Super… Killjoys? 😅 Even the yellow looks tired.`,
+];
+
+const MI_ROASTS = [
+  `MI? 5 titles and still can't figure out their opening pair this season 😬`,
+  `Mumbai Indians — the team that peaked and just keeps looking backwards at trophies 🏆👀`,
+  `MI have more title ceremonies than good recent performances. Just saying 😅`,
+  `Hardik left, Rohit retired from Tests, and MI is basically a WhatsApp group with no admin 😂`,
+  `MI fans explaining why THIS is their year… every year 📅`,
+];
+
+const KL_ROASTS = [
+  `KL Rahul scored a beautiful 50 in a losing cause. Classic. 👏 Most consistent player at losing slowly 😬`,
+  `KL Rahul: 41 off 52 balls at a run rate of 7.9. The pitch report was more exciting 💤`,
+  `KL Rahul saw 10 balls, scored 6 runs, and called it "building the innings" 🧱`,
+  `Someone tell KL Rahul T20 matches are only 20 overs, not 20 Tests 😂`,
+  `KL Rahul's strike rate is slower than my Wi-Fi during IPL night matches 📶`,
+];
+
+const RCB_HYPE = [
+  `RCB SUPREMACY! Ee sala cup namde! 🏆🔴🖤`,
+  `RCB going brrr 🚀 Virat ki army represent! 🏏🔥`,
+  `RCB — the team that makes your heart race every single game 💔❤️ But we still believe!`,
+  `Red. Black. Passion. RCB forever! Ee sala final mein aa hi jaayenge 🙌`,
+  `RCB keeping us on the edge since 2008. Toxic relationship but we love it 😭❤️`,
+];
+
+function getTeamMentionRoast(message, _matchId) {
+  const m = message.toLowerCase();
+  const mentionsCSK = /\bcsk\b|chennai super kings?\b|dhoni\b/i.test(message);
+  const mentionsMI  = /\bmi\b|mumbai indians?\b/i.test(message);
+  const mentionsKL  = /\bkl\s*rahul\b/i.test(message);
+  const mentionsRCB = /\brcb\b|royal challengers?\b/i.test(message);
+
+  // Don't roast if message is just a single word or too short
+  if (message.trim().split(/\s+/).length < 2) return null;
+
+  // Pick random from pool
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  if (mentionsKL) return pick(KL_ROASTS);
+  if (mentionsCSK && mentionsMI) return `CSK vs MI? Two of my least favourite teams in one match 😂 I'm cheering for rain!`;
+  if (mentionsCSK) return pick(CSK_ROASTS);
+  if (mentionsMI)  return pick(MI_ROASTS);
+  if (mentionsRCB) return pick(RCB_HYPE);
+
+  return null;
+}
+
 async function fetchLatestBallData(matchId) {
   const state = commentaryCache.get(matchId);
   if (!state?.cricbuzzMatchId) return null;
@@ -2275,16 +2365,24 @@ ${balls}
             messages: [
               {
                 role: "system",
-                content: `You are Kira, a cool, slightly savage, and funny friend hanging out in this IPL chatroom. 
-                Talk like a real person, not an AI. Use casual language, slang, and be a bit of a troller. 
-                If someone asks about the match, use the data provided (including detailed team scores and wickets if available) but give your own "friend" take on it. 
-                You can answer specific questions like "who won by how much?", "how many wickets were lost?", or "what was the individual team score?".
-                Trash talk teams or players who are underperforming. 
-                Keep it short, punchy, and like a message you'd send in a WhatsApp group. 
-                Don't say "As an AI..." or "I am here to help." Just chat.
-                
-                Current match context:
-                ${context}`
+                content: `You are Kira — a die-hard RCB fan, sarcastic cricket analyst, and the funniest person in this IPL chatroom.
+
+PERSONALITY:
+- You are a MASSIVE RCB fan. Defend RCB, hype Virat Kohli, and celebrate any RCB win like it's a World Cup.
+- You genuinely dislike CSK. Call them "Chennai Super Killjoys", "the retirement home team", or "MS's nursing facility". Roast them hard but keep it funny.
+- You think MI (Mumbai Indians) are overrated. They won 5 titles years ago and coast on that reputation. Roast Hardik Pandya's inconsistency, MI's poor recent form.
+- KL Rahul is your nemesis. Call him out for slow strike rates, scoring 40s in 50 balls while the team drowns, "building the innings" in a T20, etc. He's the human anchor who sinks ships.
+- If a match involves RCB, be dramatically invested. If they win, go WILD. If they lose, be in genuine mourning.
+
+STYLE:
+- Talk like a real person texting in a WhatsApp group — casual, punchy, funny.
+- Use cricket slang. Keep it under 3 sentences.
+- Never say "As an AI" or "I'm here to help". Just chat like a friend.
+- Trash talk is encouraged but keep it cricket-related, not personal attacks.
+- If asked about match data, use the context provided but add your own savage take.
+
+Current match context:
+${context}`
               },
               { role: "user", content: userQuestion }
             ],

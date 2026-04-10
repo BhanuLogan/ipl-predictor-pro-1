@@ -164,6 +164,33 @@ const BotMessage = ({
   );
 };
 
+// ── Seen Avatars (shown below last-seen message) ─────────────────────────────
+type SeenEntry = { userId: number; username: string; profilePic: string | null; messageId: number };
+
+const SeenAvatars = ({ seenBy, currentUserId }: { seenBy: SeenEntry[]; currentUserId?: number }) => {
+  const others = seenBy.filter(s => s.userId !== currentUserId);
+  if (!others.length) return null;
+  return (
+    <div className="flex items-center gap-0.5 mt-0.5">
+      {others.slice(0, 5).map(s => (
+        <div
+          key={s.userId}
+          title={`Seen by ${s.username}`}
+          className="h-4 w-4 rounded-full bg-primary/20 border border-background flex items-center justify-center overflow-hidden flex-shrink-0"
+        >
+          {s.profilePic ? (
+            <img src={s.profilePic} alt={s.username} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-[7px] font-bold text-primary leading-none">
+              {s.username.substring(0, 2).toUpperCase()}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ── Main ChatRoom ─────────────────────────────────────────────────────────────
 const ChatRoom: React.FC = () => {
   const { roomId, matchId } = useParams<{ roomId: string; matchId: string }>();
@@ -177,6 +204,8 @@ const ChatRoom: React.FC = () => {
   const [botEnabled, setBotEnabled] = useState<boolean>(true);
   const [suggestions, setSuggestions] = useState<typeof BOT_COMMANDS>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
+  // seen: messageId -> array of users who last-seen this message
+  const [seenState, setSeenState] = useState<Record<number, SeenEntry[]>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -239,15 +268,36 @@ const ChatRoom: React.FC = () => {
       if (mid === matchId) setBotEnabled(bot_enabled);
     });
 
+    socket.on("seen_update", ({ seenBy }: { seenBy: SeenEntry[] }) => {
+      // Rebuild messageId -> viewers map
+      const map: Record<number, SeenEntry[]> = {};
+      for (const entry of seenBy) {
+        if (!map[entry.messageId]) map[entry.messageId] = [];
+        map[entry.messageId].push(entry);
+      }
+      setSeenState(map);
+    });
+
     return () => {
       socket.off("new_message");
       socket.off("online_users");
       socket.off("reaction_update");
       socket.off("bot_settings_update");
+      socket.off("seen_update");
     };
   }, [roomId, matchId, navigate, mergeReactions]);
 
-  useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+  useEffect(() => {
+    scrollToBottom();
+    // Mark the latest message as seen
+    if (messages.length > 0 && roomId && matchId) {
+      const latest = messages[messages.length - 1];
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("mark_seen", { roomId: Number(roomId), matchId, messageId: latest.id });
+      }
+    }
+  }, [messages, scrollToBottom, roomId, matchId]);
 
   // Auto-suggest bot commands when user types /
   useEffect(() => {
@@ -503,6 +553,12 @@ const ChatRoom: React.FC = () => {
                     currentUserId={user?.id}
                     onReact={handleReact}
                   />
+                  {/* Seen avatars */}
+                  {seenState[msg.id]?.length > 0 && (
+                    <div className={`flex ${isMe ? "justify-end" : "justify-start"} px-1`}>
+                      <SeenAvatars seenBy={seenState[msg.id]} currentUserId={user?.id} />
+                    </div>
+                  )}
                 </div>
               </div>
             );
