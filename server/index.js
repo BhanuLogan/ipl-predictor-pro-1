@@ -1981,6 +1981,23 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   );
   const isCompleted = !!completedResult;
 
+  // Check if match hasn't started yet
+  const matchStart = matchInfo
+    ? new Date(`${matchInfo.date}T${matchInfo.time || '19:30'}:00+05:30`)
+    : null;
+  const isNotStarted = !isCompleted && matchStart && new Date() < matchStart;
+  const preStartReply = isNotStarted
+    ? (() => {
+        const timeStr = matchStart.toLocaleTimeString('en-IN', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+        });
+        const dateStr = matchStart.toLocaleDateString('en-IN', {
+          weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata',
+        });
+        return `⏳ The match hasn't started yet!\n\n${t1} vs ${t2} kicks off on ${dateStr} at ${timeStr} IST.\n\nI'll go live with ball-by-ball updates the moment the first ball is bowled. Stay tuned! 🏏🔥`;
+      })()
+    : null;
+
   let reply = null;
 
   // ── help ──────────────────────────────────────────────────────────────────
@@ -1995,6 +2012,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
       reply = `📊 Final Scorecard — ${t1} vs ${t2}`;
       if (score_summary) reply += `\n${score_summary}`;
       if (toss) reply += `\n🪙 ${toss}`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else if (!liveData?.score) {
       reply = `No live score yet, ${askerUsername}. Check back once the match starts! 🏏`;
     } else {
@@ -2013,6 +2032,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
       } else {
         reply = `🏆 ${winner} won this match!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
       }
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       reply = liveData?.score
         ? `⏳ Match still in progress!\n📊 ${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`
@@ -2024,6 +2045,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   else if (['batting', 'bat', 'batsman', 'batter', "who's batting", 'who is batting'].includes(q)) {
     if (isCompleted) {
       reply = `Match is over! Check the result with /${botName} score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       const data = await fetchLatestBallData(matchId);
       const ball = data?.latest;
@@ -2046,6 +2069,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   else if (['bowling', 'bowl', 'bowler', "who's bowling", 'who is bowling'].includes(q)) {
     if (isCompleted) {
       reply = `Match is over! Check the result with /${botName} score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       const data = await fetchLatestBallData(matchId);
       const ball = data?.latest;
@@ -2062,6 +2087,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   else if (['rr', 'crr', 'run rate', 'current run rate'].includes(q)) {
     if (isCompleted) {
       reply = `Match is over! Check the result with /${botName} score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       const data = await fetchLatestBallData(matchId);
       const ms = parseMiniScore(data?.miniscore);
@@ -2077,11 +2104,13 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   else if (['target', 'what is the target', "what's the target"].includes(q)) {
     if (isCompleted) {
       reply = `Match is over! Check the result with /${botName} score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       const data = await fetchLatestBallData(matchId);
       const ms = parseMiniScore(data?.miniscore);
       if (!ms?.target) {
-        reply = `No target set yet — either still 1st innings or match hasn't started, ${askerUsername}!`;
+        reply = `No target set yet — either still 1st innings, ${askerUsername}!`;
       } else {
         reply = `🎯 Target: *${ms.target} runs*${ms.teamName ? ` for ${ms.teamName}` : ''}`;
       }
@@ -2092,6 +2121,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   else if (['rrr', 'required rate', 'required run rate'].includes(q)) {
     if (isCompleted) {
       reply = `Match is over! Check the result with /${botName} score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       const data = await fetchLatestBallData(matchId);
       const ms = parseMiniScore(data?.miniscore);
@@ -2107,6 +2138,8 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   else if (['overs', 'overs left', 'overs remaining'].includes(q)) {
     if (isCompleted) {
       reply = `Match is over! Check the result with /${botName} score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
     } else {
       const data = await fetchLatestBallData(matchId);
       const ms = parseMiniScore(data?.miniscore);

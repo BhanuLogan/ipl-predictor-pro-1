@@ -11,6 +11,11 @@ import {
 } from "@/components/ui/pagination";
 import { formatMatchDate, IPL_TEAMS, type Match, isVotingLocked } from "@/lib/data";
 
+function isMatchToday(dateStr: string): boolean {
+  const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+  return dateStr === today;
+}
+
 interface Props {
   upcomingLocked: Match[];
   paginatedUpcoming: Match[];
@@ -72,7 +77,7 @@ const UpcomingMatches = React.memo(({
               {match.venue.split(",")[0]}
             </p>
             
-            {isVotingLocked(match, overrides[match.id]) && (
+            {isVotingLocked(match, overrides[match.id]) ? (
               <Link
                 to={`/rooms/${roomId}/chat/${match.id}`}
                 className="mt-4 flex items-center justify-center gap-2 w-full rounded-lg bg-red-500/10 border border-red-500/20 py-2.5 text-xs font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white"
@@ -80,7 +85,15 @@ const UpcomingMatches = React.memo(({
                 <MessageCircle size={14} className="animate-pulse" />
                 GO TO CHAT ROOM
               </Link>
-            )}
+            ) : isMatchToday(match.date) ? (
+              <Link
+                to={`/rooms/${roomId}/chat/${match.id}`}
+                className="mt-4 flex items-center justify-center gap-2 w-full rounded-lg bg-muted/60 border border-border/50 py-2.5 text-xs font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+              >
+                <MessageCircle size={14} />
+                Open Chat
+              </Link>
+            ) : null}
           </div>
         ))}
       </div>
