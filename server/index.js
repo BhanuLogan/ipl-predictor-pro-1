@@ -1081,17 +1081,10 @@ app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
   res.json(rooms);
 }));
 
-// Room leaderboard — register BEFORE /:id to avoid route conflict
-app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
-  const roomId = parseInt(req.params.id);
-  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
-  const member = await queryOne(
-    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
-    [roomId, req.user.id]
-  );
-  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+// Shared leaderboard logic used by both the API and the bot /top command
+async function getRoomLeaderboard(roomId) {
   const room = await queryOne("SELECT created_at FROM rooms WHERE id = $1", [roomId]);
-  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!room) return [];
 
   const board = await query(`
     SELECT
@@ -1135,11 +1128,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
 
   const enriched = board.map((row) => {
     const t = timing[row.user_id] || {};
-    return {
-      ...row,
-      nrr: t.nrr ?? null,
-      first_vote_at: t.firstVoteAt ? t.firstVoteAt.toISOString() : null,
-    };
+    return { ...row, nrr: t.nrr ?? null };
   });
 
   enriched.sort((a, b) => {
@@ -1151,6 +1140,20 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     return a.username.localeCompare(b.username);
   });
 
+  return enriched;
+}
+
+// Room leaderboard — register BEFORE /:id to avoid route conflict
+app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+  const member = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+  const enriched = await getRoomLeaderboard(roomId);
+  if (!enriched.length) return res.status(404).json({ error: "Room not found" });
   res.json(enriched);
 }));
 
@@ -2154,20 +2157,13 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // ── leaderboard ──────────────────────────────────────────────────────────
   else if (['top', 'leaderboard', 'standings'].includes(q)) {
-    const rows = await query(`
-      SELECT u.username, COALESCE(SUM(v.points), 0) AS pts
-      FROM users u
-      LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1
-      WHERE u.username != 'scorebot' AND u.is_admin = FALSE
-      GROUP BY u.username
-      ORDER BY pts DESC
-      LIMIT 5
-    `, [roomId]);
-    if (!rows.length) {
+    const board = await getRoomLeaderboard(roomId);
+    const top5 = board.filter(r => r.username !== 'scorebot').slice(0, 5);
+    if (!top5.length) {
       reply = `No predictions made in this room yet, ${askerUsername}!`;
     } else {
       const medals = ['🥇', '🥈', '🥉', '#4', '#5'];
-      const lines = rows.map((r, i) => `${medals[i]} ${r.username} — ${r.pts} pts`);
+      const lines = top5.map((r, i) => `${medals[i]} ${r.username} — ${r.points} pts`);
       reply = `🏆 Room Leaderboard (Top 5)\n\n${lines.join('\n')}`;
     }
   }
