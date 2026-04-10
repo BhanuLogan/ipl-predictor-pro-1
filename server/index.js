@@ -1093,24 +1093,26 @@ async function getRoomLeaderboard(roomId) {
       u.profile_pic,
       COALESCE(SUM(
         CASE
-          WHEN r.winner IS NULL THEN 0
-          WHEN r.winner IN ('nr','draw') THEN 1
-          WHEN v.prediction = r.winner THEN 2
+          WHEN vr.winner IN ('nr','draw') THEN 1
+          WHEN vr.prediction = vr.winner THEN 2
           ELSE 0
         END
       ), 0)::int AS points,
       COALESCE(SUM(
-        CASE WHEN r.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
+        CASE WHEN vr.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
       ), 0)::int AS nr,
       COALESCE(SUM(
-        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
+        CASE WHEN vr.winner NOT IN ('nr', 'draw') AND vr.prediction = vr.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
-      COALESCE(COUNT(r.match_id), 0)::int AS voted,
+      COALESCE(COUNT(vr.match_id), 0)::int AS voted,
       (SELECT COUNT(*)::int FROM results) AS matches
     FROM users u
     JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
-    LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1 AND v.created_at >= $2
-    LEFT JOIN results r ON r.match_id = v.match_id
+    LEFT JOIN (
+      SELECT v.user_id, v.match_id, v.prediction, r.winner
+      FROM results r
+      JOIN votes v ON v.match_id = r.match_id AND v.room_id = $1 AND v.created_at >= $2
+    ) vr ON vr.user_id = u.id
     GROUP BY u.id, u.username, u.profile_pic
   `, [roomId, room.created_at]);
 
