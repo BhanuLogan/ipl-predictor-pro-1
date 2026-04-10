@@ -58,13 +58,6 @@ JWT_SECRET=your-secret-key
 ADMIN_PASSWORD=your-admin-unlock-password
 ADMIN_USERNAME=admin
 ADMIN_DEFAULT_PW=admin123
-
-# Optional: Cricbuzz via RapidAPI for auto result sync + reliable live scores
-# Free tier available at https://rapidapi.com/cricketapilive/api/cricbuzz-cricket
-# Without this, live scores fall back to the free Cricbuzz web API
-RAPIDAPI_KEY=
-RAPIDAPI_HOST=cricbuzz-cricket.p.rapidapi.com
-RAPIDAPI_SERIES_ID=9241
 ```
 
 ### 3. Create the database
@@ -110,9 +103,6 @@ The default admin account is created automatically using `ADMIN_USERNAME` / `ADM
 | `ADMIN_PASSWORD` | yes | Password to unlock admin mode in the UI |
 | `ADMIN_USERNAME` | yes | Username for the seeded admin account |
 | `ADMIN_DEFAULT_PW` | yes | Password for the seeded admin account |
-| `RAPIDAPI_KEY` | no | Enables auto result sync and reliable live scores |
-| `RAPIDAPI_HOST` | no | RapidAPI host (default: `cricbuzz-cricket.p.rapidapi.com`) |
-| `RAPIDAPI_SERIES_ID` | no | Cricbuzz series ID for IPL (default: `9241`) |
 | `SERVER_URL` | no | Public URL used for the self-ping keep-alive (Render deployments) |
 
 ---

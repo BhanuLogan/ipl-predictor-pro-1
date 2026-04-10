@@ -1339,11 +1339,6 @@ app.post("/api/admin/match-bot-settings", authMiddleware, adminMiddleware, async
 
 // ─── Automated Result Service (Cricbuzz API) ───────────────────────────────
 
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "cricbuzz-cricket.p.rapidapi.com";
-/** IPL series on Cricbuzz (RapidAPI). Override if the tournament id changes year to year. */
-const RAPIDAPI_SERIES_ID = process.env.RAPIDAPI_SERIES_ID || "9241";
-
 const TEAM_NAME_MAP = {
   "Chennai Super Kings": "CSK",
   "Mumbai Indians": "MI",
@@ -1493,19 +1488,6 @@ function dedupeCricbuzzMatches(matches) {
     out.push(m);
   }
   return out;
-}
-
-async function fetchCricbuzzSeriesMatches() {
-  const url = `https://${RAPIDAPI_HOST}/series/v1/${RAPIDAPI_SERIES_ID}`;
-  const response = await axios.request({
-    method: "GET",
-    url,
-    headers: {
-      "X-RapidAPI-Key": RAPIDAPI_KEY,
-      "X-RapidAPI-Host": RAPIDAPI_HOST,
-    },
-  });
-  return collectCricbuzzMatchesFromPayload(response.data);
 }
 
 /** Auto-sync only runs from (match start + 4h) through (match start + 6h), every CHECK_INTERVAL. */
