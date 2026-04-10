@@ -191,6 +191,30 @@ const SeenAvatars = ({ seenBy, currentUserId }: { seenBy: SeenEntry[]; currentUs
   );
 };
 
+// ── Render message text with @mentions highlighted ───────────────────────────
+function renderWithMentions(text: string, currentUsername?: string) {
+  const parts = text.split(/(@\w+)/g);
+  return parts.map((part, i) => {
+    if (/^@\w+$/.test(part)) {
+      const mentioned = part.slice(1);
+      const isMe = mentioned.toLowerCase() === currentUsername?.toLowerCase();
+      return (
+        <span
+          key={i}
+          className={`font-bold rounded px-0.5 ${
+            isMe
+              ? "text-amber-300 bg-amber-400/15"
+              : "text-primary"
+          }`}
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 // ── Main ChatRoom ─────────────────────────────────────────────────────────────
 const ChatRoom: React.FC = () => {
   const { roomId, matchId } = useParams<{ roomId: string; matchId: string }>();
@@ -206,6 +230,10 @@ const ChatRoom: React.FC = () => {
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
   // seen: messageId -> array of users who last-seen this message
   const [seenState, setSeenState] = useState<Record<number, SeenEntry[]>>({});
+  // @mention state
+  const [roomMembers, setRoomMembers] = useState<string[]>([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState<string[]>([]);
+  const [selectedMention, setSelectedMention] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -235,7 +263,7 @@ const ChatRoom: React.FC = () => {
 
     if (!roomId || !matchId) return;
 
-    // Load history + bot setting
+    // Load history, bot setting, and room members
     api.getChatHistory(Number(roomId), matchId).then((msgs) => {
       setMessages(msgs);
       mergeReactions(msgs);
@@ -244,6 +272,10 @@ const ChatRoom: React.FC = () => {
     api.getMatchBotSettings().then((settings) => {
       const s = settings.find((s) => s.match_id === matchId);
       setBotEnabled(s ? s.bot_enabled : true);
+    }).catch(console.error);
+
+    api.getRoom(Number(roomId)).then((room) => {
+      setRoomMembers(room.members ?? []);
     }).catch(console.error);
 
     // Socket setup
@@ -306,7 +338,7 @@ const ChatRoom: React.FC = () => {
       setSelectedSuggestion(-1);
       return;
     }
-    const typed = newMessage.slice(1).toLowerCase(); // everything after '/'
+    const typed = newMessage.slice(1).toLowerCase();
     const filtered = typed === ''
       ? BOT_COMMANDS
       : BOT_COMMANDS.filter((c) => c.cmd.startsWith(typed));
@@ -321,22 +353,88 @@ const ChatRoom: React.FC = () => {
     inputRef.current?.focus();
   }, []);
 
+  // Detect @mention context: find the @word immediately before the cursor
+  const getMentionContext = (value: string, cursorPos: number): string | null => {
+    const before = value.slice(0, cursorPos);
+    const match = before.match(/@(\w*)$/);
+    return match ? match[1] : null;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setNewMessage(val);
+
+    const cursor = e.target.selectionStart ?? val.length;
+    const partial = getMentionContext(val, cursor);
+
+    if (partial !== null && roomMembers.length > 0) {
+      const filtered = roomMembers.filter(
+        (m) => m.toLowerCase().startsWith(partial.toLowerCase()) && m !== user?.username
+      );
+      setMentionSuggestions(filtered);
+      setSelectedMention(-1);
+    } else {
+      setMentionSuggestions([]);
+    }
+  };
+
+  const applyMention = useCallback((username: string) => {
+    const cursor = inputRef.current?.selectionStart ?? newMessage.length;
+    const before = newMessage.slice(0, cursor);
+    const after = newMessage.slice(cursor);
+    const atIdx = before.lastIndexOf('@');
+    const replaced = `${before.slice(0, atIdx)}@${username} ${after}`;
+    setNewMessage(replaced);
+    setMentionSuggestions([]);
+    setSelectedMention(-1);
+    // Move cursor after the inserted mention
+    setTimeout(() => {
+      const pos = atIdx + username.length + 2; // @ + name + space
+      inputRef.current?.setSelectionRange(pos, pos);
+      inputRef.current?.focus();
+    }, 0);
+  }, [newMessage]);
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!suggestions.length) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedSuggestion((i) => (i + 1) % suggestions.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedSuggestion((i) => (i - 1 + suggestions.length) % suggestions.length);
-    } else if (e.key === 'Tab' || e.key === 'Enter') {
-      if (selectedSuggestion >= 0) {
+    // Mention suggestions take priority
+    if (mentionSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedMention((i) => (i + 1) % mentionSuggestions.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedMention((i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length);
+        return;
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && selectedMention >= 0) {
+        e.preventDefault();
+        applyMention(mentionSuggestions[selectedMention]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setMentionSuggestions([]);
+        setSelectedMention(-1);
+        return;
+      }
+    }
+
+    // Bot command suggestions
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSuggestion((i) => (i + 1) % suggestions.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSuggestion((i) => (i - 1 + suggestions.length) % suggestions.length);
+      } else if ((e.key === 'Tab' || e.key === 'Enter') && selectedSuggestion >= 0) {
         e.preventDefault();
         applySuggestion(suggestions[selectedSuggestion].cmd);
+      } else if (e.key === 'Escape') {
+        setSuggestions([]);
+        setSelectedSuggestion(-1);
       }
-    } else if (e.key === 'Escape') {
-      setSuggestions([]);
-      setSelectedSuggestion(-1);
     }
   };
 
@@ -354,6 +452,8 @@ const ChatRoom: React.FC = () => {
     setReplyingTo(null);
     setSuggestions([]);
     setSelectedSuggestion(-1);
+    setMentionSuggestions([]);
+    setSelectedMention(-1);
   };
 
   const handleReact = useCallback(async (messageId: number, emoji: string) => {
@@ -541,7 +641,9 @@ const ChatRoom: React.FC = () => {
                       </div>
                     )}
                     <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">{msg.message}</p>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">
+                        {renderWithMentions(msg.message, user?.username)}
+                      </p>
                       <span className={`text-[9px] whitespace-nowrap opacity-60 ml-auto pb-0.5 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
                         {format(new Date(msg.created_at), "h:mm a")}
                       </span>
@@ -584,14 +686,45 @@ const ChatRoom: React.FC = () => {
               </button>
             </div>
           )}
+          {/* @mention dropdown — floats above the input */}
+          {mentionSuggestions.length > 0 && (
+            <div className="mb-1 rounded-xl border border-border bg-card shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+              <div className="px-3 py-1.5 border-b border-border/50 bg-muted/40">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Mention</span>
+              </div>
+              <div className="max-h-40 overflow-y-auto">
+                {mentionSuggestions.map((name, i) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); applyMention(name); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                      i === selectedMention
+                        ? "bg-primary/15 text-primary"
+                        : "hover:bg-muted/60 text-foreground"
+                    }`}
+                  >
+                    <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[9px] font-bold text-primary flex-shrink-0">
+                      {name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <span className="text-sm font-medium">@{name}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="px-3 py-1 border-t border-border/30 bg-muted/20">
+                <p className="text-[9px] text-muted-foreground">↑↓ navigate · Enter to pick · Esc to close</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <input
               ref={inputRef}
               type="text"
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or /score, /batting, /help..." : "Type a message..."}
+              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or @mention, /score, /help..." : "Chat or @mention someone..."}
               className="flex-1 rounded-xl border border-border bg-muted px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               maxLength={500}
             />
