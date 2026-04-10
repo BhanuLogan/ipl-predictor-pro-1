@@ -2075,14 +2075,19 @@ async function pollLiveScores() {
       console.log(`[LiveScore] ${match.id}: ${score || 'no score'} | ${status || 'no status'}`);
 
       // ── Bot live-score messages ─────────────────────────────────────────────
-      // Post when score changes: immediately on wicket, otherwise throttle to 30s
-      if (score && apiMatch.state === 'in') {
+      // Post when score changes: immediately on wicket, otherwise throttle to 15s.
+      // Do NOT gate on apiMatch.state — we already filtered by time window via liveMatches.
+      // Only skip if the match is already finished in ESPN ('post') to avoid stale spam.
+      console.log(`[LiveScore] state=${apiMatch.state} score=${score}`);
+      if (score && apiMatch.state !== 'post') {
         const scoreState = liveScoreBotState.get(match.id) || { lastScore: null, lastPostedAt: 0, lastWickets: 0 };
         const currentWickets = parseWicketsFromScore(score);
         const wicketFell = currentWickets > scoreState.lastWickets;
         const scoreChanged = score !== scoreState.lastScore;
-        const SCORE_THROTTLE_MS = 30 * 1000;
+        const SCORE_THROTTLE_MS = 15 * 1000;
         const shouldPost = scoreChanged && (wicketFell || (Date.now() - scoreState.lastPostedAt >= SCORE_THROTTLE_MS));
+
+        console.log(`[LiveScore] scoreChanged=${scoreChanged} wicketFell=${wicketFell} shouldPost=${shouldPost} lastScore="${scoreState.lastScore}" newScore="${score}"`);
 
         if (shouldPost && await isBotEnabled(match.id)) {
           const botName = getBotName(match.id);
