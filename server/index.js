@@ -162,10 +162,12 @@ async function initDb() {
       winner TEXT NOT NULL,
       score_summary TEXT,
       toss TEXT,
+      details JSONB,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
 
+  await query(`ALTER TABLE results ADD COLUMN IF NOT EXISTS details JSONB;`);
   await query(`ALTER TABLE results ADD COLUMN IF NOT EXISTS toss TEXT;`);
 
   await query(`
@@ -1574,16 +1576,21 @@ async function checkRecentMatches(isManual = false) {
         if (winner) {
           const scoreSummary = extractScoreSummary(apiMatch.matchInfo);
           const toss = extractTossInfo(apiMatch.matchInfo);
+          const matchDetails = {
+            matchInfo: apiMatch.matchInfo,
+            matchScore: apiMatch.matchScore,
+          };
           console.log(`🏆 AutomatedResultService: AUTO-DECLARING WINNER for ${match.id}: ${winner}${toss ? ` | ${toss}` : ''}`);
           await query(
-            `INSERT INTO results (match_id, winner, score_summary, toss)
-             VALUES ($1, $2, $3, $4)
+            `INSERT INTO results (match_id, winner, score_summary, toss, details)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (match_id)
              DO UPDATE SET
                winner = EXCLUDED.winner,
                score_summary = COALESCE(EXCLUDED.score_summary, results.score_summary),
-               toss = COALESCE(EXCLUDED.toss, results.toss)`,
-            [match.id, winner, scoreSummary, toss]
+               toss = COALESCE(EXCLUDED.toss, results.toss),
+               details = EXCLUDED.details`,
+            [match.id, winner, scoreSummary, toss, JSON.stringify(matchDetails)]
           );
           await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
           updatedCount++;
@@ -1965,7 +1972,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // Check if this is a completed match
   const completedResult = await queryOne(
-    'SELECT winner, score_summary, toss FROM results WHERE match_id = $1', [matchId]
+    'SELECT winner, score_summary, toss, details FROM results WHERE match_id = $1', [matchId]
   );
   const isCompleted = !!completedResult;
 
@@ -2229,12 +2236,37 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
           // Gather context
           const data = await fetchLatestBallData(matchId);
           const balls = data?.commentary?.slice(0, 5).map(b => b.commText).join('\n') || 'No recent commentary.';
+          
+          const currentScore = isCompleted ? completedResult.score_summary : (liveData?.score || 'Not started');
+          const currentStatus = isCompleted ? `Match Over. Winner: ${completedResult.winner}` : (liveData?.status || 'Waiting');
+
+          let detailedStats = '';
+          if (isCompleted && completedResult.details) {
+            try {
+              const d = typeof completedResult.details === 'string' ? JSON.parse(completedResult.details) : completedResult.details;
+              const mi = d.matchInfo;
+              const ms = d.matchScore;
+              if (mi && ms) {
+                const t1S = ms.team1Score?.inngs1;
+                const t2S = ms.team2Score?.inngs1;
+                detailedStats = `
+- ${mi.team1?.teamName}: ${t1S?.runs}/${t1S?.wickets} (${t1S?.overs} ov)
+- ${mi.team2?.teamName}: ${t2S?.runs}/${t2S?.wickets} (${t2S?.overs} ov)
+- Result: ${mi.status}
+                `.trim();
+              }
+            } catch (e) {
+              console.error('[Bot AI] Details parse error:', e);
+            }
+          }
+
           const context = `
 Match: ${t1} vs ${t2}
 Toss: ${completedResult?.toss || liveData?.toss || 'Unknown'}
-Current Score: ${liveData?.score || 'Not started'}
-Status: ${liveData?.status || 'Waiting'}
-Recent Commentary:
+Overall Summary: ${currentScore}
+Status: ${currentStatus}
+${detailedStats ? `Detailed Stats:\n${detailedStats}` : ''}
+Recent Commentary (Historical):
 ${balls}
           `.trim();
 
@@ -2243,10 +2275,15 @@ ${balls}
             messages: [
               {
                 role: "system",
-                content: `You are Kira, a funny, witty, and "troller-like" AI cricket companion for an IPL Predictor app. 
-                Your goal is to answer match-related questions while being entertaining and slightly trolling towards teams, players, or even the user. 
-                Keep it spicy but light-hearted. Use emojis. 
-                Here is the current live match context:
+                content: `You are Kira, a cool, slightly savage, and funny friend hanging out in this IPL chatroom. 
+                Talk like a real person, not an AI. Use casual language, slang, and be a bit of a troller. 
+                If someone asks about the match, use the data provided (including detailed team scores and wickets if available) but give your own "friend" take on it. 
+                You can answer specific questions like "who won by how much?", "how many wickets were lost?", or "what was the individual team score?".
+                Trash talk teams or players who are underperforming. 
+                Keep it short, punchy, and like a message you'd send in a WhatsApp group. 
+                Don't say "As an AI..." or "I am here to help." Just chat.
+                
+                Current match context:
                 ${context}`
               },
               { role: "user", content: userQuestion }
