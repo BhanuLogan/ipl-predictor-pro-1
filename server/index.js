@@ -1488,6 +1488,59 @@ function extractTossInfoESPN(notes) {
 
 const ESPN_IPL_BASE = 'https://site.api.espn.com/apis/site/v2/sports/cricket/8048';
 
+/** Browser-like headers required by Cricbuzz to avoid 403s */
+const CRICBUZZ_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.cricbuzz.com/',
+  'Origin': 'https://www.cricbuzz.com',
+};
+
+/**
+ * Find the Cricbuzz internal match ID for an active IPL match by polling
+ * /live and /recent, then fuzzy-matching by team abbreviation.
+ * Returns a string matchId or null if not found.
+ */
+async function findCricbuzzMatchId(team1Abbr, team2Abbr) {
+  const urls = [
+    'https://www.cricbuzz.com/api/cricket-match/live',
+    'https://www.cricbuzz.com/api/cricket-match/recent',
+  ];
+  for (const url of urls) {
+    try {
+      const resp = await axios.get(url, { headers: CRICBUZZ_HEADERS, timeout: 8000 });
+      const typeMatches = resp.data?.typeMatches || [];
+      for (const type of typeMatches) {
+        for (const series of (type.seriesMatches || [])) {
+          const wrapper = series.seriesAdWrapper;
+          if (!wrapper) continue;
+          const seriesName = (wrapper.seriesName || '').toLowerCase();
+          // Only look inside IPL series
+          if (!seriesName.includes('premier league') && !seriesName.includes('ipl')) continue;
+          for (const m of (wrapper.matches || [])) {
+            const mi = m.matchInfo;
+            if (!mi) continue;
+            const cbT1 = (mi.team1?.teamSName || '').toUpperCase();
+            const cbT2 = (mi.team2?.teamSName || '').toUpperCase();
+            const ourT1 = team1Abbr.toUpperCase();
+            const ourT2 = team2Abbr.toUpperCase();
+            if (
+              (cbT1 === ourT1 && cbT2 === ourT2) ||
+              (cbT1 === ourT2 && cbT2 === ourT1)
+            ) {
+              return String(mi.matchId);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[Cricbuzz] findMatchId error (${url.includes('live') ? 'live' : 'recent'}): ${e.message}`);
+    }
+  }
+  return null;
+}
+
 /** Abbreviate a full team name to initials if not in TEAM_NAME_MAP */
 function teamAbbr(fullName) {
   return TEAM_NAME_MAP[fullName] ||
@@ -2044,9 +2097,18 @@ async function pollLiveScores() {
 
       // Seed commentaryCache with ESPN event ID on first encounter
       if (apiMatch.espnEventId && !commentaryCache.has(match.id)) {
-        const entry = { espnEventId: apiMatch.espnEventId, lastId: null, toss: null, lineups: null };
+        const entry = {
+          espnEventId: apiMatch.espnEventId,
+          lastId: null, toss: null, lineups: null,
+          cricbuzzMatchId: null, cbInitialized: false, cbSeenIds: null, _cbRetryAt: 0,
+        };
         commentaryCache.set(match.id, entry);
         console.log(`[Commentary] Registered match ${match.id} → ESPN ID ${apiMatch.espnEventId}`);
+        // Kick off async Cricbuzz match ID discovery
+        findCricbuzzMatchId(match.team1, match.team2).then(cbId => {
+          if (cbId) { entry.cricbuzzMatchId = cbId; console.log(`[Commentary] Cricbuzz ID ${cbId} for ${match.id}`); }
+          else console.log(`[Commentary] Cricbuzz ID not found for ${match.id} (will retry)`);
+        }).catch(() => {});
       }
 
       // Re-fetch summary every poll cycle until BOTH toss and lineups are populated
@@ -2331,20 +2393,35 @@ function getHelpText(botName) {
 
 async function fetchLatestBallData(matchId) {
   const state = commentaryCache.get(matchId);
-  if (!state?.espnEventId) return null;
+  if (!state) return null;
+
+  const liveData = liveScoreCache.get(matchId);
+  const miniscore = liveData?.score
+    ? { batTeam: { teamSName: liveData.team1, score: liveData.score } }
+    : null;
+
+  // Try Cricbuzz first (primary source for ball-by-ball)
+  if (state.cricbuzzMatchId) {
+    try {
+      const resp = await axios.get(
+        `https://www.cricbuzz.com/api/cricket-match/${state.cricbuzzMatchId}/full-commentary/1`,
+        { headers: CRICBUZZ_HEADERS, timeout: 8000 }
+      );
+      const items = resp.data?.commentary || [];
+      return { latest: items[0] || null, miniscore, commentary: items };
+    } catch (e) { /* fall through to ESPN */ }
+  }
+
+  // Fall back to ESPN playbyplay
+  if (!state.espnEventId) return null;
   try {
     const resp = await axios.get(
       `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
       { timeout: 8000 }
     );
-    const items = resp.data?.commentary?.items || [];
-    const latest = items[0] || null;
-    // Use liveScoreCache for score info since ESPN playbyplay has no separate miniscore
-    const liveData = liveScoreCache.get(matchId);
-    const miniscore = liveData?.score
-      ? { batTeam: { teamSName: liveData.team1, score: liveData.score } }
-      : null;
-    return { latest, miniscore, commentary: items };
+    const rawComm = resp.data?.commentary;
+    const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || resp.data?.plays || [];
+    return { latest: items[0] || null, miniscore, commentary: items };
   } catch (e) {
     return null;
   }
@@ -3050,45 +3127,46 @@ function formatBallMessage(ball, matchScore) {
   const event = (ball.event || '').toUpperCase();
   const runs = String(ball.runsScored ?? '');
   const text = (ball.commText || '').trim();
-  if (!text) return null;
 
   // Over + ball number
   const overStr = (ball.oversNum != null && ball.ballNbr != null)
     ? `${ball.oversNum}.${ball.ballNbr}`
     : null;
 
+  // Must have at least over info or text to be worth posting
+  if (!overStr && !text) return null;
+
   // Event emoji/label
   let eventLabel = '';
-  if (event === 'WICKET') eventLabel = '🔴 WICKET!';
-  else if (runs === '6' || event === 'SIX') eventLabel = '🏏 SIX!';
-  else if (runs === '4' || event === 'BOUNDARY' || event === 'FOUR') eventLabel = '🔵 FOUR!';
+  if (event === 'WICKET') eventLabel = '❌ WICKET!';
+  else if (runs === '6' || event === 'SIX') eventLabel = '🚀 SIX!';
+  else if (runs === '4' || event === 'BOUNDARY' || event === 'FOUR') eventLabel = '💥 FOUR!';
   else if (event === 'WIDE') eventLabel = '↔️ Wide';
   else if (event === 'NO_BALL') eventLabel = '⚠️ No Ball';
-  else if (runs === '0') eventLabel = '🔒 Dot ball';
-  else eventLabel = `+${runs} run${runs === '1' ? '' : 's'}`;
+  else if (runs === '0') eventLabel = '⬛ Dot';
+  else eventLabel = `+${runs}`;
 
   // Line 1: Over + event
   const line1 = [overStr ? `Over ${overStr}` : null, eventLabel].filter(Boolean).join('  •  ');
 
-  // Line 2: Batter vs Bowler
+  // Line 2: 🏏 Batter runs(balls)   ⚾ Bowler wkts/runs
   const batter = ball.batsmanStriker;
   const bowler = ball.bowlerStriker;
   let line2 = '';
   if (batter || bowler) {
     const batterStr = batter
-      ? `🏏 ${batter.batName} (${batter.batRuns ?? 0}* off ${batter.batBalls ?? 0})`
+      ? `🏏 ${batter.batName} ${batter.batRuns ?? 0}(${batter.batBalls ?? 0})`
       : null;
     const bowlerStr = bowler
-      ? `⚾ ${bowler.bowlName} (${bowler.bowlWkts ?? 0}/${bowler.bowlRuns ?? 0})`
+      ? `⚾ ${bowler.bowlName} ${bowler.bowlWkts ?? 0}/${bowler.bowlRuns ?? 0}`
       : null;
-    line2 = [batterStr, bowlerStr].filter(Boolean).join('  vs  ');
+    line2 = [batterStr, bowlerStr].filter(Boolean).join('   ');
   }
 
   // Line 3: Team score
   let line3 = '';
-  const teamScore = matchScore || null;
-  if (teamScore) {
-    line3 = `📊 ${teamScore}`;
+  if (matchScore) {
+    line3 = `📊 ${matchScore}`;
   }
 
   // Line 4: Commentary text
@@ -3106,42 +3184,101 @@ async function pollCommentary() {
     if (roomIds.length === 0) return;
 
     for (const [matchId, state] of commentaryCache.entries()) {
-      if (completedIds.has(matchId) || !state.espnEventId) continue;
+      if (completedIds.has(matchId)) continue;
       if (!await isBotEnabled(matchId)) continue;
 
+      // Retry Cricbuzz ID discovery if still missing (throttled: once per minute)
+      if (!state.cricbuzzMatchId) {
+        const nowMs = Date.now();
+        if (nowMs >= (state._cbRetryAt || 0)) {
+          state._cbRetryAt = nowMs + 60000;
+          const schedMatch = IPL_SCHEDULE.find(m => m.id === matchId);
+          if (schedMatch) {
+            findCricbuzzMatchId(schedMatch.team1, schedMatch.team2).then(cbId => {
+              if (cbId) { state.cricbuzzMatchId = cbId; console.log(`[Commentary] Cricbuzz ID ${cbId} for ${matchId} (retry ok)`); }
+            }).catch(() => {});
+          }
+        }
+      }
+
       try {
+        // ── PRIMARY: Cricbuzz ball-by-ball (proven reliable for IPL) ─────────
+        if (state.cricbuzzMatchId) {
+          const cbResp = await axios.get(
+            `https://www.cricbuzz.com/api/cricket-match/${state.cricbuzzMatchId}/full-commentary/1`,
+            { headers: CRICBUZZ_HEADERS, timeout: 8000 }
+          );
+          const cbItems = cbResp.data?.commentary || [];
+
+          if (!state.cbSeenIds) state.cbSeenIds = new Set();
+
+          function cbKey(ball) {
+            if (ball.overSeparator) return `sep_${ball.overSeparator.overNum ?? '?'}`;
+            if (ball.oversNum != null && ball.ballNbr != null) return `${ball.oversNum}_${ball.ballNbr}`;
+            return null;
+          }
+
+          if (!state.cbInitialized) {
+            // First Cricbuzz poll: mark all existing balls as seen, don't post them
+            for (const ball of cbItems) { const k = cbKey(ball); if (k) state.cbSeenIds.add(k); }
+            state.cbInitialized = true;
+            console.log(`[Commentary] Cricbuzz init for ${matchId}: ${state.cbSeenIds.size} existing balls seeded`);
+            continue;
+          }
+
+          const liveData = liveScoreCache.get(matchId);
+          const matchScoreStr = liveData?.score || null;
+
+          // New balls = not yet seen, sorted oldest-first
+          const newBalls = cbItems
+            .filter(ball => { const k = cbKey(ball); return k && !state.cbSeenIds.has(k); })
+            .sort((a, b) => {
+              if (a.overSeparator || b.overSeparator) return 0;
+              return ((a.oversNum || 0) * 10 + (a.ballNbr || 0)) - ((b.oversNum || 0) * 10 + (b.ballNbr || 0));
+            });
+
+          if (newBalls.length === 0) continue;
+
+          const botName = getBotName(matchId);
+          let posted = 0;
+          for (const ball of newBalls) {
+            const k = cbKey(ball);
+            const msg = formatBallMessage(ball, matchScoreStr);
+            if (k) state.cbSeenIds.add(k); // mark seen before async post (optimistic)
+            if (!msg) continue;
+            for (const roomId of roomIds) {
+              await postBotMessage(roomId, matchId, msg, botName);
+            }
+            posted++;
+          }
+          if (posted > 0) console.log(`[Commentary] Posted ${posted} Cricbuzz ball(s) for match ${matchId}`);
+          continue; // Cricbuzz handled this match — skip ESPN fallback
+        }
+
+        // ── FALLBACK: ESPN playbyplay (used until Cricbuzz ID is discovered) ─
+        if (!state.espnEventId) continue;
+
         const resp = await axios.get(
           `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
           { timeout: 10000 }
         );
 
-        // ESPN cricket commentary can live under several paths depending on API version:
-        //   commentary (array)  →  resp.data.commentary
-        //   commentary.items    →  resp.data.commentary.items
-        //   plays               →  resp.data.plays
         const rawComm = resp.data?.commentary;
         const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items)
           || resp.data?.plays
           || [];
 
-        // On first encounter: log response structure + first item fields for debugging
+        // Log structure on first encounter to help diagnose ESPN API changes
         if (state.lastId === null) {
           const topKeys = Object.keys(resp.data || {});
-          console.log(`[Commentary] ESPN playbyplay topKeys=${JSON.stringify(topKeys)} items=${items.length}`);
+          console.log(`[Commentary] ESPN playbyplay topKeys=${JSON.stringify(topKeys)} items=${items.length} for ${matchId}`);
           const first = items[0];
-          if (first) {
-            console.log(`[Commentary] First item keys: ${JSON.stringify(Object.keys(first))}`);
-            console.log(`[Commentary] First item sample: ${JSON.stringify(first).slice(0, 400)}`);
-          }
+          if (first) console.log(`[Commentary] ESPN first item sample: ${JSON.stringify(first).slice(0, 300)}`);
         }
 
-        // Use live score from cache for the score line in each message
         const liveData = liveScoreCache.get(matchId);
         const matchScoreStr = liveData?.score || null;
 
-        // Build a stable dedup key for each item.
-        // Primary: item.id or item.sequenceNumber (numeric or string)
-        // Fallback: over + first 30 chars of shortText/text — handles APIs that omit explicit IDs
         function itemKey(item) {
           const primary = item.id ?? item.sequenceNumber;
           if (primary != null && String(primary) !== '') return String(primary);
@@ -3153,49 +3290,36 @@ async function pollCommentary() {
         if (!state.seenIds) state.seenIds = new Set();
 
         if (state.lastId === null) {
-          // First poll: mark all existing items as seen without posting them
-          for (const item of items) {
-            const k = itemKey(item);
-            if (k) state.seenIds.add(k);
-          }
-          state.lastId = 0; // mark initialized
-          console.log(`[Commentary] Initialized for match ${matchId}: ${state.seenIds.size} existing items skipped (${items.length} total)`);
+          for (const item of items) { const k = itemKey(item); if (k) state.seenIds.add(k); }
+          state.lastId = 0;
+          console.log(`[Commentary] ESPN init for ${matchId}: ${state.seenIds.size} existing items seeded`);
           continue;
         }
 
-        if (items.length === 0) {
-          console.log(`[Commentary] 0 items from ESPN for match ${matchId} (espnEventId=${state.espnEventId})`);
-          continue;
-        }
+        if (items.length === 0) continue;
 
-        // New items = key not yet seen, sorted oldest-first for chronological chat order
         const newItems = items
-          .filter(item => {
-            const k = itemKey(item);
-            return k && !state.seenIds.has(k);
-          })
+          .filter(item => { const k = itemKey(item); return k && !state.seenIds.has(k); })
           .sort((a, b) => {
             const na = Number(a.id ?? a.sequenceNumber ?? 0);
             const nb = Number(b.id ?? b.sequenceNumber ?? 0);
             if (!isNaN(na) && !isNaN(nb)) return na - nb;
-            // Fallback: use over number
             return (a.over?.overs ?? 0) - (b.over?.overs ?? 0);
           });
 
         if (newItems.length === 0) continue;
 
         const botName = getBotName(matchId);
-
         for (const item of newItems) {
           const msg = formatESPNCommentaryItem(item, matchScoreStr);
-          if (!msg) continue;
+          if (!msg) { state.seenIds.add(itemKey(item)); continue; }
           for (const roomId of roomIds) {
             await postBotMessage(roomId, matchId, msg, botName);
           }
           state.seenIds.add(itemKey(item));
         }
+        console.log(`[Commentary] ESPN posted ${newItems.length} ball(s) for match ${matchId}`);
 
-        console.log(`[Commentary] Posted ${newItems.length} ball(s) for match ${matchId}`);
       } catch (e) {
         console.error(`[Commentary] Error for match ${matchId}:`, e.message);
       }
