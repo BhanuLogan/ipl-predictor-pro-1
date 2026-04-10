@@ -1,5 +1,6 @@
 const dotenv = require("dotenv");
 const axios = require("axios");
+const { OpenAI } = require("openai");
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -12,7 +13,7 @@ const IPL_SCHEDULE = require("./schedule");
 async function isVotingLocked(matchId) {
   const match = IPL_SCHEDULE.find((m) => m.id === matchId);
   if (!match) return false;
-  
+
   const override = await queryOne("SELECT manual_locked, lock_delay FROM match_overrides WHERE match_id = $1", [matchId]);
   if (override) {
     if (override.manual_locked !== null) return override.manual_locked;
@@ -30,6 +31,10 @@ async function isVotingLocked(matchId) {
 }
 
 dotenv.config();
+
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+}) : null;
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -702,13 +707,13 @@ app.post("/api/admin/set-password", authMiddleware, adminMiddleware, asyncRoute(
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Username and password required" });
   if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-  
+
   const user = await queryOne("SELECT id FROM users WHERE username = $1", [username]);
   if (!user) return res.status(404).json({ error: "User not found" });
-  
+
   const hash = await bcrypt.hash(password, 10);
   await query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, user.id]);
-  
+
   res.json({ ok: true });
 }));
 
@@ -891,21 +896,21 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
   `, [matchId]);
 
   const winners = votes.filter(v => v.prediction === lastResult.winner).map(v => v.username);
-  
+
   // 3. User specific status
   const userVote = votes.find(v => v.user_id === req.user.id);
   const isCorrect = userVote && (
-    userVote.prediction === lastResult.winner || 
+    userVote.prediction === lastResult.winner ||
     (['nr', 'draw'].includes(lastResult.winner))
   );
-  
-  const userStatus = userVote 
+
+  const userStatus = userVote
     ? (isCorrect ? 'won' : 'lost')
     : 'no_vote';
 
   // 4. Rank Change Calculation for ALL users in this match
   const currentBoard = await getLeaderboardInternal();
-  
+
   // Previous points calculation for all users
   const prevBoard = currentBoard.map(user => {
     // Only subtract if they voted in THIS match
@@ -945,8 +950,8 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
 
   const currentRank = getRank(currentBoard, req.user.id);
   const prevRank = getRank(prevBoard, req.user.id);
-  const pointsGained = (userVote && (lastResult.winner === 'nr' || lastResult.winner === 'draw')) 
-    ? 1 
+  const pointsGained = (userVote && (lastResult.winner === 'nr' || lastResult.winner === 'draw'))
+    ? 1
     : (userVote && userVote.prediction === lastResult.winner ? 2 : 0);
 
   // User outcomes for everyone who participated
@@ -1010,7 +1015,7 @@ app.get("/api/users/:username/predictions", authMiddleware, asyncRoute(async (re
     const isOwner = target.id === req.user.id;
     const isAdmin = req.user.is_admin;
     const locked = await isVotingLocked(r.matchId);
-    
+
     // If the match hasn't started yet, hide the prediction from others
     if (!locked && !isOwner && !isAdmin) {
       votesResult.push({ ...r, prediction: "HIDDEN" });
@@ -1180,7 +1185,7 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
 // Get chat history
 app.get("/api/rooms/:roomId/chat/:matchId", authMiddleware, asyncRoute(async (req, res) => {
   const { roomId, matchId } = req.params;
-  
+
   // Verify membership
   const membership = await queryOne("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2", [roomId, req.user.id]);
   if (!membership && !req.user.is_admin) {
@@ -1367,20 +1372,20 @@ function normalizeTeam(name) {
 function parseWinnerFromStatus(status, team1Code, team2Code) {
   if (!status) return null;
   const s = status.toLowerCase();
-  
+
   // Direct match code check
   if (s.includes(team1Code.toLowerCase())) return team1Code;
   if (s.includes(team2Code.toLowerCase())) return team2Code;
-  
+
   // Full name check
   for (const [fullName, code] of Object.entries(TEAM_NAME_MAP)) {
     if (s.includes(fullName.toLowerCase())) return code;
   }
-  
+
   if (s.includes("draw") || s.includes("tied") || s.includes("no result") || s.includes("abandoned")) {
     return "nr";
   }
-  
+
   return null;
 }
 
@@ -1647,9 +1652,9 @@ function formatScoreFromMatchData(ourMatch, apiMatch) {
   const t2Short = TEAM_NAME_MAP[matchInfo.team2?.teamName] || matchInfo.team2?.teamSName || ourMatch.team2;
 
   const t1Score = scoreStr(t1Short, matchScore?.team1Score?.inngs1, matchInfo.team1) ||
-                  scoreStr(t1Short, matchScore?.team1Score?.inngs2, null);
+    scoreStr(t1Short, matchScore?.team1Score?.inngs2, null);
   const t2Score = scoreStr(t2Short, matchScore?.team2Score?.inngs1, matchInfo.team2) ||
-                  scoreStr(t2Short, matchScore?.team2Score?.inngs2, null);
+    scoreStr(t2Short, matchScore?.team2Score?.inngs2, null);
 
   const parts = [t1Score, t2Score].filter(Boolean);
   return {
@@ -1703,7 +1708,7 @@ async function pollLiveScores() {
         const t1 = TEAM_NAME_MAP[mi.team1?.teamName];
         const t2 = TEAM_NAME_MAP[mi.team2?.teamName];
         return (t1 === match.team1 && t2 === match.team2) ||
-               (t1 === match.team2 && t2 === match.team1);
+          (t1 === match.team2 && t2 === match.team1);
       });
 
       if (!apiMatch) continue;
@@ -1807,8 +1812,8 @@ async function postBotMessage(roomId, matchId, text, botName) {
 }
 
 const introPostedSet = new Set();   // `${roomId}_${matchId}`
-const tossPostedSet  = new Set();   // `${matchId}` — toss announcement per match
-const winPostedSet   = new Set();   // `${matchId}` — win announcement per match
+const tossPostedSet = new Set();   // `${matchId}` — toss announcement per match
+const winPostedSet = new Set();   // `${matchId}` — win announcement per match
 
 async function postIntroAndSummaryForCompletedMatch(roomId, matchId) {
   if (!await isBotEnabled(matchId)) return;
@@ -1910,7 +1915,8 @@ function getHelpText(botName) {
     `/votes — vote split for this match\n` +
     `/who predicted [team] — who picked a team\n\n` +
     `🎲 Fun\n` +
-    `/win — my prediction for this match`;
+    `/win — my prediction for this match\n` +
+    `/kira [question] — ask me anything`;
 }
 
 async function fetchLatestBallData(matchId) {
@@ -1970,14 +1976,14 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   const isNotStarted = !isCompleted && matchStart && new Date() < matchStart;
   const preStartReply = isNotStarted
     ? (() => {
-        const timeStr = matchStart.toLocaleTimeString('en-IN', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
-        });
-        const dateStr = matchStart.toLocaleDateString('en-IN', {
-          weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata',
-        });
-        return `⏳ The match hasn't started yet!\n\n${t1} vs ${t2} kicks off on ${dateStr} at ${timeStr} IST.\n\nI'll go live with ball-by-ball updates the moment the first ball is bowled. Stay tuned! 🏏🔥`;
-      })()
+      const timeStr = matchStart.toLocaleTimeString('en-IN', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+      });
+      const dateStr = matchStart.toLocaleDateString('en-IN', {
+        weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata',
+      });
+      return `⏳ The match hasn't started yet!\n\n${t1} vs ${t2} kicks off on ${dateStr} at ${timeStr} IST.\n\nI'll go live with ball-by-ball updates the moment the first ball is bowled. Stay tuned! 🏏🔥`;
+    })()
     : null;
 
   let reply = null;
@@ -2210,9 +2216,55 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
     }
   }
 
+  // ── Kira AI (GPT-4o-mini) ────────────────────────────────────────────────
+  else if (q.startsWith('kira ')) {
+    if (!openai) {
+      reply = `Sorry ${askerUsername}, my brain (OpenAI) is not connected right now! 🧠🚫`;
+    } else {
+      const userQuestion = rawQuery.slice(5).trim();
+      if (!userQuestion) {
+        reply = `Yo ${askerUsername}, you gotta actually ask me something after '/kira'! I'm not a mind reader (yet). 🙄`;
+      } else {
+        try {
+          // Gather context
+          const data = await fetchLatestBallData(matchId);
+          const balls = data?.commentary?.slice(0, 5).map(b => b.commText).join('\n') || 'No recent commentary.';
+          const context = `
+Match: ${t1} vs ${t2}
+Toss: ${completedResult?.toss || liveData?.toss || 'Unknown'}
+Current Score: ${liveData?.score || 'Not started'}
+Status: ${liveData?.status || 'Waiting'}
+Recent Commentary:
+${balls}
+          `.trim();
+
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `You are Kira, a funny, witty, and "troller-like" AI cricket companion for an IPL Predictor app. 
+                Your goal is to answer match-related questions while being entertaining and slightly trolling towards teams, players, or even the user. 
+                Keep it spicy but light-hearted. Use emojis. 
+                Here is the current live match context:
+                ${context}`
+              },
+              { role: "user", content: userQuestion }
+            ],
+            max_tokens: 200,
+          });
+          reply = response.choices[0].message.content;
+        } catch (err) {
+          console.error('[Bot AI Error]:', err.message);
+          reply = `My AI brain just had a minor stroke. 🤯 Try again in a bit, ${askerUsername}!`;
+        }
+      }
+    }
+  }
+
   // ── unknown ───────────────────────────────────────────────────────────────
   else {
-    reply = `Didn't catch that 🤔 Type /help`;
+    reply = `Didn't catch that 🤔 Type /help for commands or try /kira [your question]!`;
   }
 
   if (reply) {
