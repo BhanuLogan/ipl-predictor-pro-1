@@ -1961,57 +1961,158 @@ function getHelpText(botName) {
     `/kira [question] — ask me anything`;
 }
 
-// ── Team-mention auto-roast (no AI needed, just personality) ──────────────
+// ── Team-mention auto-roast ────────────────────────────────────────────────
+// Large pools so roasts don't repeat for a long time.
+// Tracked per-room to avoid serving the same roast twice in a row.
+const roastIndexes = { CSK: {}, MI: {}, KL: {}, RCB: {} };
+
 const CSK_ROASTS = [
   `CSK? You mean the team that recycles 40-year-olds and calls it "experience"? 😂🧓`,
-  `CSK — where careers go to retire. Love the vibe tho 🌊`,
-  `Ah yes, CSK. The only team where the average player age is "grandfather mode" 👴🏏`,
-  `CSK fans wake up! Your team's strategy is basically "hope Dhoni bats at No.7 and prays" 🙏`,
-  `Chennai Super… Killjoys? 😅 Even the yellow looks tired.`,
+  `CSK — where careers go to retire. Lovely hospice, terrible cricket team 🌊`,
+  `Ah yes, CSK. The only team whose average player age needs a pension plan 👴🏏`,
+  `CSK's strategy: pray Dhoni walks in at No.7 and wins it off the last ball. Again. 🙏`,
+  `Chennai Super Killjoys. Even the yellow looks exhausted these days 😅`,
+  `CSK's bowling attack is so old the ball itself gets winded running up to the crease 💨`,
+  `"CSK are experienced." Yeah, experienced at watching other teams lift the trophy recently 🏆`,
+  `Dhoni retiring in slow motion for 4 seasons straight is peak CSK content 😂`,
+  `CSK have turned "doing nothing for 15 overs then batting last 5 frenetically" into an art form 🎨`,
+  `The average age of a CSK playing XI could legally apply for a senior citizen railway concession 🚂`,
+  `CSK's team bus probably has a handicap ramp at this point 😭`,
+  `CSK fans: "bUt tHeY'Re tHrEe-tImE cHaMpIoNs" bro that was like a decade ago calm down 📅`,
+  `CSK without Dhoni heroics is just a yellow-coloured meltdown, honestly 😂`,
+  `Chennai Super Kings or Chennai Senior Citizens? I genuinely can't tell from the XI sheet 🤣`,
+  `CSK's bowling lineup has a combined age older than the IPL itself 🏏`,
+  `Every CSK loss: "ThIs iS NeW cSK wItH YouNg tAlEnT" *immediately plays Jadeja over 18* 😩`,
+  `CSK fans in the chat rn be like: "wait for Dhoni" — he's batting No.8, relax 😂`,
+  `CSK's auction strategy: find anyone over 33, sign for max price, call it "experience" 💸`,
+  `The only team that turns a T20 into a Test match then complains about the run rate 🐢`,
+  `If CSK played any slower, BCCI would reclassify them as red-ball specialists 😂`,
+  `CSK vs RCB is always wild because one team plays with heart, the other plays with zimmer frames 🦽`,
+  `CSK roster reading like a who's who of "what have you done for me this decade" 👀`,
+  `The yellow army — brave, loyal, and somehow still convinced 2018 tactics work in 2025 😂`,
+  `CSK's game plan: defend 140, hope for dew, pray for Dhoni magic. Bold strategy 🎲`,
+  `Every CSK fan blames the pitch when they lose. Mate, your team set 142. That IS the problem 😭`,
 ];
 
 const MI_ROASTS = [
-  `MI? 5 titles and still can't figure out their opening pair this season 😬`,
-  `Mumbai Indians — the team that peaked and just keeps looking backwards at trophies 🏆👀`,
-  `MI have more title ceremonies than good recent performances. Just saying 😅`,
-  `Hardik left, Rohit retired from Tests, and MI is basically a WhatsApp group with no admin 😂`,
-  `MI fans explaining why THIS is their year… every year 📅`,
+  `MI? 5 titles and still can't figure out their batting order this season 😬`,
+  `Mumbai Indians — peaked, peaked again, peaked again, and now coasting on nostalgia 🏆👀`,
+  `MI have more IPL title ceremonies than good recent memories. Just saying 😅`,
+  `Hardik left, Rohit's done, and MI is basically a WhatsApp group with no admin 😂`,
+  `MI fans explaining why THIS is their year… every year since 2020 📅`,
+  `MI's strategy: "recruit big names, forget team chemistry, blame slow pitches" — classic 🎭`,
+  `Rohit Sharma: still the greatest opener. Just not for MI anymore. Oof 💀`,
+  `MI's auction room be like "grab Neymar if he plays cricket" — no real plan, just vibes 💸`,
+  `MI have won 5 titles. They remind you every match because recent performances won't 😂`,
+  `Jasprit Bumrah is a legend. MI as a team though? Glorified net session at this point 🏏`,
+  `MI fans in 2025 are like Manchester United fans — living off trophies from another era 😭`,
+  `"Trust the process" — MI's process is just hoping Bumrah has a 5-wicket haul every game 🤷`,
+  `MI without Rohit and Hardik is like Thanos without the Infinity Stones — just some dude 💎`,
+  `How does a team with THIS budget field an XI this confused? Wild scenes from MI camp 🤣`,
+  `MI's opening pair has more changes than a government cabinet reshuffle 😂`,
+  `MI fans: "WE HAVE THE BEST SQUAD!" MI in the playoff table: 👻`,
+  `5 titles, zero playoff appearances recently. That's the MI experience right now ✌️`,
+  `MI bought a player for 18 crore who played 2 matches and disappeared. Bold investment 💸`,
+  `MI's biggest problem is they still think 2013 tactics work in 2025 cricket 📆`,
+  `Nothing more MI than posting "Believe in Blue" and then losing to a team in pink 😂`,
+  `MI's team meeting is probably just watching old highlight reels of their trophies for motivation 📽️`,
+  `Paltan? More like Paltaan of confusing team selections tbh 😬`,
+  `MI spending 15 crore on someone then dropping them after match 1 is genuinely hilarious 🤣`,
+  `If MI had a mission statement: "Nostalgia-first, results optional" 📝`,
+  `MI's bowling without Bumrah is like biryani without rice. What is this? 🍚`,
 ];
 
 const KL_ROASTS = [
-  `KL Rahul scored a beautiful 50 in a losing cause. Classic. 👏 Most consistent player at losing slowly 😬`,
-  `KL Rahul: 41 off 52 balls at a run rate of 7.9. The pitch report was more exciting 💤`,
+  `KL Rahul scored a beautiful 50 off 52 balls in a losing cause. Classic 👏 Most consistent at losing slowly 😬`,
+  `KL Rahul: 41 off 52 balls at a run rate of 7.9. The pitch report was more thrilling 💤`,
   `KL Rahul saw 10 balls, scored 6 runs, and called it "building the innings" 🧱`,
-  `Someone tell KL Rahul T20 matches are only 20 overs, not 20 Tests 😂`,
-  `KL Rahul's strike rate is slower than my Wi-Fi during IPL night matches 📶`,
+  `Someone remind KL Rahul that T20 matches are 20 overs, not 20 Tests 😂`,
+  `KL Rahul's strike rate is slower than my Wi-Fi during a night match 📶`,
+  `KL Rahul's batting: technically perfect, tactically catastrophic 😭`,
+  `40 off 45, looked gorgeous, team lost by 30. That's the KL Rahul experience in a nutshell 🎭`,
+  `KL Rahul: 5 elegant cover drives, 2 flicks, 47 runs, 7 overs gone. HELP 😤`,
+  `KL Rahul watching the run rate go from 8 to 16 without changing his approach 👀`,
+  `KL Rahul at No.4 in a T20 chase: the human anchor. Team sinks, he looks good doing it 🚢`,
+  `KL Rahul once played out a maiden in the 17th over of a T20. This is not a drill 😱`,
+  `The commentators: "KL looking good, timing is beautiful!" The scoreboard: 28 off 31. 🤡`,
+  `KL Rahul has the most stylish way of losing a match I've ever seen 💅`,
+  `KL Rahul batting in a T20 is like ordering a pizza and getting it delivered next Tuesday 📦`,
+  `"KL is a touch player, he builds, he's elegant" — great, we're 12/1 in over 9, now SWING 😭`,
+  `KL Rahul's strike rate chart looks like a reclining chair 📉`,
+  `No one in world cricket can get 60 runs in 55 balls in a T20 and still make it look like art 🎨`,
+  `"KL is getting going" — mate he has 22 off 25, we needed 72 off 30. HE IS NOT GETTING GOING 😩`,
+  `KL Rahul's career highlights: beautiful hundreds in dead rubbers, slow fifties in must-win games 📊`,
+  `KL Rahul treating every T20 like it's a 5-day Test is honestly his biggest flex 💪`,
+  `If KL Rahul's strike rate was a Zomato delivery, it'd be cancelled for being too late 🛵`,
+  `KL Rahul in the powerplay: 18 off 18. Textbook. Absolutely nobody asked for textbook 😬`,
+  `KL Rahul: technically the best in the world at turning 60 into a loss 👑`,
+  `The most decorated passenger in a sinking ship — that's KL Rahul for you 🚢`,
+  `KL Rahul saw the required run rate hit 24 and played a delicate late cut. Elegant. Pointless 🤌`,
 ];
 
 const RCB_HYPE = [
   `RCB SUPREMACY! Ee sala cup namde! 🏆🔴🖤`,
   `RCB going brrr 🚀 Virat ki army represent! 🏏🔥`,
-  `RCB — the team that makes your heart race every single game 💔❤️ But we still believe!`,
-  `Red. Black. Passion. RCB forever! Ee sala final mein aa hi jaayenge 🙌`,
-  `RCB keeping us on the edge since 2008. Toxic relationship but we love it 😭❤️`,
+  `RCB — the team that makes your heart race every single game 💔❤️ But we STILL believe!`,
+  `Red. Black. Passion. RCB forever! Ee sala final pakka hai 🙌`,
+  `RCB keeping us on the edge since 2008. Most toxic love story in cricket 😭❤️`,
+  `RCB is the only team that can make you feel like you're watching a thriller every single match 🎬`,
+  `Virat Kohli running down the pitch, hitting it straight, staring the bowler down — that's cinema 🎥`,
+  `RCB fans have the highest pain tolerance in sports. We are built different 💪`,
+  `No IPL team has been mentioned more, celebrated more, or cried more than RCB. We're the main characters 🌟`,
+  `RCB's batting lineup on a good day is just illegal. Virat + Faf + Maxwell is unfair 😤`,
+  `When RCB wins it's pure euphoria. When they lose it's a gut punch. No in-between. That's us ❤️`,
+  `RCB auction room: "Okay who's the most dangerous batter available? Get him. And another. And another." 😂`,
+  `RCB — the team every neutral fan secretly loves because drama follows them everywhere 🎭`,
+  `Ee sala cup namde has been a prophecy since 2016. This. Is. The. Year. 🔮`,
+  `RCB's win celebration energy is unmatched in the entire IPL. The stadium goes absolutely mental 🏟️`,
+  `Playing against RCB is easy until Virat walks in. Then it's a completely different match 😈`,
+  `RCB: chaotic, emotional, occasionally devastating, always entertaining. The IPL's greatest show 🎪`,
+  `I trust RCB more than I trust most things in life. Don't @ me 🙏`,
+  `Red and black doesn't just run on the jersey — it runs in the veins 🔴🖤`,
+  `RCB has never won the IPL but they've won the hearts of every neutral watching. Cope, others 💅`,
+  `The day RCB lifts the trophy, I might actually cry. Pre-booking emotions 😭🏆`,
+  `RCB's bowling giving nightmares, RCB's batting giving dreams. Living in that tension since 2008 😅`,
+  `Every RCB match is a documentary. Nobody makes cricket this dramatic 🎬`,
+  `Virat at Chinnaswamy is a religious experience. Say it louder for the people at the back 🙏🔥`,
+  `RCB losing: devastating. RCB winning: the best feeling in cricket. No other team does this to you ❤️🔴`,
 ];
 
-function getTeamMentionRoast(message, _matchId) {
-  const m = message.toLowerCase();
+const CSK_MI_COMBINED = [
+  `CSK vs MI? Two teams I can't root for. I'm cheering for rain and a super over that ends in a tie 😂`,
+  `CSK's geriatric XI vs MI's identity crisis. This is peak "lesser evil" territory 😭`,
+  `Watching CSK vs MI is me rooting for whoever loses faster so we can all move on 🤷`,
+  `Two overrated juggernauts fighting over who gets to disappoint their fans more this season 💀`,
+  `CSK's greybeards vs MI's confused management — honestly both deserve to lose this one 😅`,
+];
+
+// Track last-served index per team per room to avoid back-to-back repeats
+function pickRoast(pool, team, roomKey) {
+  if (!roastIndexes[team][roomKey]) roastIndexes[team][roomKey] = { last: -1 };
+  const state = roastIndexes[team][roomKey];
+  let idx;
+  do {
+    idx = Math.floor(Math.random() * pool.length);
+  } while (pool.length > 1 && idx === state.last);
+  state.last = idx;
+  return pool[idx];
+}
+
+function getTeamMentionRoast(message, matchId) {
   const mentionsCSK = /\bcsk\b|chennai super kings?\b|dhoni\b/i.test(message);
   const mentionsMI  = /\bmi\b|mumbai indians?\b/i.test(message);
   const mentionsKL  = /\bkl\s*rahul\b/i.test(message);
   const mentionsRCB = /\brcb\b|royal challengers?\b/i.test(message);
 
-  // Don't roast if message is just a single word or too short
+  // Don't fire on very short messages
   if (message.trim().split(/\s+/).length < 2) return null;
 
-  // Pick random from pool
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-  if (mentionsKL) return pick(KL_ROASTS);
-  if (mentionsCSK && mentionsMI) return `CSK vs MI? Two of my least favourite teams in one match 😂 I'm cheering for rain!`;
-  if (mentionsCSK) return pick(CSK_ROASTS);
-  if (mentionsMI)  return pick(MI_ROASTS);
-  if (mentionsRCB) return pick(RCB_HYPE);
+  const key = String(matchId);
+  if (mentionsKL)          return pickRoast(KL_ROASTS, 'KL', key);
+  if (mentionsCSK && mentionsMI) return CSK_MI_COMBINED[Math.floor(Math.random() * CSK_MI_COMBINED.length)];
+  if (mentionsCSK)         return pickRoast(CSK_ROASTS, 'CSK', key);
+  if (mentionsMI)          return pickRoast(MI_ROASTS, 'MI', key);
+  if (mentionsRCB)         return pickRoast(RCB_HYPE, 'RCB', key);
 
   return null;
 }
