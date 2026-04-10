@@ -85,6 +85,13 @@ export interface MatchOverride {
   lock_delay: number;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  count: number;
+  userIds: number[];
+  usernames: string[];
+}
+
 export interface ChatMessage {
   id: number;
   room_id: number;
@@ -94,10 +101,13 @@ export interface ChatMessage {
   username: string;
   profile_pic?: string;
   created_at: string;
+  bot_name?: string | null;
+  is_bot?: boolean;
   reply_to_message?: {
     username: string;
     message: string;
   } | null;
+  reactions?: MessageReaction[];
 }
 
 export interface PollSummary {
@@ -321,6 +331,28 @@ export const api = {
   async clearAnnouncement(): Promise<void> {
     return apiFetch("/api/admin/announcements", {
       method: "DELETE",
+    });
+  },
+
+  async getLiveScores(): Promise<Record<string, { matchId: string; team1: string; team2: string; score: string | null; status: string | null; updatedAt: string }>> {
+    return apiFetch('/api/live-score');
+  },
+
+  async toggleReaction(messageId: number, emoji: string): Promise<{ reactions: MessageReaction[] }> {
+    return apiFetch('/api/reactions', {
+      method: 'POST',
+      body: JSON.stringify({ messageId, emoji }),
+    });
+  },
+
+  async getMatchBotSettings(): Promise<{ match_id: string; bot_enabled: boolean }[]> {
+    return apiFetch('/api/match-bot-settings');
+  },
+
+  async setMatchBotSetting(matchId: string, bot_enabled: boolean): Promise<void> {
+    return apiFetch('/api/admin/match-bot-settings', {
+      method: 'POST',
+      body: JSON.stringify({ matchId, bot_enabled }),
     });
   },
 };
