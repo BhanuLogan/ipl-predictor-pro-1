@@ -1870,11 +1870,8 @@ async function postIntroAndSummaryForCompletedMatch(roomId, matchId) {
 
 async function postIntroIfNeeded(roomId, matchId) {
   if (!await isBotEnabled(matchId)) return;
-  // Only post intro if match has started
   const match = IPL_SCHEDULE.find(m => m.id === matchId);
   if (!match) return;
-  const startTime = new Date(`${match.date}T${match.time}:00+05:30`);
-  if (new Date() < startTime) return;
 
   const key = `${roomId}_${matchId}`;
   if (introPostedSet.has(key)) return;
@@ -1888,7 +1885,23 @@ async function postIntroIfNeeded(roomId, matchId) {
   if (existing) return;
 
   const botName = getBotName(matchId);
-  await postBotMessage(roomId, matchId, getBotIntro(botName, matchId), botName);
+  const startTime = new Date(`${match.date}T${match.time}:00+05:30`);
+  const isUpcoming = new Date() < startTime;
+
+  let intro;
+  if (isUpcoming) {
+    const t1 = match.team1;
+    const t2 = match.team2;
+    const dateStr = startTime.toLocaleDateString('en-IN', {
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+    });
+    intro = `Hey everyone! 👋 I'm ${botName}, your cricket companion for this match!\n\n📍 ${t1} vs ${t2}\n🕐 Match starts: ${dateStr} IST\n\nMake your prediction and get ready — I'll go live with ball-by-ball updates the moment the first ball is bowled! 🏏🔥`;
+  } else {
+    intro = getBotIntro(botName, matchId);
+  }
+
+  await postBotMessage(roomId, matchId, intro, botName);
   console.log(`[Bot] Posted intro for match ${matchId} in room ${roomId} (${botName})`);
 }
 
