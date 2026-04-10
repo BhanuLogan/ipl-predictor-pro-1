@@ -7,7 +7,24 @@ import Header from "@/components/Header";
 import { IPL_SCHEDULE, IPL_TEAMS } from "@/lib/data";
 import { format } from "date-fns";
 
-const REACTION_EMOJIS = ["🔥", "👏", "😮", "💔", "😂", "🏏"];
+const REACTION_EMOJIS = ["🔥", "👏", "😮", "💔", "😂", "🏏", "4️⃣", "6️⃣"];
+
+const BOT_COMMANDS = [
+  { cmd: 'score',   desc: 'Current score & status' },
+  { cmd: 'batting', desc: "Who's at the crease" },
+  { cmd: 'bowling', desc: 'Current bowler stats' },
+  { cmd: 'rr',      desc: 'Current run rate' },
+  { cmd: 'target',  desc: 'Target score' },
+  { cmd: 'rrr',     desc: 'Required run rate' },
+  { cmd: 'overs',   desc: 'Overs remaining' },
+  { cmd: 'toss',    desc: 'Toss result' },
+  { cmd: 'result',  desc: 'Final match result' },
+  { cmd: 'help',    desc: 'Show all commands' },
+];
+
+function getBotName(_matchId: string): string {
+  return 'Kira';
+}
 
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────
 const ReactionBar = ({
@@ -81,7 +98,7 @@ const ReactionBar = ({
           +
         </button>
         {pickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1 flex gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20">
+          <div className="absolute bottom-full left-0 mb-1 grid grid-cols-4 gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20">
             {REACTION_EMOJIS.map((e) => (
               <button
                 key={e}
@@ -175,7 +192,10 @@ const ChatRoom: React.FC = () => {
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [reactions, setReactions] = useState<Record<number, MessageReaction[]>>({});
   const [botEnabled, setBotEnabled] = useState<boolean>(true);
+  const [suggestions, setSuggestions] = useState<typeof BOT_COMMANDS>([]);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const match = IPL_SCHEDULE.find((m) => m.id === matchId);
   const t1 = match ? IPL_TEAMS[match.team1] : null;
@@ -246,6 +266,60 @@ const ChatRoom: React.FC = () => {
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
+  // Auto-suggest bot commands when user types /
+  useEffect(() => {
+    if (!newMessage.startsWith('/') || !matchId || !botEnabled) {
+      setSuggestions([]);
+      setSelectedSuggestion(-1);
+      return;
+    }
+    const botName = getBotName(matchId);
+    const typed = newMessage.slice(1).toLowerCase(); // after the '/'
+    const expectedPrefix = botName.toLowerCase();
+
+    let filtered: typeof BOT_COMMANDS;
+    if (typed === '' || expectedPrefix.startsWith(typed)) {
+      // Still typing the bot name (or just '/') — show all commands
+      filtered = BOT_COMMANDS;
+    } else if (typed.startsWith(expectedPrefix)) {
+      // Bot name matched — filter by command prefix
+      const afterBot = typed.slice(expectedPrefix.length).replace(/^\s+/, '');
+      filtered = BOT_COMMANDS.filter((c) => c.cmd.startsWith(afterBot));
+    } else {
+      filtered = [];
+    }
+    setSuggestions(filtered);
+    setSelectedSuggestion(-1);
+  }, [newMessage, matchId, botEnabled]);
+
+  const applySuggestion = useCallback((cmd: string) => {
+    if (!matchId) return;
+    const botName = getBotName(matchId);
+    setNewMessage(`/${botName} ${cmd}`);
+    setSuggestions([]);
+    setSelectedSuggestion(-1);
+    inputRef.current?.focus();
+  }, [matchId]);
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!suggestions.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedSuggestion((i) => (i + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedSuggestion((i) => (i - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      if (selectedSuggestion >= 0) {
+        e.preventDefault();
+        applySuggestion(suggestions[selectedSuggestion].cmd);
+      }
+    } else if (e.key === 'Escape') {
+      setSuggestions([]);
+      setSelectedSuggestion(-1);
+    }
+  };
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !roomId || !matchId) return;
@@ -258,6 +332,8 @@ const ChatRoom: React.FC = () => {
     });
     setNewMessage("");
     setReplyingTo(null);
+    setSuggestions([]);
+    setSelectedSuggestion(-1);
   };
 
   const handleReact = useCallback(async (messageId: number, emoji: string) => {
@@ -476,12 +552,43 @@ const ChatRoom: React.FC = () => {
               </button>
             </div>
           )}
+          {/* Bot command suggestions */}
+          {suggestions.length > 0 && matchId && (
+            <div className="rounded-xl border border-border bg-card shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
+              <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/40">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
+                  {getBotName(matchId)} commands
+                </span>
+                <span className="text-[9px] text-muted-foreground ml-auto">↑↓ navigate · Tab/Enter to select · Esc to close</span>
+              </div>
+              {suggestions.map((s, i) => (
+                <button
+                  key={s.cmd}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); applySuggestion(s.cmd); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                    i === selectedSuggestion ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"
+                  }`}
+                >
+                  <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
+                    i === selectedSuggestion ? "bg-primary/20 text-primary" : "bg-muted text-amber-400"
+                  }`}>
+                    /{getBotName(matchId)} {s.cmd}
+                  </code>
+                  <span className="text-xs text-muted-foreground">{s.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <input
+              ref={inputRef}
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or /BotName score, /BotName help..." : "Type a message..."}
+              onKeyDown={handleInputKeyDown}
+              placeholder={replyingTo ? "Type your reply..." : botEnabled ? `Chat or /${matchId ? getBotName(matchId) : 'BotName'} score...` : "Type a message..."}
               className="flex-1 rounded-xl border border-border bg-muted px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               maxLength={500}
             />

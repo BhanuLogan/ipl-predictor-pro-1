@@ -586,9 +586,19 @@ const Admin = () => {
             {/* Completed Matches Section */}
             {completedMatches.length > 0 && (
               <div>
-                <h3 className="mb-3 mt-6 font-display text-lg text-secondary uppercase tracking-wide flex items-center gap-2">
-                  📜 Completed Matches
-                </h3>
+                <div className="mb-3 mt-6 flex items-center justify-between gap-3">
+                  <h3 className="font-display text-lg text-secondary uppercase tracking-wide flex items-center gap-2">
+                    📜 Completed Matches
+                  </h3>
+                  <button
+                    onClick={handleSyncResults}
+                    disabled={syncing}
+                    className="flex items-center gap-1.5 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-1.5 text-[11px] font-bold text-secondary transition-all hover:bg-secondary/20 disabled:opacity-50"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={syncing ? "animate-spin" : ""}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    {syncing ? "Syncing…" : "Sync with Cricbuzz"}
+                  </button>
+                </div>
                 <div className="space-y-3">
                   {completedMatches.map((match, i) => {
                     const scheduleIdx = IPL_SCHEDULE.findIndex(m => m.id === match.id);
