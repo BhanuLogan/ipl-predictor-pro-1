@@ -22,10 +22,6 @@ const BOT_COMMANDS = [
   { cmd: 'help',    desc: 'Show all commands' },
 ];
 
-function getBotName(_matchId: string): string {
-  return 'Kira';
-}
-
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────
 const ReactionBar = ({
   messageId,
@@ -255,38 +251,25 @@ const ChatRoom: React.FC = () => {
 
   // Auto-suggest bot commands when user types /
   useEffect(() => {
-    if (!newMessage.startsWith('/') || !matchId || !botEnabled) {
+    if (!newMessage.startsWith('/') || !botEnabled) {
       setSuggestions([]);
       setSelectedSuggestion(-1);
       return;
     }
-    const botName = getBotName(matchId);
-    const typed = newMessage.slice(1).toLowerCase(); // after the '/'
-    const expectedPrefix = botName.toLowerCase();
-
-    let filtered: typeof BOT_COMMANDS;
-    if (typed === '' || expectedPrefix.startsWith(typed)) {
-      // Still typing the bot name (or just '/') — show all commands
-      filtered = BOT_COMMANDS;
-    } else if (typed.startsWith(expectedPrefix)) {
-      // Bot name matched — filter by command prefix
-      const afterBot = typed.slice(expectedPrefix.length).replace(/^\s+/, '');
-      filtered = BOT_COMMANDS.filter((c) => c.cmd.startsWith(afterBot));
-    } else {
-      filtered = [];
-    }
+    const typed = newMessage.slice(1).toLowerCase(); // everything after '/'
+    const filtered = typed === ''
+      ? BOT_COMMANDS
+      : BOT_COMMANDS.filter((c) => c.cmd.startsWith(typed));
     setSuggestions(filtered);
     setSelectedSuggestion(-1);
-  }, [newMessage, matchId, botEnabled]);
+  }, [newMessage, botEnabled]);
 
   const applySuggestion = useCallback((cmd: string) => {
-    if (!matchId) return;
-    const botName = getBotName(matchId);
-    setNewMessage(`/${botName} ${cmd}`);
+    setNewMessage(`/${cmd}`);
     setSuggestions([]);
     setSelectedSuggestion(-1);
     inputRef.current?.focus();
-  }, [matchId]);
+  }, []);
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!suggestions.length) return;
@@ -329,7 +312,7 @@ const ChatRoom: React.FC = () => {
     setReactions((prev) => {
       const current = prev[messageId] || [];
       const existing = current.find((r) => r.emoji === emoji);
-      const alreadyReacted = existing?.userIds.includes(user.id);
+      const alreadyReacted = existing?.userIds?.includes(user.id) ?? false;
       if (alreadyReacted) {
         return {
           ...prev,
@@ -339,8 +322,8 @@ const ChatRoom: React.FC = () => {
                 ? {
                     ...r,
                     count: r.count - 1,
-                    userIds: r.userIds.filter((id) => id !== user.id),
-                    usernames: r.usernames.filter((n) => n !== user.username),
+                    userIds: (r.userIds ?? []).filter((id) => id !== user.id),
+                    usernames: (r.usernames ?? []).filter((n) => n !== user.username),
                   }
                 : r
             )
@@ -355,8 +338,8 @@ const ChatRoom: React.FC = () => {
                 ? {
                     ...r,
                     count: r.count + 1,
-                    userIds: [...r.userIds, user.id],
-                    usernames: [...r.usernames, user.username],
+                    userIds: [...(r.userIds ?? []), user.id],
+                    usernames: [...(r.usernames ?? []), user.username],
                   }
                 : r
             )
@@ -514,6 +497,12 @@ const ChatRoom: React.FC = () => {
                       </span>
                     </div>
                   </div>
+                  <ReactionBar
+                    messageId={msg.id}
+                    reactions={reactions[msg.id] || []}
+                    currentUserId={user?.id}
+                    onReact={handleReact}
+                  />
                 </div>
               </div>
             );
@@ -546,7 +535,7 @@ const ChatRoom: React.FC = () => {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={handleInputKeyDown}
-              placeholder={replyingTo ? "Type your reply..." : botEnabled ? `Chat or /${matchId ? getBotName(matchId) : 'BotName'} score...` : "Type a message..."}
+              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or /score, /batting, /help..." : "Type a message..."}
               className="flex-1 rounded-xl border border-border bg-muted px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               maxLength={500}
             />
@@ -573,7 +562,7 @@ const ChatRoom: React.FC = () => {
           <div className="fixed inset-y-0 right-0 z-40 flex flex-col w-64 bg-card border-l border-border shadow-2xl animate-in slide-in-from-right duration-200">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40 flex-shrink-0">
               <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">
-                Kira commands
+                Bot commands
               </span>
               <button
                 onClick={() => { setSuggestions([]); setSelectedSuggestion(-1); }}
@@ -594,7 +583,7 @@ const ChatRoom: React.FC = () => {
                   }`}
                 >
                   <code className="text-[11px] font-mono font-bold text-amber-400">
-                    /Kira {s.cmd}
+                    /{s.cmd}
                   </code>
                   <span className="text-[11px] text-muted-foreground leading-snug">{s.desc}</span>
                 </button>

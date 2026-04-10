@@ -349,11 +349,9 @@ io.on("connection", (socket) => {
     if (!message || String(message).trim().length === 0) return;
     const msg = String(message).trim().substring(0, 500);
 
-    // ── /<botName> command ────────────────────────────────────────────────
-    const botName = getBotName(matchId);
-    const botPrefix = `/${botName.toLowerCase()}`;
-    if (msg.toLowerCase().startsWith(botPrefix)) {
-      const query_str = msg.slice(botPrefix.length).trim();
+    // ── /command (any slash command) ──────────────────────────────────────
+    if (msg.startsWith('/')) {
+      const query_str = msg.slice(1).trim(); // everything after the leading /
       // Save the user's question so others can see it
       try {
         const saved = await queryOne(`
@@ -1386,34 +1384,32 @@ function parseWinnerFromStatus(status, team1Code, team2Code) {
   return null;
 }
 
-/** Short score line from Cricbuzz matchInfo (status text usually includes full summary). */
+/** Score summary: team scores first, then result status on next line. */
 function extractScoreSummary(matchInfo) {
   if (!matchInfo) return null;
-  const st = (matchInfo.status || "").trim();
-  if (st) return st;
   const t1 = matchInfo.team1;
   const t2 = matchInfo.team2;
-  if (!t1 || !t2) return null;
+  const st = (matchInfo.status || "").trim();
   const shortName = (t) =>
-    t.teamSName ||
-    (typeof t.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
+    t?.teamSName ||
+    (typeof t?.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
     "?";
   const fmt = (t) => {
-    if (t == null) return null;
+    if (!t) return null;
     if (typeof t.score === "string" && t.score.length > 0 && t.score !== "-1") {
-      return `${shortName(t)} ${t.score}`;
+      return `${shortName(t)}: ${t.score}`;
     }
     if (t.score != null && Number(t.score) >= 0 && Number(t.score) !== -1) {
       const wk = t.wickets != null ? t.wickets : 0;
-      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "—";
-      return `${shortName(t)} ${t.score}/${wk} (${ov})`;
+      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "?";
+      return `${shortName(t)}: ${t.score}/${wk} (${ov} ov)`;
     }
     return null;
   };
-  const a = fmt(t1);
-  const b = fmt(t2);
-  if (a && b) return `${a} · ${b}`;
-  return null;
+  const scores = [fmt(t1), fmt(t2)].filter(Boolean);
+  if (scores.length >= 1 && st) return `${scores.join(' · ')}\n${st}`;
+  if (scores.length >= 1) return scores.join(' · ');
+  return st || null;
 }
 
 /** Extracts toss info from matchInfo.tossResults → e.g. "KKR won the toss and chose to bat" */
@@ -1913,22 +1909,21 @@ async function isBotEnabled(matchId) {
 // ─── Bot Query Handler ─────────────────────────────────────────────────────
 
 function getHelpText(botName) {
-  const p = `/${botName}`;
   return `🏏 Hi! I'm ${botName}. Here's what you can ask me:\n\n` +
     `📊 Match\n` +
-    `${p} score — current score & status\n` +
-    `${p} batting — who's at the crease\n` +
-    `${p} bowling — current bowler's figures\n` +
-    `${p} rr — current run rate\n` +
-    `${p} target — target (2nd innings)\n` +
-    `${p} rrr — required run rate\n` +
-    `${p} overs — overs remaining\n\n` +
+    `/score — current score & status\n` +
+    `/batting — who's at the crease\n` +
+    `/bowling — current bowler's figures\n` +
+    `/rr — current run rate\n` +
+    `/target — target (2nd innings)\n` +
+    `/rrr — required run rate\n` +
+    `/overs — overs remaining\n\n` +
     `🏆 Room\n` +
-    `${p} top — leaderboard top 5\n` +
-    `${p} votes — vote split for this match\n` +
-    `${p} who predicted [team] — who picked a team\n\n` +
+    `/top — leaderboard top 5\n` +
+    `/votes — vote split for this match\n` +
+    `/who predicted [team] — who picked a team\n\n` +
     `🎲 Fun\n` +
-    `${p} win — my prediction for this match`;
+    `/win — my prediction for this match`;
 }
 
 async function fetchLatestBallData(matchId) {
@@ -2044,7 +2039,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── batting ───────────────────────────────────────────────────────────────
   else if (['batting', 'bat', 'batsman', 'batter', "who's batting", 'who is batting'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2068,7 +2063,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── bowling ───────────────────────────────────────────────────────────────
   else if (['bowling', 'bowl', 'bowler', "who's bowling", 'who is bowling'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2086,7 +2081,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── run rate ─────────────────────────────────────────────────────────────
   else if (['rr', 'crr', 'run rate', 'current run rate'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2103,7 +2098,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── target ────────────────────────────────────────────────────────────────
   else if (['target', 'what is the target', "what's the target"].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2120,7 +2115,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── required rate ─────────────────────────────────────────────────────────
   else if (['rrr', 'required rate', 'required run rate'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2137,7 +2132,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── overs left ────────────────────────────────────────────────────────────
   else if (['overs', 'overs left', 'overs remaining'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2233,7 +2228,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // ── unknown ───────────────────────────────────────────────────────────────
   else {
-    reply = `Didn't catch that 🤔 Type /${botName} help`;
+    reply = `Didn't catch that 🤔 Type /help`;
   }
 
   if (reply) {
