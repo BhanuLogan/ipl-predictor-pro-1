@@ -9,8 +9,6 @@ import { format } from "date-fns";
 
 const REACTION_EMOJIS = ["🔥", "👏", "😮", "💔", "😂", "🏏", "4️⃣", "6️⃣"];
 
-const BOT_NAMES = ['Siri','Nova','Luna','Aria','Zara','Mira','Echo','Sage','Iris','Lyra','Orion','Atlas','Vega','Cleo','Rex'];
-
 const BOT_COMMANDS = [
   { cmd: 'score',   desc: 'Current score & status' },
   { cmd: 'batting', desc: "Who's at the crease" },
@@ -24,9 +22,8 @@ const BOT_COMMANDS = [
   { cmd: 'help',    desc: 'Show all commands' },
 ];
 
-function getBotName(matchId: string): string {
-  const num = parseInt(matchId.replace('m', ''), 10);
-  return BOT_NAMES[(num - 1) % BOT_NAMES.length];
+function getBotName(_matchId: string): string {
+  return 'Kira';
 }
 
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────

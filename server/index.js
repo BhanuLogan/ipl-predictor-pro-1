@@ -1777,15 +1777,8 @@ app.get('/api/live-score', asyncRoute(async (req, res) => {
 
 // ─── Chatbot System ────────────────────────────────────────────────────────
 
-const BOT_NAMES = [
-  'Siri', 'Nova', 'Luna', 'Aria', 'Zara',
-  'Mira', 'Echo', 'Sage', 'Iris', 'Lyra',
-  'Orion', 'Atlas', 'Vega', 'Cleo', 'Rex',
-];
-
-function getBotName(matchId) {
-  const idx = IPL_SCHEDULE.findIndex(m => m.id === matchId);
-  return BOT_NAMES[Math.abs(idx < 0 ? 0 : idx) % BOT_NAMES.length];
+function getBotName(_matchId) {
+  return 'Kira';
 }
 
 function getBotIntro(botName, matchId) {
