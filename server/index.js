@@ -2076,9 +2076,7 @@ async function pollLiveScores() {
 
       // ── Bot live-score messages ─────────────────────────────────────────────
       // Post when score changes: immediately on wicket, otherwise throttle to 15s.
-      // Do NOT gate on apiMatch.state — we already filtered by time window via liveMatches.
-      // Only skip if the match is already finished in ESPN ('post') to avoid stale spam.
-      console.log(`[LiveScore] state=${apiMatch.state} score=${score}`);
+      // Only skip when ESPN confirms match is finished ('post').
       if (score && apiMatch.state !== 'post') {
         const scoreState = liveScoreBotState.get(match.id) || { lastScore: null, lastPostedAt: 0, lastWickets: 0 };
         const currentWickets = parseWicketsFromScore(score);
@@ -2087,19 +2085,20 @@ async function pollLiveScores() {
         const SCORE_THROTTLE_MS = 15 * 1000;
         const shouldPost = scoreChanged && (wicketFell || (Date.now() - scoreState.lastPostedAt >= SCORE_THROTTLE_MS));
 
-        console.log(`[LiveScore] scoreChanged=${scoreChanged} wicketFell=${wicketFell} shouldPost=${shouldPost} lastScore="${scoreState.lastScore}" newScore="${score}"`);
-
         if (shouldPost && await isBotEnabled(match.id)) {
+          // Update state BEFORE awaiting postBotMessage so that a concurrent poll
+          // (which can start before this one finishes) doesn't post the same score twice.
+          liveScoreBotState.set(match.id, { lastScore: score, lastPostedAt: Date.now(), lastWickets: currentWickets });
+
           const botName = getBotName(match.id);
           const msg = formatLiveScoreBotMessage(match, score, status);
           const scoreRoomIds = await getCachedRoomIds();
           for (const roomId of scoreRoomIds) {
             await postBotMessage(roomId, match.id, msg, botName);
           }
-          liveScoreBotState.set(match.id, { lastScore: score, lastPostedAt: Date.now(), lastWickets: currentWickets });
-          console.log(`[LiveScore] Score bot msg posted for ${match.id}${wicketFell ? ' (wicket)' : ''}`);
+          console.log(`[LiveScore] Score posted for ${match.id}${wicketFell ? ' (wicket)' : ''}: ${score}`);
         } else if (scoreChanged) {
-          // Score changed but throttled — keep wickets count current so next wicket triggers immediately
+          // Score changed but throttled — keep wickets current so next wicket fires immediately
           liveScoreBotState.set(match.id, { ...scoreState, lastWickets: currentWickets });
         }
       }
@@ -3135,32 +3134,47 @@ async function pollCommentary() {
         const liveData = liveScoreCache.get(matchId);
         const matchScoreStr = liveData?.score || null;
 
-        // Deduplication via a Set of string IDs — works for numeric IDs, UUIDs, and compound keys.
-        // `state.seenIds` is initialized lazily; `state.lastId` switches from null → 0 after first poll.
+        // Build a stable dedup key for each item.
+        // Primary: item.id or item.sequenceNumber (numeric or string)
+        // Fallback: over + first 30 chars of shortText/text — handles APIs that omit explicit IDs
+        function itemKey(item) {
+          const primary = item.id ?? item.sequenceNumber;
+          if (primary != null && String(primary) !== '') return String(primary);
+          const over = item.over?.overs ?? item.over?.current ?? item.period ?? '';
+          const txt = (item.shortText || item.text || '').slice(0, 30);
+          return `${over}_${txt}`;
+        }
+
         if (!state.seenIds) state.seenIds = new Set();
 
         if (state.lastId === null) {
           // First poll: mark all existing items as seen without posting them
           for (const item of items) {
-            const id = String(item.id ?? item.sequenceNumber ?? '');
-            if (id) state.seenIds.add(id);
+            const k = itemKey(item);
+            if (k) state.seenIds.add(k);
           }
           state.lastId = 0; // mark initialized
-          console.log(`[Commentary] Initialized for match ${matchId}: ${state.seenIds.size} existing items skipped`);
+          console.log(`[Commentary] Initialized for match ${matchId}: ${state.seenIds.size} existing items skipped (${items.length} total)`);
           continue;
         }
 
-        // New items = not yet seen, sorted oldest-first so they post in chronological order
+        if (items.length === 0) {
+          console.log(`[Commentary] 0 items from ESPN for match ${matchId} (espnEventId=${state.espnEventId})`);
+          continue;
+        }
+
+        // New items = key not yet seen, sorted oldest-first for chronological chat order
         const newItems = items
           .filter(item => {
-            const id = String(item.id ?? item.sequenceNumber ?? '');
-            return id && !state.seenIds.has(id);
+            const k = itemKey(item);
+            return k && !state.seenIds.has(k);
           })
           .sort((a, b) => {
-            // Try numeric sort first; fall back to string compare
             const na = Number(a.id ?? a.sequenceNumber ?? 0);
             const nb = Number(b.id ?? b.sequenceNumber ?? 0);
-            return (isNaN(na) || isNaN(nb)) ? String(a.id).localeCompare(String(b.id)) : na - nb;
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            // Fallback: use over number
+            return (a.over?.overs ?? 0) - (b.over?.overs ?? 0);
           });
 
         if (newItems.length === 0) continue;
@@ -3173,8 +3187,7 @@ async function pollCommentary() {
           for (const roomId of roomIds) {
             await postBotMessage(roomId, matchId, msg, botName);
           }
-          const id = String(item.id ?? item.sequenceNumber ?? '');
-          if (id) state.seenIds.add(id);
+          state.seenIds.add(itemKey(item));
         }
 
         console.log(`[Commentary] Posted ${newItems.length} ball(s) for match ${matchId}`);
