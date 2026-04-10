@@ -7,7 +7,7 @@ import Header from "@/components/Header";
 import { IPL_SCHEDULE, IPL_TEAMS } from "@/lib/data";
 import { format } from "date-fns";
 
-const REACTION_EMOJIS = ["🔥", "👏", "😮", "💔", "😂", "🏏"];
+const REACTION_EMOJIS = ["🔥", "👏", "😮", "💔", "😂", "🏏", "4️⃣", "6️⃣"];
 
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────
 const ReactionBar = ({
@@ -81,7 +81,7 @@ const ReactionBar = ({
           +
         </button>
         {pickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1 flex gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20">
+          <div className="absolute bottom-full left-0 mb-1 grid grid-cols-4 gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20">
             {REACTION_EMOJIS.map((e) => (
               <button
                 key={e}

@@ -333,8 +333,14 @@ io.on("connection", (socket) => {
     const users = Array.from(roomUsers.get(roomKey).values());
     io.to(roomKey).emit("online_users", users);
 
-    // Post bot intro if match is live and no intro posted yet
-    postIntroIfNeeded(roomId, matchId).catch(e => console.error('[Bot] Intro error:', e.message));
+    // Post bot intro — for completed matches post a summary too
+    queryOne('SELECT match_id FROM results WHERE match_id = $1', [matchId]).then(result => {
+      if (result) {
+        postIntroAndSummaryForCompletedMatch(roomId, matchId).catch(e => console.error('[Bot] Summary error:', e.message));
+      } else {
+        postIntroIfNeeded(roomId, matchId).catch(e => console.error('[Bot] Intro error:', e.message));
+      }
+    }).catch(e => console.error('[Bot] join_chat check error:', e.message));
 
     console.log(`${socket.user.username} joined ${roomKey}`);
   });
@@ -1593,6 +1599,25 @@ async function checkRecentMatches(isManual = false) {
           );
           await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
           updatedCount++;
+
+          // Post win announcement to all rooms (once per match)
+          if (!winPostedSet.has(match.id) && await isBotEnabled(match.id)) {
+            winPostedSet.add(match.id);
+            const allRooms = await query('SELECT id FROM rooms');
+            const botName = getBotName(match.id);
+            let winMsg;
+            if (winner === 'nr') {
+              winMsg = `🌧️ Match abandoned — No Result.`;
+            } else if (winner === 'draw') {
+              winMsg = `🤝 What a match! It's a tie!`;
+            } else {
+              winMsg = `🏆 Match Over!\n${winner} won!`;
+              if (scoreSummary) winMsg += `\n📊 ${scoreSummary}`;
+            }
+            for (const room of allRooms) {
+              await postBotMessage(room.id, match.id, winMsg, botName);
+            }
+          }
         }
       } else {
         console.log(`⏳ AutomatedResultService: Match ${match.id} still in progress (Status: ${status}).`);
@@ -1725,6 +1750,18 @@ async function pollLiveScores() {
       liveScoreCache.set(match.id, payload);
       io.emit('live_score', payload);
       console.log(`[LiveScore] ${match.id}: ${score || 'no score'} | ${status || 'no status'}`);
+
+      // Post toss announcement once when toss info first appears
+      if (toss && !tossPostedSet.has(match.id)) {
+        tossPostedSet.add(match.id);
+        if (await isBotEnabled(match.id)) {
+          const allRooms = await query('SELECT id FROM rooms');
+          const botName = getBotName(match.id);
+          for (const room of allRooms) {
+            await postBotMessage(room.id, match.id, `🪙 ${toss}`, botName);
+          }
+        }
+      }
     }
   } catch (err) {
     console.error('[LiveScore] Poll error:', err.message);
@@ -1793,7 +1830,50 @@ async function postBotMessage(roomId, matchId, text, botName) {
   }
 }
 
-const introPostedSet = new Set(); // `${roomId}_${matchId}`
+const introPostedSet = new Set();   // `${roomId}_${matchId}`
+const tossPostedSet  = new Set();   // `${matchId}` — toss announcement per match
+const winPostedSet   = new Set();   // `${matchId}` — win announcement per match
+
+async function postIntroAndSummaryForCompletedMatch(roomId, matchId) {
+  if (!await isBotEnabled(matchId)) return;
+  const key = `${roomId}_${matchId}_completed`;
+  if (introPostedSet.has(key)) return;
+  introPostedSet.add(key);
+
+  // Check DB — only for completed matches
+  const result = await queryOne(
+    'SELECT winner, score_summary, toss FROM results WHERE match_id = $1', [matchId]
+  );
+  if (!result) return;
+
+  // Skip if any bot message already exists in this room+match
+  const existing = await queryOne(
+    'SELECT id FROM chat_messages WHERE room_id = $1 AND match_id = $2 AND bot_name IS NOT NULL LIMIT 1',
+    [roomId, matchId]
+  );
+  if (existing) return;
+
+  const botName = getBotName(matchId);
+  const schedule = require('./schedule.js');
+  const matchInfo = schedule.find(m => m.id === matchId);
+  const t1 = matchInfo?.team1 || 'Team 1';
+  const t2 = matchInfo?.team2 || 'Team 2';
+
+  // Intro
+  await postBotMessage(roomId, matchId, getBotIntro(botName, matchId), botName);
+
+  // Match summary
+  const { winner, score_summary: scoreSummary, toss } = result;
+  let summary = `📋 Match Summary — ${t1} vs ${t2}\n`;
+  if (toss) summary += `\n🪙 ${toss}`;
+  if (winner === 'nr') summary += `\n🌧️ Result: No Result (match abandoned)`;
+  else if (winner === 'draw') summary += `\n🤝 Result: Match tied`;
+  else {
+    summary += `\n🏆 ${winner} won!`;
+    if (scoreSummary) summary += `\n📊 ${scoreSummary}`;
+  }
+  await postBotMessage(roomId, matchId, summary, botName);
+}
 
 async function postIntroIfNeeded(roomId, matchId) {
   if (!await isBotEnabled(matchId)) return;
@@ -1889,6 +1969,12 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   const t1 = matchInfo?.team1 || 'Team 1';
   const t2 = matchInfo?.team2 || 'Team 2';
 
+  // Check if this is a completed match
+  const completedResult = await queryOne(
+    'SELECT winner, score_summary, toss FROM results WHERE match_id = $1', [matchId]
+  );
+  const isCompleted = !!completedResult;
+
   let reply = null;
 
   // ── help ──────────────────────────────────────────────────────────────────
@@ -1897,9 +1983,18 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   }
 
   // ── score ─────────────────────────────────────────────────────────────────
-  else if (['score', 'scorecard'].includes(q)) {
-    if (!liveData?.score) {
-      reply = `No live score available for this match right now, ${askerUsername}. Check back once the match starts! 🏏`;
+  else if (['score', 'scorecard', 'result'].includes(q)) {
+    if (isCompleted) {
+      const { winner, score_summary, toss } = completedResult;
+      if (winner === 'nr') {
+        reply = `🌧️ No Result — match was abandoned.${toss ? `\n🪙 ${toss}` : ''}`;
+      } else if (winner === 'draw') {
+        reply = `🤝 Match tied!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
+      } else {
+        reply = `🏆 Final Result\n${winner} won!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
+      }
+    } else if (!liveData?.score) {
+      reply = `No live score yet, ${askerUsername}. Check back once the match starts! 🏏`;
     } else {
       reply = `📊 Current Score\n${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`;
     }
@@ -1907,81 +2002,105 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // ── batting ───────────────────────────────────────────────────────────────
   else if (['batting', 'bat', 'batsman', 'batter', "who's batting", 'who is batting'].includes(q)) {
-    const data = await fetchLatestBallData(matchId);
-    const ball = data?.latest;
-    if (!ball?.batsmanStriker) {
-      reply = liveData?.score
-        ? `🏏 Batting info not available right now. Score: ${liveData.score}`
-        : `No live match data yet, ${askerUsername}!`;
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /${botName} score`;
     } else {
-      const s = ball.batsmanStriker;
-      const ns = ball.batsmanNonStriker;
-      let msg = `🏏 At the Crease\n\n`;
-      msg += `⚡ *Striker:* ${s.batName} — ${s.batRuns ?? 0}* off ${s.batBalls ?? 0} (${s.batFours ?? 0}×4, ${s.batSixes ?? 0}×6)`;
-      if (ns) msg += `\n🔄 *Non-striker:* ${ns.batName} — ${ns.batRuns ?? 0}* off ${ns.batBalls ?? 0}`;
-      reply = msg;
+      const data = await fetchLatestBallData(matchId);
+      const ball = data?.latest;
+      if (!ball?.batsmanStriker) {
+        reply = liveData?.score
+          ? `🏏 Batting info not available right now. Score: ${liveData.score}`
+          : `No live match data yet, ${askerUsername}!`;
+      } else {
+        const s = ball.batsmanStriker;
+        const ns = ball.batsmanNonStriker;
+        let msg = `🏏 At the Crease\n\n`;
+        msg += `⚡ *Striker:* ${s.batName} — ${s.batRuns ?? 0}* off ${s.batBalls ?? 0} (${s.batFours ?? 0}×4, ${s.batSixes ?? 0}×6)`;
+        if (ns) msg += `\n🔄 *Non-striker:* ${ns.batName} — ${ns.batRuns ?? 0}* off ${ns.batBalls ?? 0}`;
+        reply = msg;
+      }
     }
   }
 
   // ── bowling ───────────────────────────────────────────────────────────────
   else if (['bowling', 'bowl', 'bowler', "who's bowling", 'who is bowling'].includes(q)) {
-    const data = await fetchLatestBallData(matchId);
-    const ball = data?.latest;
-    if (!ball?.bowlerStriker) {
-      reply = `Bowling info not available right now, ${askerUsername}!`;
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /${botName} score`;
     } else {
-      const b = ball.bowlerStriker;
-      reply = `⚾ Current Bowler\n\n${b.bowlName} — ${b.bowlOvs ?? '?'} ov, ${b.bowlRuns ?? 0} runs, ${b.bowlWkts ?? 0} wkts, Econ: ${b.bowlEcon ?? '?'}`;
+      const data = await fetchLatestBallData(matchId);
+      const ball = data?.latest;
+      if (!ball?.bowlerStriker) {
+        reply = `Bowling info not available right now, ${askerUsername}!`;
+      } else {
+        const b = ball.bowlerStriker;
+        reply = `⚾ Current Bowler\n\n${b.bowlName} — ${b.bowlOvs ?? '?'} ov, ${b.bowlRuns ?? 0} runs, ${b.bowlWkts ?? 0} wkts, Econ: ${b.bowlEcon ?? '?'}`;
+      }
     }
   }
 
   // ── run rate ─────────────────────────────────────────────────────────────
   else if (['rr', 'crr', 'run rate', 'current run rate'].includes(q)) {
-    const data = await fetchLatestBallData(matchId);
-    const ms = parseMiniScore(data?.miniscore);
-    if (!ms?.rr) {
-      reply = `Run rate info isn't available yet, ${askerUsername}!`;
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /${botName} score`;
     } else {
-      reply = `📈 Current Run Rate: *${ms.rr}*${ms.teamName ? ` (${ms.teamName}: ${ms.score}/${ms.wickets})` : ''}`;
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (!ms?.rr) {
+        reply = `Run rate info isn't available yet, ${askerUsername}!`;
+      } else {
+        reply = `📈 Current Run Rate: *${ms.rr}*${ms.teamName ? ` (${ms.teamName}: ${ms.score}/${ms.wickets})` : ''}`;
+      }
     }
   }
 
   // ── target ────────────────────────────────────────────────────────────────
   else if (['target', 'what is the target', "what's the target"].includes(q)) {
-    const data = await fetchLatestBallData(matchId);
-    const ms = parseMiniScore(data?.miniscore);
-    if (!ms?.target) {
-      reply = `No target set yet — either still 1st innings or match hasn't started, ${askerUsername}!`;
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /${botName} score`;
     } else {
-      reply = `🎯 Target: *${ms.target} runs*${ms.teamName ? ` for ${ms.teamName}` : ''}`;
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (!ms?.target) {
+        reply = `No target set yet — either still 1st innings or match hasn't started, ${askerUsername}!`;
+      } else {
+        reply = `🎯 Target: *${ms.target} runs*${ms.teamName ? ` for ${ms.teamName}` : ''}`;
+      }
     }
   }
 
   // ── required rate ─────────────────────────────────────────────────────────
   else if (['rrr', 'required rate', 'required run rate'].includes(q)) {
-    const data = await fetchLatestBallData(matchId);
-    const ms = parseMiniScore(data?.miniscore);
-    if (!ms?.rrr) {
-      reply = `Required run rate isn't available — may still be 1st innings, ${askerUsername}!`;
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /${botName} score`;
     } else {
-      reply = `⚡ Required Run Rate: *${ms.rrr}*${ms.ballsLeft ? ` (${ms.ballsLeft} balls left)` : ''}`;
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (!ms?.rrr) {
+        reply = `Required run rate isn't available — may still be 1st innings, ${askerUsername}!`;
+      } else {
+        reply = `⚡ Required Run Rate: *${ms.rrr}*${ms.ballsLeft ? ` (${ms.ballsLeft} balls left)` : ''}`;
+      }
     }
   }
 
   // ── overs left ────────────────────────────────────────────────────────────
   else if (['overs', 'overs left', 'overs remaining'].includes(q)) {
-    const data = await fetchLatestBallData(matchId);
-    const ms = parseMiniScore(data?.miniscore);
-    if (ms?.ballsLeft != null) {
-      const oversLeft = Math.floor(ms.ballsLeft / 6);
-      const ballsExtra = ms.ballsLeft % 6;
-      reply = `⏱️ Overs Remaining: *${oversLeft}.${ballsExtra}* (${ms.ballsLeft} balls left)`;
-    } else if (ms?.overs) {
-      const bowled = parseFloat(ms.overs);
-      const left = (20 - bowled).toFixed(1);
-      reply = `⏱️ Overs bowled: ${ms.overs} / 20 → ~${left} overs remaining`;
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /${botName} score`;
     } else {
-      reply = `Overs info not available right now, ${askerUsername}!`;
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (ms?.ballsLeft != null) {
+        const oversLeft = Math.floor(ms.ballsLeft / 6);
+        const ballsExtra = ms.ballsLeft % 6;
+        reply = `⏱️ Overs Remaining: *${oversLeft}.${ballsExtra}* (${ms.ballsLeft} balls left)`;
+      } else if (ms?.overs) {
+        const bowled = parseFloat(ms.overs);
+        const left = (20 - bowled).toFixed(1);
+        reply = `⏱️ Overs bowled: ${ms.overs} / 20 → ~${left} overs remaining`;
+      } else {
+        reply = `Overs info not available right now, ${askerUsername}!`;
+      }
     }
   }
 
