@@ -686,34 +686,26 @@ const ChatRoom: React.FC = () => {
               </button>
             </div>
           )}
-          {/* @mention dropdown — floats above the input */}
+          {/* @mention — horizontal scrollable pill row */}
           {mentionSuggestions.length > 0 && (
-            <div className="mb-1 rounded-xl border border-border bg-card shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 duration-150">
-              <div className="px-3 py-1.5 border-b border-border/50 bg-muted/40">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Mention</span>
-              </div>
-              <div className="max-h-40 overflow-y-auto">
-                {mentionSuggestions.map((name, i) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); applyMention(name); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
-                      i === selectedMention
-                        ? "bg-primary/15 text-primary"
-                        : "hover:bg-muted/60 text-foreground"
-                    }`}
-                  >
-                    <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[9px] font-bold text-primary flex-shrink-0">
-                      {name.substring(0, 2).toUpperCase()}
-                    </div>
-                    <span className="text-sm font-medium">@{name}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="px-3 py-1 border-t border-border/30 bg-muted/20">
-                <p className="text-[9px] text-muted-foreground">↑↓ navigate · Enter to pick · Esc to close</p>
-              </div>
+            <div className="mb-1 flex items-center gap-2 overflow-x-auto scrollbar-none py-1 animate-in slide-in-from-bottom-2 duration-150">
+              {mentionSuggestions.map((name, i) => (
+                <button
+                  key={name}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); applyMention(name); }}
+                  className={`flex-shrink-0 flex items-center gap-1.5 rounded-full px-2.5 py-1 border text-xs font-semibold transition-all ${
+                    i === selectedMention
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-muted/60 border-border/60 text-foreground hover:bg-muted hover:border-primary/40"
+                  }`}
+                >
+                  <div className="h-5 w-5 rounded-full bg-primary/25 flex items-center justify-center text-[8px] font-bold text-primary flex-shrink-0 leading-none">
+                    {name.substring(0, 2).toUpperCase()}
+                  </div>
+                  @{name}
+                </button>
+              ))}
             </div>
           )}
 
