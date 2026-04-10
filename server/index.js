@@ -1518,16 +1518,41 @@ function extractLineupsESPN(rosters, notes) {
       return tags.length ? `${name} (${tags.join(' & ')})` : name;
     });
 
-    // Impact player pool: matchnote "Team Impact Player Subs: p1, p2 and p3"
-    const impactNote = (notes || []).find(n =>
-      n.type === 'matchnote' &&
-      n.text.includes('Impact Player Subs:') &&
-      n.text.toLowerCase().startsWith(teamName.toLowerCase())
-    );
+    // Impact player pool — Strategy 1: scan all notes for impact-related text
     let impactPool = [];
-    if (impactNote) {
-      const m = impactNote.text.match(/Impact Player Subs:\s*(.+)$/i);
-      if (m) impactPool = m[1].split(/,\s*|\s+and\s+/).map(s => s.trim()).filter(Boolean);
+    const teamNameLower = teamName.toLowerCase();
+    const abbrLower = abbr.toLowerCase();
+    for (const n of (notes || [])) {
+      const text = n.text || '';
+      const textLower = text.toLowerCase();
+      // Note must reference this team and mention "impact"
+      const mentionsTeam = textLower.includes(teamNameLower) || textLower.includes(abbrLower);
+      const mentionsImpact = /impact\s+player|impact\s+sub/i.test(text);
+      if (!mentionsTeam || !mentionsImpact) continue;
+      // Extract names after a colon or "are:" / "is:"
+      const colonIdx = text.indexOf(':');
+      if (colonIdx !== -1) {
+        const raw = text.slice(colonIdx + 1).trim();
+        impactPool = raw.split(/,\s*|\s+and\s+/).map(s => s.trim()).filter(Boolean);
+      }
+      if (impactPool.length) break;
+    }
+
+    // Strategy 2: if notes gave nothing, look for non-starter players explicitly
+    // flagged as impact subs on the roster (ESPN sometimes uses eligible/substitute flags)
+    if (!impactPool.length) {
+      const nonStarters = teamRoster.roster.filter(p => !p.starter);
+      for (const p of nonStarters) {
+        const isImpact =
+          p.eligible === true ||
+          p.substitute === true ||
+          /impact/i.test(p.status?.type?.description || '') ||
+          /impact/i.test(p.position?.displayName || '');
+        if (isImpact) {
+          const name = p.athlete?.battingName || p.athlete?.shortName || p.athlete?.displayName;
+          if (name) impactPool.push(name);
+        }
+      }
     }
 
     result.push({ abbr, xi, impactPool });
@@ -1566,6 +1591,10 @@ async function fetchESPNSummary(espnEventId) {
     const venue = venueName
       ? (venueCity && !venueName.includes(venueCity) ? `${venueName}, ${venueCity}` : venueName)
       : null;
+    // Debug: log notes so impact-player matching can be verified in server logs
+    if (data.notes?.length) {
+      console.log(`[ESPN] Notes for event ${espnEventId}:`, JSON.stringify(data.notes.map(n => ({ type: n.type, text: (n.text || '').slice(0, 120) }))));
+    }
     return {
       toss: extractTossInfoESPN(data.notes),
       lineups: extractLineupsESPN(data.rosters, data.notes),
@@ -1897,7 +1926,8 @@ setTimeout(checkRecentMatches, 5000); // 5 sec delay to let DB init completion
 // ─── Live Score Service ────────────────────────────────────────────────────
 
 const liveScoreCache = new Map(); // ourMatchId -> LiveScorePayload
-const commentaryCache = new Map(); // ourMatchId -> { espnEventId, lastTs, toss, lineups }
+const commentaryCache = new Map(); // ourMatchId -> { espnEventId, lastId, toss, lineups }
+// lastId: null = uninitialized (skip existing items on first poll); number = last ESPN item id posted
 const rainDelayState = new Map();  // ourMatchId -> { inDelay: bool, lastPostedAt: number }
 
 /** Build score/status from an ESPN normalized match object */
@@ -1949,19 +1979,22 @@ async function pollLiveScores() {
 
       const { score, status, toss } = buildScoreFromESPNMatch(apiMatch, match);
 
-      // Seed commentaryCache with ESPN event ID (first time we see this match live)
+      // Seed commentaryCache with ESPN event ID on first encounter
       if (apiMatch.espnEventId && !commentaryCache.has(match.id)) {
-        const entry = { espnEventId: apiMatch.espnEventId, lastTs: 0, toss: null, lineups: null };
+        const entry = { espnEventId: apiMatch.espnEventId, lastId: null, toss: null, lineups: null };
         commentaryCache.set(match.id, entry);
         console.log(`[Commentary] Registered match ${match.id} → ESPN ID ${apiMatch.espnEventId}`);
-        // Fetch toss + lineups from summary in background; available on next poll cycle
-        fetchESPNSummary(apiMatch.espnEventId).then(d => {
-          if (d?.toss) entry.toss = d.toss;
-          if (d?.lineups) entry.lineups = d.lineups;
-        });
       }
 
+      // Re-fetch summary every poll cycle until BOTH toss and lineups are populated
       const cachedEntry = commentaryCache.get(match.id);
+      if (cachedEntry && (!cachedEntry.toss || !cachedEntry.lineups)) {
+        fetchESPNSummary(apiMatch.espnEventId).then(d => {
+          if (d?.toss) cachedEntry.toss = d.toss;
+          if (d?.lineups) cachedEntry.lineups = d.lineups;
+        }).catch(() => {});
+      }
+
       const liveToss = cachedEntry?.toss || null;
 
       const payload = {
@@ -2258,7 +2291,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // "First ball bowled" = any commentary has been received for this match
   const commentaryState = commentaryCache.get(matchId);
-  const hasFirstBall = (commentaryState?.lastTs || 0) > 0;
+  const hasFirstBall = commentaryState?.lastId != null && commentaryState.lastId > 0;
 
   const matchStart = matchInfo
     ? new Date(`${matchInfo.date}T${matchInfo.time || '19:30'}:00+05:30`)
@@ -2974,10 +3007,19 @@ async function pollCommentary() {
         const liveData = liveScoreCache.get(matchId);
         const matchScoreStr = liveData?.score || null;
 
-        // New items since lastTs — ESPN uses bbbTimestamp (Unix ms) per delivery
+        // ESPN items have a sequential numeric `id` field (most-recent first in the array)
+        // On first poll (lastId === null): record current max id and skip — avoids flooding old balls
+        if (state.lastId === null) {
+          const maxId = items.reduce((m, b) => Math.max(m, parseInt(b.id || '0') || 0), 0);
+          state.lastId = maxId;
+          console.log(`[Commentary] Initialized lastId=${maxId} for match ${matchId} (${items.length} existing items skipped)`);
+          continue;
+        }
+
+        // Filter items newer than what we've already posted, sort oldest-first for posting order
         const newItems = items
-          .filter(b => (b.bbbTimestamp || 0) > (state.lastTs || 0))
-          .sort((a, b) => (a.bbbTimestamp || 0) - (b.bbbTimestamp || 0));
+          .filter(b => (parseInt(b.id || '0') || 0) > state.lastId)
+          .sort((a, b) => (parseInt(a.id || '0') || 0) - (parseInt(b.id || '0') || 0));
 
         if (newItems.length === 0) continue;
 
@@ -2989,7 +3031,8 @@ async function pollCommentary() {
           for (const roomId of roomIds) {
             await postBotMessage(roomId, matchId, msg, botName);
           }
-          state.lastTs = Math.max(state.lastTs || 0, item.bbbTimestamp || 0);
+          const itemId = parseInt(item.id || '0') || 0;
+          if (itemId > state.lastId) state.lastId = itemId;
         }
 
         console.log(`[Commentary] Posted ${newItems.length} ball(s) for match ${matchId}`);
