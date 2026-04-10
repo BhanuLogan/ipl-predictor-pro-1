@@ -1976,7 +1976,21 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   }
 
   // ── score ─────────────────────────────────────────────────────────────────
-  else if (['score', 'scorecard', 'result'].includes(q)) {
+  else if (['score', 'scorecard'].includes(q)) {
+    if (isCompleted) {
+      const { score_summary, toss } = completedResult;
+      reply = `📊 Final Scorecard — ${t1} vs ${t2}`;
+      if (score_summary) reply += `\n${score_summary}`;
+      if (toss) reply += `\n🪙 ${toss}`;
+    } else if (!liveData?.score) {
+      reply = `No live score yet, ${askerUsername}. Check back once the match starts! 🏏`;
+    } else {
+      reply = `📊 Current Score\n${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`;
+    }
+  }
+
+  // ── result ────────────────────────────────────────────────────────────────
+  else if (['result', 'winner', 'who won'].includes(q)) {
     if (isCompleted) {
       const { winner, score_summary, toss } = completedResult;
       if (winner === 'nr') {
@@ -1984,12 +1998,12 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
       } else if (winner === 'draw') {
         reply = `🤝 Match tied!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
       } else {
-        reply = `🏆 Final Result\n${winner} won!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
+        reply = `🏆 ${winner} won this match!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
       }
-    } else if (!liveData?.score) {
-      reply = `No live score yet, ${askerUsername}. Check back once the match starts! 🏏`;
     } else {
-      reply = `📊 Current Score\n${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`;
+      reply = liveData?.score
+        ? `⏳ Match still in progress!\n📊 ${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`
+        : `Match hasn't finished yet, ${askerUsername}!`;
     }
   }
 
