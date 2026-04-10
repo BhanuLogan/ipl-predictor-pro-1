@@ -349,11 +349,9 @@ io.on("connection", (socket) => {
     if (!message || String(message).trim().length === 0) return;
     const msg = String(message).trim().substring(0, 500);
 
-    // ── /<botName> command ────────────────────────────────────────────────
-    const botName = getBotName(matchId);
-    const botPrefix = `/${botName.toLowerCase()}`;
-    if (msg.toLowerCase().startsWith(botPrefix)) {
-      const query_str = msg.slice(botPrefix.length).trim();
+    // ── /command (any slash command) ──────────────────────────────────────
+    if (msg.startsWith('/')) {
+      const query_str = msg.slice(1).trim(); // everything after the leading /
       // Save the user's question so others can see it
       try {
         const saved = await queryOne(`
@@ -1083,17 +1081,10 @@ app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
   res.json(rooms);
 }));
 
-// Room leaderboard — register BEFORE /:id to avoid route conflict
-app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
-  const roomId = parseInt(req.params.id);
-  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
-  const member = await queryOne(
-    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
-    [roomId, req.user.id]
-  );
-  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+// Shared leaderboard logic used by both the API and the bot /top command
+async function getRoomLeaderboard(roomId) {
   const room = await queryOne("SELECT created_at FROM rooms WHERE id = $1", [roomId]);
-  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!room) return [];
 
   const board = await query(`
     SELECT
@@ -1102,24 +1093,26 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
       u.profile_pic,
       COALESCE(SUM(
         CASE
-          WHEN r.winner IS NULL THEN 0
-          WHEN r.winner IN ('nr','draw') THEN 1
-          WHEN v.prediction = r.winner THEN 2
+          WHEN vr.winner IN ('nr','draw') THEN 1
+          WHEN vr.prediction = vr.winner THEN 2
           ELSE 0
         END
       ), 0)::int AS points,
       COALESCE(SUM(
-        CASE WHEN r.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
+        CASE WHEN vr.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
       ), 0)::int AS nr,
       COALESCE(SUM(
-        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
+        CASE WHEN vr.winner NOT IN ('nr', 'draw') AND vr.prediction = vr.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
-      COALESCE(COUNT(r.match_id), 0)::int AS voted,
+      COALESCE(COUNT(vr.match_id), 0)::int AS voted,
       (SELECT COUNT(*)::int FROM results) AS matches
     FROM users u
     JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
-    LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1 AND v.created_at >= $2
-    LEFT JOIN results r ON r.match_id = v.match_id
+    LEFT JOIN (
+      SELECT v.user_id, v.match_id, v.prediction, r.winner
+      FROM results r
+      JOIN votes v ON v.match_id = r.match_id AND v.room_id = $1 AND v.created_at >= $2
+    ) vr ON vr.user_id = u.id
     GROUP BY u.id, u.username, u.profile_pic
   `, [roomId, room.created_at]);
 
@@ -1137,11 +1130,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
 
   const enriched = board.map((row) => {
     const t = timing[row.user_id] || {};
-    return {
-      ...row,
-      nrr: t.nrr ?? null,
-      first_vote_at: t.firstVoteAt ? t.firstVoteAt.toISOString() : null,
-    };
+    return { ...row, nrr: t.nrr ?? null };
   });
 
   enriched.sort((a, b) => {
@@ -1153,6 +1142,20 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     return a.username.localeCompare(b.username);
   });
 
+  return enriched;
+}
+
+// Room leaderboard — register BEFORE /:id to avoid route conflict
+app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+  const member = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+  const enriched = await getRoomLeaderboard(roomId);
+  if (!enriched.length) return res.status(404).json({ error: "Room not found" });
   res.json(enriched);
 }));
 
@@ -1336,11 +1339,6 @@ app.post("/api/admin/match-bot-settings", authMiddleware, adminMiddleware, async
 
 // ─── Automated Result Service (Cricbuzz API) ───────────────────────────────
 
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "cricbuzz-cricket.p.rapidapi.com";
-/** IPL series on Cricbuzz (RapidAPI). Override if the tournament id changes year to year. */
-const RAPIDAPI_SERIES_ID = process.env.RAPIDAPI_SERIES_ID || "9241";
-
 const TEAM_NAME_MAP = {
   "Chennai Super Kings": "CSK",
   "Mumbai Indians": "MI",
@@ -1386,34 +1384,32 @@ function parseWinnerFromStatus(status, team1Code, team2Code) {
   return null;
 }
 
-/** Short score line from Cricbuzz matchInfo (status text usually includes full summary). */
+/** Score summary: team scores first, then result status on next line. */
 function extractScoreSummary(matchInfo) {
   if (!matchInfo) return null;
-  const st = (matchInfo.status || "").trim();
-  if (st) return st;
   const t1 = matchInfo.team1;
   const t2 = matchInfo.team2;
-  if (!t1 || !t2) return null;
+  const st = (matchInfo.status || "").trim();
   const shortName = (t) =>
-    t.teamSName ||
-    (typeof t.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
+    t?.teamSName ||
+    (typeof t?.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
     "?";
   const fmt = (t) => {
-    if (t == null) return null;
+    if (!t) return null;
     if (typeof t.score === "string" && t.score.length > 0 && t.score !== "-1") {
-      return `${shortName(t)} ${t.score}`;
+      return `${shortName(t)}: ${t.score}`;
     }
     if (t.score != null && Number(t.score) >= 0 && Number(t.score) !== -1) {
       const wk = t.wickets != null ? t.wickets : 0;
-      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "—";
-      return `${shortName(t)} ${t.score}/${wk} (${ov})`;
+      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "?";
+      return `${shortName(t)}: ${t.score}/${wk} (${ov} ov)`;
     }
     return null;
   };
-  const a = fmt(t1);
-  const b = fmt(t2);
-  if (a && b) return `${a} · ${b}`;
-  return null;
+  const scores = [fmt(t1), fmt(t2)].filter(Boolean);
+  if (scores.length >= 1 && st) return `${scores.join(' · ')}\n${st}`;
+  if (scores.length >= 1) return scores.join(' · ');
+  return st || null;
 }
 
 /** Extracts toss info from matchInfo.tossResults → e.g. "KKR won the toss and chose to bat" */
@@ -1492,19 +1488,6 @@ function dedupeCricbuzzMatches(matches) {
     out.push(m);
   }
   return out;
-}
-
-async function fetchCricbuzzSeriesMatches() {
-  const url = `https://${RAPIDAPI_HOST}/series/v1/${RAPIDAPI_SERIES_ID}`;
-  const response = await axios.request({
-    method: "GET",
-    url,
-    headers: {
-      "X-RapidAPI-Key": RAPIDAPI_KEY,
-      "X-RapidAPI-Host": RAPIDAPI_HOST,
-    },
-  });
-  return collectCricbuzzMatchesFromPayload(response.data);
 }
 
 /** Auto-sync only runs from (match start + 4h) through (match start + 6h), every CHECK_INTERVAL. */
@@ -1913,22 +1896,21 @@ async function isBotEnabled(matchId) {
 // ─── Bot Query Handler ─────────────────────────────────────────────────────
 
 function getHelpText(botName) {
-  const p = `/${botName}`;
   return `🏏 Hi! I'm ${botName}. Here's what you can ask me:\n\n` +
     `📊 Match\n` +
-    `${p} score — current score & status\n` +
-    `${p} batting — who's at the crease\n` +
-    `${p} bowling — current bowler's figures\n` +
-    `${p} rr — current run rate\n` +
-    `${p} target — target (2nd innings)\n` +
-    `${p} rrr — required run rate\n` +
-    `${p} overs — overs remaining\n\n` +
+    `/score — current score & status\n` +
+    `/batting — who's at the crease\n` +
+    `/bowling — current bowler's figures\n` +
+    `/rr — current run rate\n` +
+    `/target — target (2nd innings)\n` +
+    `/rrr — required run rate\n` +
+    `/overs — overs remaining\n\n` +
     `🏆 Room\n` +
-    `${p} top — leaderboard top 5\n` +
-    `${p} votes — vote split for this match\n` +
-    `${p} who predicted [team] — who picked a team\n\n` +
+    `/top — leaderboard top 5\n` +
+    `/votes — vote split for this match\n` +
+    `/who predicted [team] — who picked a team\n\n` +
     `🎲 Fun\n` +
-    `${p} win — my prediction for this match`;
+    `/win — my prediction for this match`;
 }
 
 async function fetchLatestBallData(matchId) {
@@ -2044,7 +2026,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── batting ───────────────────────────────────────────────────────────────
   else if (['batting', 'bat', 'batsman', 'batter', "who's batting", 'who is batting'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2068,7 +2050,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── bowling ───────────────────────────────────────────────────────────────
   else if (['bowling', 'bowl', 'bowler', "who's bowling", 'who is bowling'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2086,7 +2068,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── run rate ─────────────────────────────────────────────────────────────
   else if (['rr', 'crr', 'run rate', 'current run rate'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2103,7 +2085,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── target ────────────────────────────────────────────────────────────────
   else if (['target', 'what is the target', "what's the target"].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2120,7 +2102,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── required rate ─────────────────────────────────────────────────────────
   else if (['rrr', 'required rate', 'required run rate'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2137,7 +2119,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   // ── overs left ────────────────────────────────────────────────────────────
   else if (['overs', 'overs left', 'overs remaining'].includes(q)) {
     if (isCompleted) {
-      reply = `Match is over! Check the result with /${botName} score`;
+      reply = `Match is over! Check the result with /score`;
     } else if (isNotStarted) {
       reply = preStartReply;
     } else {
@@ -2159,42 +2141,39 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // ── leaderboard ──────────────────────────────────────────────────────────
   else if (['top', 'leaderboard', 'standings'].includes(q)) {
-    const rows = await query(`
-      SELECT u.username, COALESCE(SUM(v.points), 0) AS pts
-      FROM users u
-      LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1
-      WHERE u.is_bot = FALSE
-      GROUP BY u.username
-      ORDER BY pts DESC
-      LIMIT 5
-    `, [roomId]);
-    if (!rows.length) {
+    const board = await getRoomLeaderboard(roomId);
+    const top5 = board.filter(r => r.username !== 'scorebot').slice(0, 5);
+    if (!top5.length) {
       reply = `No predictions made in this room yet, ${askerUsername}!`;
     } else {
-      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-      const lines = rows.map((r, i) => `${medals[i]} ${r.username} — ${r.pts} pts`);
+      const medals = ['🥇', '🥈', '🥉', '#4', '#5'];
+      const lines = top5.map((r, i) => `${medals[i]} ${r.username} — ${r.points} pts`);
       reply = `🏆 Room Leaderboard (Top 5)\n\n${lines.join('\n')}`;
     }
   }
 
   // ── predictions / vote split ──────────────────────────────────────────────
   else if (['votes', 'predictions', 'vote split'].includes(q)) {
-    const rows = await query(`
-      SELECT prediction, COUNT(*)::int AS cnt
-      FROM votes
-      WHERE match_id = $1 AND room_id = $2
-      GROUP BY prediction
-    `, [matchId, roomId]);
-    if (!rows.length) {
-      reply = `No predictions yet for this match in this room, ${askerUsername}!`;
+    if (isNotStarted || (!isCompleted && !liveData?.score)) {
+      reply = `🗳️ Predictions are still open! Vote split is revealed once the match is underway.\n\nPlace your prediction on the home screen and check back after the first ball! 🏏`;
     } else {
-      const total = rows.reduce((s, r) => s + r.cnt, 0);
-      const lines = rows.map(r => {
-        const pct = Math.round((r.cnt / total) * 100);
-        const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
-        return `${r.prediction}: ${bar} ${pct}% (${r.cnt})`;
-      });
-      reply = `📊 Vote Split for ${t1} vs ${t2}\n\n${lines.join('\n')}\nTotal votes: ${total}`;
+      const rows = await query(`
+        SELECT prediction, COUNT(*)::int AS cnt
+        FROM votes
+        WHERE match_id = $1 AND room_id = $2
+        GROUP BY prediction
+      `, [matchId, roomId]);
+      if (!rows.length) {
+        reply = `No predictions yet for this match in this room, ${askerUsername}!`;
+      } else {
+        const total = rows.reduce((s, r) => s + r.cnt, 0);
+        const lines = rows.map(r => {
+          const pct = Math.round((r.cnt / total) * 100);
+          const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
+          return `${r.prediction}: ${bar} ${pct}% (${r.cnt})`;
+        });
+        reply = `📊 Vote Split for ${t1} vs ${t2}\n\n${lines.join('\n')}\nTotal votes: ${total}`;
+      }
     }
   }
 
@@ -2233,7 +2212,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // ── unknown ───────────────────────────────────────────────────────────────
   else {
-    reply = `Didn't catch that 🤔 Type /${botName} help`;
+    reply = `Didn't catch that 🤔 Type /help`;
   }
 
   if (reply) {
