@@ -49,32 +49,84 @@ const BOT_COMMANDS = [
 ];
 
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────
+// ── Fixed-position emoji picker portal (avoids overflow clipping on mobile) ───
+const EmojiPickerPortal = ({
+  anchorRef,
+  onReact,
+  messageId,
+  onClose,
+}: {
+  anchorRef: React.RefObject<HTMLElement>;
+  onReact: (messageId: number, emoji: string) => void;
+  messageId: number;
+  onClose: () => void;
+}) => {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (anchorRef.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      const pickerW = Math.min(288, window.innerWidth - 16);
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - pickerW - 8));
+      const top = rect.top - 8; // will be positioned bottom-up via transform
+      setPos({ top, left });
+    }
+  }, [anchorRef]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node) &&
+          anchorRef.current && !anchorRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose, anchorRef]);
+
+  if (!pos) return null;
+
+  return (
+    <div
+      ref={pickerRef}
+      style={{
+        position: "fixed",
+        bottom: window.innerHeight - pos.top,
+        left: pos.left,
+        width: Math.min(288, window.innerWidth - 16),
+        zIndex: 9999,
+      }}
+      className="grid grid-cols-8 gap-0.5 bg-card border border-border rounded-xl p-2 shadow-2xl max-h-48 overflow-y-auto"
+    >
+      {REACTION_EMOJIS.map((e) => (
+        <button
+          key={e}
+          onPointerDown={(ev) => { ev.preventDefault(); onReact(messageId, e); onClose(); }}
+          className="hover:scale-125 active:scale-110 transition-transform text-base leading-none p-0.5"
+        >
+          {e}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 // ── Reaction trigger button (☺) — shown beside the message bubble ────────────
 const ReactionTrigger = ({
   messageId,
   onReact,
-  align = "left",
 }: {
   messageId: number;
   onReact: (messageId: number, emoji: string) => void;
-  align?: "left" | "right";
 }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    };
-    if (pickerOpen) document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [pickerOpen]);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="relative flex-shrink-0 self-center" ref={pickerRef}>
+    <div className="relative flex-shrink-0 self-center">
       <button
+        ref={btnRef}
         onClick={() => setPickerOpen((p) => !p)}
         className="h-6 w-6 flex items-center justify-center rounded-full border border-border/50 bg-muted/40 text-sm text-muted-foreground hover:bg-muted transition-all leading-none"
         title="Add reaction"
@@ -82,21 +134,12 @@ const ReactionTrigger = ({
         ☺
       </button>
       {pickerOpen && (
-        <div
-          className={`absolute bottom-full mb-1.5 grid grid-cols-8 gap-0.5 bg-card border border-border rounded-xl p-2 shadow-xl z-20 w-72 max-h-48 overflow-y-auto ${
-            align === "right" ? "right-0" : "left-0"
-          }`}
-        >
-          {REACTION_EMOJIS.map((e) => (
-            <button
-              key={e}
-              onClick={() => { onReact(messageId, e); setPickerOpen(false); }}
-              className="hover:scale-125 transition-transform text-base leading-none p-0.5"
-            >
-              {e}
-            </button>
-          ))}
-        </div>
+        <EmojiPickerPortal
+          anchorRef={btnRef}
+          messageId={messageId}
+          onReact={onReact}
+          onClose={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );
@@ -115,6 +158,7 @@ const ReactionChips = ({
   onReact: (messageId: number, emoji: string) => void;
 }) => {
   const [openEmoji, setOpenEmoji] = useState<string | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -127,11 +171,37 @@ const ReactionChips = ({
     return () => document.removeEventListener("mousedown", handler);
   }, [openEmoji]);
 
+  // Clean up timer on unmount
+  useEffect(() => () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }, []);
+
   const active = reactions.filter((r) => r.count > 0);
   if (!active.length) return null;
 
   const hasReacted = (emoji: string) =>
     reactions.find((r) => r.emoji === emoji)?.userIds?.includes(currentUserId!) ?? false;
+
+  const handlePressStart = (emoji: string) => {
+    longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null;
+      setOpenEmoji(emoji); // long press → show who reacted
+    }, 500);
+  };
+
+  const handlePressEnd = (emoji: string) => {
+    if (longPressTimer.current) {
+      // Timer still running → short press → toggle reaction
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+      onReact(messageId, emoji);
+    }
+  };
+
+  const handlePressCancel = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   return (
     <div className="flex items-center gap-0.5 flex-wrap mt-1 px-1">
@@ -141,8 +211,11 @@ const ReactionChips = ({
         return (
           <div key={r.emoji} className="relative" ref={isOpen ? popoverRef : undefined}>
             <button
-              onClick={() => setOpenEmoji(isOpen ? null : r.emoji)}
-              className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] border transition-all ${
+              onPointerDown={() => handlePressStart(r.emoji)}
+              onPointerUp={() => handlePressEnd(r.emoji)}
+              onPointerLeave={handlePressCancel}
+              onContextMenu={(e) => e.preventDefault()}
+              className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] border transition-all select-none ${
                 hasReacted(r.emoji)
                   ? "bg-primary/20 border-primary/40 text-primary"
                   : "bg-muted/50 border-border/40 text-foreground hover:bg-muted"
@@ -152,13 +225,13 @@ const ReactionChips = ({
               <span className="font-semibold tabular-nums">{r.count}</span>
             </button>
 
-            {/* Who-reacted popover */}
+            {/* Who-reacted popover (long press) */}
             {isOpen && (
-              <div className="absolute bottom-full left-0 mb-1.5 z-30 min-w-[120px] max-w-[200px] bg-card border border-border rounded-xl shadow-xl p-2 animate-in fade-in-0 zoom-in-95 duration-100">
+              <div className="absolute bottom-full left-0 mb-1.5 z-30 min-w-[130px] max-w-[200px] bg-card border border-border rounded-xl shadow-xl p-2.5">
                 <p className="text-[10px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wide">
                   {r.emoji} {r.count} reaction{r.count !== 1 ? "s" : ""}
                 </p>
-                <ul className="flex flex-col gap-1 mb-2">
+                <ul className="flex flex-col gap-1">
                   {names.map((name) => (
                     <li key={name} className="flex items-center gap-1.5">
                       <div className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
@@ -170,16 +243,6 @@ const ReactionChips = ({
                     </li>
                   ))}
                 </ul>
-                <button
-                  onClick={() => { onReact(messageId, r.emoji); setOpenEmoji(null); }}
-                  className={`w-full text-[11px] rounded-lg py-1 px-2 border transition-all ${
-                    hasReacted(r.emoji)
-                      ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
-                      : "bg-muted/50 border-border/40 text-foreground hover:bg-muted"
-                  }`}
-                >
-                  {hasReacted(r.emoji) ? "Remove reaction" : `React with ${r.emoji}`}
-                </button>
               </div>
             )}
           </div>
@@ -238,7 +301,7 @@ const BotMessage = ({
               {msg.message}
             </p>
           </div>
-          <ReactionTrigger messageId={msg.id} onReact={onReact} align="left" />
+          <ReactionTrigger messageId={msg.id} onReact={onReact} />
         </div>
 
         {/* Reaction chips below */}
@@ -743,7 +806,6 @@ const ChatRoom: React.FC = () => {
                     <ReactionTrigger
                       messageId={msg.id}
                       onReact={handleReact}
-                      align={isMe ? "right" : "left"}
                     />
                   </div>
                   {/* Reaction chips below bubble */}

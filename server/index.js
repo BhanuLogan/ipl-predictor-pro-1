@@ -73,6 +73,36 @@ async function queryOne(sql, params = []) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+// ─── Lightweight DB caches (avoids hitting DB on every 3s poll) ──────────────
+let _completedIdsCache = { set: null, ts: 0 };
+let _roomIdsCache = { ids: null, ts: 0 };
+const COMPLETED_IDS_TTL = 30 * 1000;
+const ROOM_IDS_TTL     = 60 * 1000;
+
+async function getCachedCompletedIds() {
+  const now = Date.now();
+  if (_completedIdsCache.set && now - _completedIdsCache.ts < COMPLETED_IDS_TTL) {
+    return _completedIdsCache.set;
+  }
+  const rows = await query('SELECT match_id FROM results');
+  _completedIdsCache = { set: new Set(rows.map(r => r.match_id)), ts: now };
+  return _completedIdsCache.set;
+}
+
+async function getCachedRoomIds() {
+  const now = Date.now();
+  if (_roomIdsCache.ids && now - _roomIdsCache.ts < ROOM_IDS_TTL) {
+    return _roomIdsCache.ids;
+  }
+  const rows = await query('SELECT id FROM rooms');
+  _roomIdsCache = { ids: rows.map(r => r.id), ts: now };
+  return _roomIdsCache.ids;
+}
+
+// Invalidate caches when results/rooms change (called after writes)
+function invalidateResultsCache() { _completedIdsCache.ts = 0; }
+function invalidateRoomsCache()   { _roomIdsCache.ts = 0; }
+
 async function initDb() {
   // ── Rooms ──
   await query(`
@@ -1464,25 +1494,36 @@ function teamAbbr(fullName) {
     fullName.split(/\s+/).map(w => w[0]).join('').toUpperCase();
 }
 
-/** Convert a single ESPN event to a normalized internal match object */
+/** Convert a single ESPN event to a normalized internal match object.
+ *  ESPN cricket nests competitors inside competitions[0], not on the event root. */
 function adaptESPNEvent(evt) {
   if (!evt?.id) return null;
-  const comps = evt.competitors || [];
+  // ESPN cricket: competitors live inside competitions[0]
+  const comp = (evt.competitions || [])[0] || {};
+  const comps = comp.competitors || evt.competitors || [];
   const c1 = comps[0] || {};
   const c2 = comps[1] || {};
-  const state = evt.fullStatus?.type?.state || 'pre';
-  const status = evt.fullStatus?.summary || evt.fullStatus?.type?.description || '';
-  const t1Name = c1.displayName || '';
-  const t2Name = c2.displayName || '';
+  // Status lives on the competition object
+  const compStatus = comp.status || evt.status || {};
+  const state = compStatus.type?.state || 'pre';
+  // Use detail (e.g. "CSK 143/6 (16.3 overs)") first, fall back to description
+  const status = compStatus.type?.detail || compStatus.type?.description || compStatus.displayClock || '';
+  // Team name may be under competitor.team.displayName (cricket) or competitor.displayName
+  const t1Name = c1.team?.displayName || c1.displayName || '';
+  const t2Name = c2.team?.displayName || c2.displayName || '';
+  const t1Abbr = c1.team?.abbreviation || teamAbbr(t1Name);
+  const t2Abbr = c2.team?.abbreviation || teamAbbr(t2Name);
+  const t1Winner = c1.winner ?? false;
+  const t2Winner = c2.winner ?? false;
   return {
     espnEventId: String(evt.id),
-    team1: { name: t1Name, short: teamAbbr(t1Name), score: c1.score || '' },
-    team2: { name: t2Name, short: teamAbbr(t2Name), score: c2.score || '' },
-    state,          // "pre" | "in" | "post"
-    status,         // human-readable e.g. "RR won by 8 wickets"
+    team1: { name: t1Name, short: t1Abbr, score: c1.score || '' },
+    team2: { name: t2Name, short: t2Abbr, score: c2.score || '' },
+    state,
+    status,
     startDateISO: evt.date || null,
     winnerName: state === 'post'
-      ? (c1.winner ? t1Name : c2.winner ? t2Name : null)
+      ? (t1Winner ? t1Name : t2Winner ? t2Name : null)
       : null,
   };
 }
@@ -1490,8 +1531,15 @@ function adaptESPNEvent(evt) {
 /** Fetch all IPL events from ESPN Cricinfo (free, no key). Returns normalized match objects. */
 async function fetchESPNAll() {
   const resp = await axios.get(`${ESPN_IPL_BASE}/events`, { timeout: 10000 });
-  if (!resp.data?.events) return [];
-  return resp.data.events.map(adaptESPNEvent).filter(Boolean);
+  const events = resp.data?.events || [];
+  if (!events.length) {
+    console.log('[ESPN] /events returned 0 events. Keys:', Object.keys(resp.data || {}));
+    return [];
+  }
+  // Debug first event structure on startup
+  const first = events[0];
+  console.log(`[ESPN] /events returned ${events.length} event(s). First: id=${first?.id} comps=${(first?.competitions||[]).length} competitors=${((first?.competitions||[])[0]?.competitors||[]).length}`);
+  return events.map(adaptESPNEvent).filter(Boolean);
 }
 
 /** Parse playing XI and impact player pool for both teams from ESPN summary data */
@@ -1947,8 +1995,7 @@ function buildScoreFromESPNMatch(espnMatch, ourMatch) {
 async function pollLiveScores() {
   try {
     const now = new Date();
-    const existingResults = await query('SELECT match_id FROM results');
-    const completedIds = new Set(existingResults.map(r => r.match_id));
+    const completedIds = await getCachedCompletedIds();
 
     // Remove completed matches from cache
     for (const id of liveScoreCache.keys()) {
@@ -2015,11 +2062,11 @@ async function pollLiveScores() {
       if (liveToss && cachedEntry?.lineups && !tossPostedSet.has(match.id)) {
         tossPostedSet.add(match.id);
         if (await isBotEnabled(match.id)) {
-          const allRooms = await query('SELECT id FROM rooms');
+          const tossRoomIds = await getCachedRoomIds();
           const botName = getBotName(match.id);
           const tossMsg = formatTossMessage(liveToss, cachedEntry?.lineups);
-          for (const room of allRooms) {
-            await postBotMessage(room.id, match.id, tossMsg, botName);
+          for (const roomId of tossRoomIds) {
+            await postBotMessage(roomId, match.id, tossMsg, botName);
           }
         }
       }
@@ -2037,9 +2084,9 @@ async function pollLiveScores() {
         if (shouldPost && await isBotEnabled(match.id)) {
           const botName = getBotName(match.id);
           const delayMsg = `🌧️ Play Interrupted!\n\n${match.team1} vs ${match.team2}\n📊 ${status}\n\nI'll resume ball-by-ball updates the moment play gets back underway! ⏸️`;
-          const allRooms = await query('SELECT id FROM rooms');
-          for (const room of allRooms) {
-            await postBotMessage(room.id, match.id, delayMsg, botName);
+          const rainRoomIds = await getCachedRoomIds();
+          for (const roomId of rainRoomIds) {
+            await postBotMessage(roomId, match.id, delayMsg, botName);
           }
           rainDelayState.set(match.id, { inDelay: true, lastPostedAt: nowMs });
           console.log(`[LiveScore] Rain delay posted for match ${match.id}`);
@@ -2051,9 +2098,9 @@ async function pollLiveScores() {
         if (await isBotEnabled(match.id)) {
           const botName = getBotName(match.id);
           const resumeMsg = `☀️ Play has resumed!\n\n${match.team1} vs ${match.team2} is back on! 🏏\n${score ? `📊 ${score}` : ''}\n\nBall-by-ball updates are live again! 🔥`;
-          const allRooms = await query('SELECT id FROM rooms');
-          for (const room of allRooms) {
-            await postBotMessage(room.id, match.id, resumeMsg, botName);
+          const resumeRoomIds = await getCachedRoomIds();
+          for (const roomId of resumeRoomIds) {
+            await postBotMessage(roomId, match.id, resumeMsg, botName);
           }
           console.log(`[LiveScore] Play resumed posted for match ${match.id}`);
         }
@@ -2065,7 +2112,7 @@ async function pollLiveScores() {
   }
 }
 
-setInterval(pollLiveScores, 30 * 1000);
+setInterval(pollLiveScores, 3 * 1000);
 setTimeout(pollLiveScores, 10000); // 10s after startup
 
 app.get('/api/live-score', asyncRoute(async (req, res) => {
@@ -2914,7 +2961,12 @@ function formatESPNCommentaryItem(item, matchScore) {
     line3 = `📊 ${item.team.abbreviation} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'})`;
   }
 
-  return [line1, line2, line3, shortText || commText].filter(Boolean).join('\n');
+  // Show shortText as a brief header and commText as full detail when both present
+  const textLines = [];
+  if (shortText) textLines.push(shortText);
+  if (commText && commText !== shortText) textLines.push(commText);
+  const commentary = textLines.join('\n');
+  return [line1, line2, line3, commentary].filter(Boolean).join('\n');
 }
 
 function formatBallMessage(ball, matchScore) {
@@ -2985,11 +3037,8 @@ async function pollCommentary() {
   try {
     if (commentaryCache.size === 0) return;
 
-    const existingResults = await query('SELECT match_id FROM results');
-    const completedIds = new Set(existingResults.map(r => r.match_id));
-
-    const allRooms = await query('SELECT id FROM rooms');
-    const roomIds = allRooms.map(r => r.id);
+    const completedIds = await getCachedCompletedIds();
+    const roomIds = await getCachedRoomIds();
     if (roomIds.length === 0) return;
 
     for (const [matchId, state] of commentaryCache.entries()) {
@@ -3001,7 +3050,18 @@ async function pollCommentary() {
           `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
           { timeout: 10000 }
         );
-        const items = resp.data?.commentary?.items || [];
+
+        // ESPN playbyplay can return items under different paths depending on version
+        const items = resp.data?.commentary?.items
+          || resp.data?.plays
+          || [];
+
+        if (state.lastId === null) {
+          // First time seeing this match — log structure to help debug
+          const topKeys = Object.keys(resp.data || {});
+          const commKeys = resp.data?.commentary ? Object.keys(resp.data.commentary) : [];
+          console.log(`[Commentary] ESPN playbyplay structure for match ${matchId}: topKeys=${JSON.stringify(topKeys)} commentaryKeys=${JSON.stringify(commKeys)} plays=${(resp.data?.plays || []).length} items=${items.length}`);
+        }
 
         // Use live score from cache for the score line in each message
         const liveData = liveScoreCache.get(matchId);
@@ -3045,7 +3105,7 @@ async function pollCommentary() {
   }
 }
 
-setInterval(pollCommentary, 30 * 1000);
+setInterval(pollCommentary, 3 * 1000);
 setTimeout(pollCommentary, 15000);
 
 // ─── Reactions API ─────────────────────────────────────────────────────────
