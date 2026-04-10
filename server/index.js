@@ -2158,7 +2158,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
       SELECT u.username, COALESCE(SUM(v.points), 0) AS pts
       FROM users u
       LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1
-      WHERE u.is_bot = FALSE
+      WHERE u.username != 'scorebot' AND u.is_admin = FALSE
       GROUP BY u.username
       ORDER BY pts DESC
       LIMIT 5
@@ -2166,7 +2166,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
     if (!rows.length) {
       reply = `No predictions made in this room yet, ${askerUsername}!`;
     } else {
-      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+      const medals = ['🥇', '🥈', '🥉', '#4', '#5'];
       const lines = rows.map((r, i) => `${medals[i]} ${r.username} — ${r.pts} pts`);
       reply = `🏆 Room Leaderboard (Top 5)\n\n${lines.join('\n')}`;
     }
@@ -2174,22 +2174,26 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
 
   // ── predictions / vote split ──────────────────────────────────────────────
   else if (['votes', 'predictions', 'vote split'].includes(q)) {
-    const rows = await query(`
-      SELECT prediction, COUNT(*)::int AS cnt
-      FROM votes
-      WHERE match_id = $1 AND room_id = $2
-      GROUP BY prediction
-    `, [matchId, roomId]);
-    if (!rows.length) {
-      reply = `No predictions yet for this match in this room, ${askerUsername}!`;
+    if (isNotStarted || (!isCompleted && !liveData?.score)) {
+      reply = `🗳️ Predictions are still open! Vote split is revealed once the match is underway.\n\nPlace your prediction on the home screen and check back after the first ball! 🏏`;
     } else {
-      const total = rows.reduce((s, r) => s + r.cnt, 0);
-      const lines = rows.map(r => {
-        const pct = Math.round((r.cnt / total) * 100);
-        const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
-        return `${r.prediction}: ${bar} ${pct}% (${r.cnt})`;
-      });
-      reply = `📊 Vote Split for ${t1} vs ${t2}\n\n${lines.join('\n')}\nTotal votes: ${total}`;
+      const rows = await query(`
+        SELECT prediction, COUNT(*)::int AS cnt
+        FROM votes
+        WHERE match_id = $1 AND room_id = $2
+        GROUP BY prediction
+      `, [matchId, roomId]);
+      if (!rows.length) {
+        reply = `No predictions yet for this match in this room, ${askerUsername}!`;
+      } else {
+        const total = rows.reduce((s, r) => s + r.cnt, 0);
+        const lines = rows.map(r => {
+          const pct = Math.round((r.cnt / total) * 100);
+          const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
+          return `${r.prediction}: ${bar} ${pct}% (${r.cnt})`;
+        });
+        reply = `📊 Vote Split for ${t1} vs ${t2}\n\n${lines.join('\n')}\nTotal votes: ${total}`;
+      }
     }
   }
 
