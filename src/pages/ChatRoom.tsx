@@ -7,19 +7,45 @@ import Header from "@/components/Header";
 import { IPL_SCHEDULE, IPL_TEAMS } from "@/lib/data";
 import { format } from "date-fns";
 
-const REACTION_EMOJIS = ["🔥", "👏", "😮", "💔", "😂", "🏏", "4️⃣", "6️⃣"];
+const REACTION_EMOJIS = [
+  // Popular / quick
+  "❤️","🔥","😂","👏","😮","😢","😡","👍","👎","🥰",
+  // Cricket
+  "🏏","🏆","🎯","⚾","🙌","💪","🤞","🫡",
+  // Celebration
+  "🎉","🥳","🤩","✨","🚀","💯","🫶","🤝",
+  // Funny/reactions
+  "🤣","😭","🙏","😤","🤯","🥹","😅","😬","🤦","🤷",
+  // More emotions
+  "❤️‍🔥","💀","👀","🫠","😎","🥶","😱","🤫","🤌","💥",
+  // Numbers/events
+  "4️⃣","6️⃣","🪁","⚡","🌟","🦁","🐯","🔴","🖤","💚",
+];
 
 const BOT_COMMANDS = [
-  { cmd: 'score',   desc: 'Current score & status' },
-  { cmd: 'batting', desc: "Who's at the crease" },
-  { cmd: 'bowling', desc: 'Current bowler stats' },
-  { cmd: 'rr',      desc: 'Current run rate' },
-  { cmd: 'target',  desc: 'Target score' },
-  { cmd: 'rrr',     desc: 'Required run rate' },
-  { cmd: 'overs',   desc: 'Overs remaining' },
-  { cmd: 'toss',    desc: 'Toss result' },
-  { cmd: 'result',  desc: 'Final match result' },
-  { cmd: 'help',    desc: 'Show all commands' },
+  // Live match
+  { cmd: 'match',        desc: 'Teams, venue, toss & status' },
+  { cmd: 'score',        desc: 'Current score & status' },
+  { cmd: 'scorecard',    desc: 'Full batting & bowling scorecard' },
+  { cmd: 'batting',      desc: "Who's at the crease" },
+  { cmd: 'bowling',      desc: 'Current bowler figures' },
+  { cmd: 'rr',           desc: 'Current run rate' },
+  { cmd: 'target',       desc: 'Target score (2nd innings)' },
+  { cmd: 'rrr',          desc: 'Required run rate' },
+  { cmd: 'overs',        desc: 'Overs remaining' },
+  { cmd: 'toss',         desc: 'Toss result' },
+  { cmd: 'result',       desc: 'Final match result' },
+  // Tournament
+  { cmd: 'points-table', desc: 'IPL standings with NRR' },
+  { cmd: 'h2h',          desc: 'Head-to-head record' },
+  // Room
+  { cmd: 'top',          desc: 'Leaderboard top 5' },
+  { cmd: 'votes',        desc: 'Vote split for this match' },
+  { cmd: 'win',          desc: "Kira's match prediction" },
+  // AI
+  { cmd: 'kira ',        desc: 'Ask Kira anything (e.g. /kira who will win?)' },
+  // Misc
+  { cmd: 'help',         desc: 'Show all commands' },
 ];
 
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────
@@ -78,13 +104,13 @@ const ReactionBar = ({
       <div className="relative flex-shrink-0" ref={pickerRef}>
         <button
           onClick={() => setPickerOpen((p) => !p)}
-          className="h-5 w-5 flex items-center justify-center rounded-full border border-border/50 bg-muted/40 text-[10px] text-muted-foreground hover:bg-muted transition-all leading-none"
+          className="h-6 w-6 flex items-center justify-center rounded-full border border-border/50 bg-muted/40 text-sm text-muted-foreground hover:bg-muted transition-all leading-none"
           title="Add reaction"
         >
-          +
+          ☺
         </button>
         {pickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1.5 grid grid-cols-4 gap-1 bg-card border border-border rounded-xl p-1.5 shadow-xl z-20 w-max">
+          <div className="absolute bottom-full left-0 mb-1.5 grid grid-cols-8 gap-0.5 bg-card border border-border rounded-xl p-2 shadow-xl z-20 w-72 max-h-48 overflow-y-auto">
             {REACTION_EMOJIS.map((e) => (
               <button
                 key={e}
