@@ -49,16 +49,15 @@ const BOT_COMMANDS = [
 ];
 
 // ── Reaction bar (shown below bot messages) ──────────────────────────────────
-const ReactionBar = ({
+// ── Reaction trigger button (☺) — shown beside the message bubble ────────────
+const ReactionTrigger = ({
   messageId,
-  reactions,
-  currentUserId,
   onReact,
+  align = "left",
 }: {
   messageId: number;
-  reactions: MessageReaction[];
-  currentUserId?: number;
   onReact: (messageId: number, emoji: string) => void;
+  align?: "left" | "right";
 }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -73,21 +72,77 @@ const ReactionBar = ({
     return () => document.removeEventListener("mousedown", handler);
   }, [pickerOpen]);
 
+  return (
+    <div className="relative flex-shrink-0 self-center" ref={pickerRef}>
+      <button
+        onClick={() => setPickerOpen((p) => !p)}
+        className="h-6 w-6 flex items-center justify-center rounded-full border border-border/50 bg-muted/40 text-sm text-muted-foreground hover:bg-muted transition-all leading-none"
+        title="Add reaction"
+      >
+        ☺
+      </button>
+      {pickerOpen && (
+        <div
+          className={`absolute bottom-full mb-1.5 grid grid-cols-8 gap-0.5 bg-card border border-border rounded-xl p-2 shadow-xl z-20 w-72 max-h-48 overflow-y-auto ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
+          {REACTION_EMOJIS.map((e) => (
+            <button
+              key={e}
+              onClick={() => { onReact(messageId, e); setPickerOpen(false); }}
+              className="hover:scale-125 transition-transform text-base leading-none p-0.5"
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Reaction chips — shown below the message bubble ───────────────────────────
+const ReactionChips = ({
+  messageId,
+  reactions,
+  currentUserId,
+  onReact,
+}: {
+  messageId: number;
+  reactions: MessageReaction[];
+  currentUserId?: number;
+  onReact: (messageId: number, emoji: string) => void;
+}) => {
+  const [openEmoji, setOpenEmoji] = useState<string | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpenEmoji(null);
+      }
+    };
+    if (openEmoji) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openEmoji]);
+
+  const active = reactions.filter((r) => r.count > 0);
+  if (!active.length) return null;
+
   const hasReacted = (emoji: string) =>
     reactions.find((r) => r.emoji === emoji)?.userIds?.includes(currentUserId!) ?? false;
 
-  const active = reactions.filter((r) => r.count > 0);
-
   return (
-    <div className="flex items-center gap-1 mt-1">
-      {/* Existing reactions — horizontal scroll, no wrap */}
-      {active.length > 0 && (
-        <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none max-w-[220px]">
-          {active.map((r) => (
+    <div className="flex items-center gap-0.5 flex-wrap mt-1 px-1">
+      {active.map((r) => {
+        const isOpen = openEmoji === r.emoji;
+        const names: string[] = r.usernames || [];
+        return (
+          <div key={r.emoji} className="relative" ref={isOpen ? popoverRef : undefined}>
             <button
-              key={r.emoji}
-              onClick={() => onReact(messageId, r.emoji)}
-              className={`flex-shrink-0 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] border transition-all ${
+              onClick={() => setOpenEmoji(isOpen ? null : r.emoji)}
+              className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] border transition-all ${
                 hasReacted(r.emoji)
                   ? "bg-primary/20 border-primary/40 text-primary"
                   : "bg-muted/50 border-border/40 text-foreground hover:bg-muted"
@@ -96,33 +151,40 @@ const ReactionBar = ({
               <span className="leading-none">{r.emoji}</span>
               <span className="font-semibold tabular-nums">{r.count}</span>
             </button>
-          ))}
-        </div>
-      )}
 
-      {/* Add reaction picker */}
-      <div className="relative flex-shrink-0" ref={pickerRef}>
-        <button
-          onClick={() => setPickerOpen((p) => !p)}
-          className="h-6 w-6 flex items-center justify-center rounded-full border border-border/50 bg-muted/40 text-sm text-muted-foreground hover:bg-muted transition-all leading-none"
-          title="Add reaction"
-        >
-          ☺
-        </button>
-        {pickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1.5 grid grid-cols-8 gap-0.5 bg-card border border-border rounded-xl p-2 shadow-xl z-20 w-72 max-h-48 overflow-y-auto">
-            {REACTION_EMOJIS.map((e) => (
-              <button
-                key={e}
-                onClick={() => { onReact(messageId, e); setPickerOpen(false); }}
-                className="hover:scale-125 transition-transform text-base leading-none p-0.5"
-              >
-                {e}
-              </button>
-            ))}
+            {/* Who-reacted popover */}
+            {isOpen && (
+              <div className="absolute bottom-full left-0 mb-1.5 z-30 min-w-[120px] max-w-[200px] bg-card border border-border rounded-xl shadow-xl p-2 animate-in fade-in-0 zoom-in-95 duration-100">
+                <p className="text-[10px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wide">
+                  {r.emoji} {r.count} reaction{r.count !== 1 ? "s" : ""}
+                </p>
+                <ul className="flex flex-col gap-1 mb-2">
+                  {names.map((name) => (
+                    <li key={name} className="flex items-center gap-1.5">
+                      <div className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[7px] font-bold text-primary leading-none">
+                          {name.substring(0, 2).toUpperCase()}
+                        </span>
+                      </div>
+                      <span className="text-xs text-foreground truncate">{name}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => { onReact(messageId, r.emoji); setOpenEmoji(null); }}
+                  className={`w-full text-[11px] rounded-lg py-1 px-2 border transition-all ${
+                    hasReacted(r.emoji)
+                      ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                      : "bg-muted/50 border-border/40 text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {hasReacted(r.emoji) ? "Remove reaction" : `React with ${r.emoji}`}
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 };
@@ -146,7 +208,7 @@ const BotMessage = ({
     msg.message.startsWith("What's up");
 
   return (
-    <div className="flex gap-2.5 mt-4">
+    <div className="flex gap-2.5 mt-4 group">
       {/* Bot avatar */}
       <div className="h-8 w-8 rounded-full flex-shrink-0 overflow-hidden border-2 border-amber-500/40 shadow-sm">
         <img src="/bot-avatar.svg" alt="bot" className="h-full w-full object-cover" />
@@ -163,28 +225,29 @@ const BotMessage = ({
           </span>
         </div>
 
-        {/* Bubble */}
-        <div
-          className={`rounded-2xl rounded-tl-none px-4 py-2.5 ${
-            isIntro
-              ? "bg-amber-500/10 border border-amber-500/25 shadow-sm"
-              : "bg-muted/50 border border-border/40"
-          }`}
-        >
-          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed break-words">
-            {msg.message}
-          </p>
+        {/* Bubble + reaction trigger side by side */}
+        <div className="flex items-end gap-1">
+          <div
+            className={`rounded-2xl rounded-tl-none px-4 py-2.5 ${
+              isIntro
+                ? "bg-amber-500/10 border border-amber-500/25 shadow-sm"
+                : "bg-muted/50 border border-border/40"
+            }`}
+          >
+            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed break-words">
+              {msg.message}
+            </p>
+          </div>
+          <ReactionTrigger messageId={msg.id} onReact={onReact} align="left" />
         </div>
 
-        {/* Reactions */}
-        <div className="mt-1 pl-1">
-          <ReactionBar
-            messageId={msg.id}
-            reactions={reactions}
-            currentUserId={currentUserId}
-            onReact={onReact}
-          />
-        </div>
+        {/* Reaction chips below */}
+        <ReactionChips
+          messageId={msg.id}
+          reactions={reactions}
+          currentUserId={currentUserId}
+          onReact={onReact}
+        />
       </div>
     </div>
   );
@@ -648,34 +711,43 @@ const ChatRoom: React.FC = () => {
                       {isMe ? "You" : msg.username}
                     </span>
                   )}
-                  <div
-                    onClick={() => setReplyingTo(msg)}
-                    className={`relative cursor-pointer transition-all active:scale-[0.99] rounded-2xl px-3 py-2 shadow-sm ${
-                      isBotCommand
-                        ? "bg-amber-500/10 border border-amber-500/20 text-amber-200 rounded-tr-none font-mono text-xs"
-                        : isMe
-                        ? "bg-primary text-primary-foreground rounded-tr-none"
-                        : "bg-muted text-foreground rounded-tl-none"
-                    }`}
-                  >
-                    {msg.reply_to_message && (
-                      <div className={`mb-2 rounded-lg border-l-4 bg-black/10 px-2 py-1.5 text-[11px] ${
-                        isMe ? "border-primary-foreground/50" : "border-primary/50"
-                      }`}>
-                        <p className="font-bold opacity-80">{msg.reply_to_message.username}</p>
-                        <p className="line-clamp-1 opacity-70">{msg.reply_to_message.message}</p>
+                  {/* Bubble + reaction trigger side by side */}
+                  <div className={`flex items-end gap-1 ${isMe ? "flex-row-reverse" : "flex-row"}`}>
+                    <div
+                      onClick={() => setReplyingTo(msg)}
+                      className={`relative cursor-pointer transition-all active:scale-[0.99] rounded-2xl px-3 py-2 shadow-sm ${
+                        isBotCommand
+                          ? "bg-amber-500/10 border border-amber-500/20 text-amber-200 rounded-tr-none font-mono text-xs"
+                          : isMe
+                          ? "bg-primary text-primary-foreground rounded-tr-none"
+                          : "bg-muted text-foreground rounded-tl-none"
+                      }`}
+                    >
+                      {msg.reply_to_message && (
+                        <div className={`mb-2 rounded-lg border-l-4 bg-black/10 px-2 py-1.5 text-[11px] ${
+                          isMe ? "border-primary-foreground/50" : "border-primary/50"
+                        }`}>
+                          <p className="font-bold opacity-80">{msg.reply_to_message.username}</p>
+                          <p className="line-clamp-1 opacity-70">{msg.reply_to_message.message}</p>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">
+                          {renderWithMentions(msg.message, user?.username)}
+                        </p>
+                        <span className={`text-[9px] whitespace-nowrap opacity-60 ml-auto pb-0.5 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
+                          {format(new Date(msg.created_at), "h:mm a")}
+                        </span>
                       </div>
-                    )}
-                    <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">
-                        {renderWithMentions(msg.message, user?.username)}
-                      </p>
-                      <span className={`text-[9px] whitespace-nowrap opacity-60 ml-auto pb-0.5 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
-                        {format(new Date(msg.created_at), "h:mm a")}
-                      </span>
                     </div>
+                    <ReactionTrigger
+                      messageId={msg.id}
+                      onReact={handleReact}
+                      align={isMe ? "right" : "left"}
+                    />
                   </div>
-                  <ReactionBar
+                  {/* Reaction chips below bubble */}
+                  <ReactionChips
                     messageId={msg.id}
                     reactions={reactions[msg.id] || []}
                     currentUserId={user?.id}
