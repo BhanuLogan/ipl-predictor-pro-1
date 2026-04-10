@@ -14,9 +14,10 @@ interface Props {
   results: Record<string, any>;
   overrides: Record<string, any>;
   roomId?: number;
+  liveScores?: Record<string, { score: string | null; status: string | null; updatedAt: string }>;
 }
 
-const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, results, overrides, roomId }: Props) => {
+const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, results, overrides, roomId, liveScores }: Props) => {
   if (openPolls.length > 0) {
     return (
       <div className="mb-8">
@@ -45,6 +46,7 @@ const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote
                 allVotes={allVotes[match.id] || {}}
                 override={overrides[match.id]}
                 roomId={roomId}
+                liveScore={liveScores?.[match.id]}
               />
             );
           })}

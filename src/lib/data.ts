@@ -24,6 +24,7 @@ export interface Match {
 export type MatchResult = {
   winner: string;
   scoreSummary?: string | null;
+  toss?: string | null;
 };
 
 // IPL 2026 Full schedule (70 matches)

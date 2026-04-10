@@ -156,9 +156,12 @@ async function initDb() {
       match_id TEXT PRIMARY KEY,
       winner TEXT NOT NULL,
       score_summary TEXT,
+      toss TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+
+  await query(`ALTER TABLE results ADD COLUMN IF NOT EXISTS toss TEXT;`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS chat_messages (
@@ -183,6 +186,36 @@ async function initDb() {
   `);
 
   await query(`CREATE INDEX IF NOT EXISTS idx_chat_room_match ON chat_messages(room_id, match_id);`);
+
+  // Bot columns & reactions table
+  await query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS bot_name TEXT;`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      id SERIAL PRIMARY KEY,
+      message_id INTEGER NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(message_id, user_id, emoji)
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions(message_id);`);
+
+  // Bot user (never logs in — used to author bot messages)
+  const botHash = await bcrypt.hash('scorebot_internal_do_not_use', 4);
+  await query(
+    `INSERT INTO users (username, password_hash) VALUES ('scorebot', $1) ON CONFLICT (username) DO NOTHING`,
+    [botHash]
+  );
+  const botRow = await queryOne("SELECT id FROM users WHERE username = 'scorebot'");
+  BOT_USER_ID = botRow?.id || null;
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS match_bot_settings (
+      match_id TEXT PRIMARY KEY,
+      bot_enabled BOOLEAN NOT NULL DEFAULT TRUE
+    );
+  `);
 
   await query(`
     CREATE TABLE IF NOT EXISTS announcements (
@@ -268,6 +301,7 @@ const io = new Server(server, {
 });
 
 const roomUsers = new Map();
+let BOT_USER_ID = null; // set in initDb
 
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
@@ -286,7 +320,7 @@ io.on("connection", (socket) => {
   socket.on("join_chat", ({ roomId, matchId }) => {
     const roomKey = `chat_${roomId}_${matchId}`;
     socket.join(roomKey);
-    
+
     // Track online users
     if (!roomUsers.has(roomKey)) roomUsers.set(roomKey, new Map());
     roomUsers.get(roomKey).set(socket.id, {
@@ -294,17 +328,50 @@ io.on("connection", (socket) => {
       username: socket.user.username,
       profile_pic: socket.user.profile_pic
     });
-    
+
     // Broadcast list
     const users = Array.from(roomUsers.get(roomKey).values());
     io.to(roomKey).emit("online_users", users);
-    
+
+    // Post bot intro — for completed matches post a summary too
+    queryOne('SELECT match_id FROM results WHERE match_id = $1', [matchId]).then(result => {
+      if (result) {
+        postIntroAndSummaryForCompletedMatch(roomId, matchId).catch(e => console.error('[Bot] Summary error:', e.message));
+      } else {
+        postIntroIfNeeded(roomId, matchId).catch(e => console.error('[Bot] Intro error:', e.message));
+      }
+    }).catch(e => console.error('[Bot] join_chat check error:', e.message));
+
     console.log(`${socket.user.username} joined ${roomKey}`);
   });
 
   socket.on("send_message", async ({ roomId, matchId, message, replyToId }) => {
     if (!message || String(message).trim().length === 0) return;
     const msg = String(message).trim().substring(0, 500);
+
+    // ── /command (any slash command) ──────────────────────────────────────
+    if (msg.startsWith('/')) {
+      const query_str = msg.slice(1).trim(); // everything after the leading /
+      // Save the user's question so others can see it
+      try {
+        const saved = await queryOne(`
+          INSERT INTO chat_messages (room_id, match_id, user_id, message, reply_to_id)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, room_id, match_id, user_id, message, reply_to_id, created_at
+        `, [roomId, matchId, socket.user.id, msg, replyToId || null]);
+        io.to(`chat_${roomId}_${matchId}`).emit("new_message", {
+          ...saved,
+          username: socket.user.username,
+          profile_pic: socket.user.profile_pic,
+        });
+      } catch (e) {
+        console.error("Chat Error (bot query save):", e);
+      }
+      handleBotQuery(roomId, matchId, query_str || 'help', socket.user.username).catch(e =>
+        console.error('[Bot] Query error:', e.message)
+      );
+      return;
+    }
 
     try {
       const saved = await queryOne(`
@@ -657,12 +724,13 @@ app.post("/api/admin/sync-results", authMiddleware, adminMiddleware, asyncRoute(
 }));
 
 app.get("/api/results", asyncRoute(async (req, res) => {
-  const rows = await query("SELECT match_id, winner, score_summary FROM results");
+  const rows = await query("SELECT match_id, winner, score_summary, toss FROM results");
   const map = {};
   for (const r of rows) {
     map[r.match_id] = {
       winner: r.winner,
       scoreSummary: r.score_summary || null,
+      toss: r.toss || null,
     };
   }
   res.json(map);
@@ -1013,17 +1081,10 @@ app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
   res.json(rooms);
 }));
 
-// Room leaderboard — register BEFORE /:id to avoid route conflict
-app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
-  const roomId = parseInt(req.params.id);
-  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
-  const member = await queryOne(
-    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
-    [roomId, req.user.id]
-  );
-  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+// Shared leaderboard logic used by both the API and the bot /top command
+async function getRoomLeaderboard(roomId) {
   const room = await queryOne("SELECT created_at FROM rooms WHERE id = $1", [roomId]);
-  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!room) return [];
 
   const board = await query(`
     SELECT
@@ -1032,24 +1093,26 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
       u.profile_pic,
       COALESCE(SUM(
         CASE
-          WHEN r.winner IS NULL THEN 0
-          WHEN r.winner IN ('nr','draw') THEN 1
-          WHEN v.prediction = r.winner THEN 2
+          WHEN vr.winner IN ('nr','draw') THEN 1
+          WHEN vr.prediction = vr.winner THEN 2
           ELSE 0
         END
       ), 0)::int AS points,
       COALESCE(SUM(
-        CASE WHEN r.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
+        CASE WHEN vr.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
       ), 0)::int AS nr,
       COALESCE(SUM(
-        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
+        CASE WHEN vr.winner NOT IN ('nr', 'draw') AND vr.prediction = vr.winner THEN 1 ELSE 0 END
       ), 0)::int AS correct,
-      COALESCE(COUNT(r.match_id), 0)::int AS voted,
+      COALESCE(COUNT(vr.match_id), 0)::int AS voted,
       (SELECT COUNT(*)::int FROM results) AS matches
     FROM users u
     JOIN room_members rm ON rm.user_id = u.id AND rm.room_id = $1
-    LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = $1 AND v.created_at >= $2
-    LEFT JOIN results r ON r.match_id = v.match_id
+    LEFT JOIN (
+      SELECT v.user_id, v.match_id, v.prediction, r.winner
+      FROM results r
+      JOIN votes v ON v.match_id = r.match_id AND v.room_id = $1 AND v.created_at >= $2
+    ) vr ON vr.user_id = u.id
     GROUP BY u.id, u.username, u.profile_pic
   `, [roomId, room.created_at]);
 
@@ -1067,11 +1130,7 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
 
   const enriched = board.map((row) => {
     const t = timing[row.user_id] || {};
-    return {
-      ...row,
-      nrr: t.nrr ?? null,
-      first_vote_at: t.firstVoteAt ? t.firstVoteAt.toISOString() : null,
-    };
+    return { ...row, nrr: t.nrr ?? null };
   });
 
   enriched.sort((a, b) => {
@@ -1083,6 +1142,20 @@ app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res
     return a.username.localeCompare(b.username);
   });
 
+  return enriched;
+}
+
+// Room leaderboard — register BEFORE /:id to avoid route conflict
+app.get("/api/rooms/:id/leaderboard", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+  const member = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
+  const enriched = await getRoomLeaderboard(roomId);
+  if (!enriched.length) return res.status(404).json({ error: "Room not found" });
   res.json(enriched);
 }));
 
@@ -1115,24 +1188,55 @@ app.get("/api/rooms/:roomId/chat/:matchId", authMiddleware, asyncRoute(async (re
   }
 
   const messages = await query(`
-    SELECT 
-      m.*, u.username, u.profile_pic,
-      r.message as reply_message, ru.username as reply_username
+    SELECT
+      m.id, m.room_id, m.match_id, m.user_id, m.message, m.bot_name, m.created_at, m.reply_to_id,
+      CASE WHEN m.bot_name IS NOT NULL THEN m.bot_name ELSE u.username END AS username,
+      u.profile_pic,
+      r.message AS reply_message, ru.username AS reply_username
     FROM chat_messages m
     JOIN users u ON u.id = m.user_id
     LEFT JOIN chat_messages r ON r.id = m.reply_to_id
     LEFT JOIN users ru ON ru.id = r.user_id
     WHERE m.room_id = $1 AND m.match_id = $2
     ORDER BY m.created_at ASC
-    LIMIT 100
+    LIMIT 200
   `, [roomId, matchId]);
-  
+
+  // Attach reactions
+  const messageIds = messages.map(m => m.id);
+  let reactionsMap = {};
+  if (messageIds.length > 0) {
+    const reactions = await query(`
+      SELECT mr.message_id, mr.emoji, COUNT(*)::int AS count,
+        array_agg(mr.user_id) AS user_ids,
+        array_agg(u.username) AS usernames
+      FROM message_reactions mr
+      JOIN users u ON u.id = mr.user_id
+      WHERE mr.message_id = ANY($1)
+      GROUP BY mr.message_id, mr.emoji
+    `, [messageIds]);
+    for (const r of reactions) {
+      if (!reactionsMap[r.message_id]) reactionsMap[r.message_id] = [];
+      reactionsMap[r.message_id].push({ emoji: r.emoji, count: r.count, userIds: r.user_ids || [], usernames: r.usernames || [] });
+    }
+  }
+
   const formatted = messages.map(m => ({
-    ...m,
+    id: m.id,
+    room_id: m.room_id,
+    match_id: m.match_id,
+    user_id: m.user_id,
+    message: m.message,
+    bot_name: m.bot_name || null,
+    is_bot: !!m.bot_name,
+    created_at: m.created_at,
+    username: m.username,
+    profile_pic: m.profile_pic,
     reply_to_message: m.reply_message ? {
       username: m.reply_username,
-      message: m.reply_message.substring(0, 50).concat(m.reply_message.length > 50 ? "..." : "")
-    } : null
+      message: m.reply_message.substring(0, 50).concat(m.reply_message.length > 50 ? '...' : '')
+    } : null,
+    reactions: reactionsMap[m.id] || [],
   }));
 
   res.json(formatted);
@@ -1213,12 +1317,27 @@ app.get("/api/match-overrides", authMiddleware, asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
-// ─── Automated Result Service (Cricbuzz API) ───────────────────────────────
+// ─── Bot Settings ──────────────────────────────────────────────────────────
 
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "cricbuzz-cricket.p.rapidapi.com";
-/** IPL series on Cricbuzz (RapidAPI). Override if the tournament id changes year to year. */
-const RAPIDAPI_SERIES_ID = process.env.RAPIDAPI_SERIES_ID || "9241";
+app.get("/api/match-bot-settings", authMiddleware, asyncRoute(async (req, res) => {
+  const rows = await query("SELECT * FROM match_bot_settings");
+  res.json(rows);
+}));
+
+app.post("/api/admin/match-bot-settings", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { matchId, bot_enabled } = req.body;
+  if (!matchId || bot_enabled === undefined) return res.status(400).json({ error: "matchId and bot_enabled required" });
+  await query(
+    `INSERT INTO match_bot_settings (match_id, bot_enabled) VALUES ($1, $2)
+     ON CONFLICT (match_id) DO UPDATE SET bot_enabled = $2`,
+    [matchId, !!bot_enabled]
+  );
+  // Notify all clients in the match chatrooms
+  io.emit("bot_settings_update", { matchId, bot_enabled: !!bot_enabled });
+  res.json({ ok: true });
+}));
+
+// ─── Automated Result Service (Cricbuzz API) ───────────────────────────────
 
 const TEAM_NAME_MAP = {
   "Chennai Super Kings": "CSK",
@@ -1265,34 +1384,59 @@ function parseWinnerFromStatus(status, team1Code, team2Code) {
   return null;
 }
 
-/** Short score line from Cricbuzz matchInfo (status text usually includes full summary). */
+/** Score summary: team scores first, then result status on next line. */
 function extractScoreSummary(matchInfo) {
   if (!matchInfo) return null;
-  const st = (matchInfo.status || "").trim();
-  if (st) return st;
   const t1 = matchInfo.team1;
   const t2 = matchInfo.team2;
-  if (!t1 || !t2) return null;
+  const st = (matchInfo.status || "").trim();
   const shortName = (t) =>
-    t.teamSName ||
-    (typeof t.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
+    t?.teamSName ||
+    (typeof t?.teamName === "string" && t.teamName.split(/\s+/).map((w) => w[0]).join("")) ||
     "?";
   const fmt = (t) => {
-    if (t == null) return null;
+    if (!t) return null;
     if (typeof t.score === "string" && t.score.length > 0 && t.score !== "-1") {
-      return `${shortName(t)} ${t.score}`;
+      return `${shortName(t)}: ${t.score}`;
     }
     if (t.score != null && Number(t.score) >= 0 && Number(t.score) !== -1) {
       const wk = t.wickets != null ? t.wickets : 0;
-      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "—";
-      return `${shortName(t)} ${t.score}/${wk} (${ov})`;
+      const ov = t.overs ?? t.oversText ?? t.overNbr ?? "?";
+      return `${shortName(t)}: ${t.score}/${wk} (${ov} ov)`;
     }
     return null;
   };
-  const a = fmt(t1);
-  const b = fmt(t2);
-  if (a && b) return `${a} · ${b}`;
-  return null;
+  const scores = [fmt(t1), fmt(t2)].filter(Boolean);
+  if (scores.length >= 1 && st) return `${scores.join(' · ')}\n${st}`;
+  if (scores.length >= 1) return scores.join(' · ');
+  return st || null;
+}
+
+/** Extracts toss info from matchInfo.tossResults → e.g. "KKR won the toss and chose to bat" */
+function extractTossInfo(matchInfo) {
+  const toss = matchInfo?.tossResults;
+  if (!toss || !toss.tossWinnerName) return null;
+  const winner = TEAM_NAME_MAP[toss.tossWinnerName] || toss.tossWinnerName;
+  const decision = toss.decision === 'bat' ? 'bat' : 'bowl';
+  return `${winner} won the toss and chose to ${decision}`;
+}
+
+/** Fetches all IPL matches from Cricbuzz unofficial API (live + recent). No key required. */
+async function fetchCricbuzzAll() {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://www.cricbuzz.com/',
+    'Origin': 'https://www.cricbuzz.com',
+  };
+  const [liveResp, recentResp] = await Promise.all([
+    axios.get('https://www.cricbuzz.com/api/cricket-match/live', { headers, timeout: 10000 }),
+    axios.get('https://www.cricbuzz.com/api/cricket-match/recent', { headers, timeout: 10000 }),
+  ]);
+  const live = collectCricbuzzMatchesFromPayload(liveResp.data);
+  const recent = collectCricbuzzMatchesFromPayload(recentResp.data);
+  return dedupeCricbuzzMatches([...live, ...recent]);
 }
 
 /**
@@ -1346,31 +1490,12 @@ function dedupeCricbuzzMatches(matches) {
   return out;
 }
 
-async function fetchCricbuzzSeriesMatches() {
-  const url = `https://${RAPIDAPI_HOST}/series/v1/${RAPIDAPI_SERIES_ID}`;
-  const response = await axios.request({
-    method: "GET",
-    url,
-    headers: {
-      "X-RapidAPI-Key": RAPIDAPI_KEY,
-      "X-RapidAPI-Host": RAPIDAPI_HOST,
-    },
-  });
-  return collectCricbuzzMatchesFromPayload(response.data);
-}
-
 /** Auto-sync only runs from (match start + 4h) through (match start + 6h), every CHECK_INTERVAL. */
 const HOUR_MS = 60 * 60 * 1000;
 const AUTO_RESULT_CHECK_DELAY_MS = 4 * HOUR_MS;
 const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
 
 async function checkRecentMatches(isManual = false) {
-  if (!RAPIDAPI_KEY) {
-    const msg = "⚠️  AutomatedResultService: RAPIDAPI_KEY missing. Skipping auto-check.";
-    console.log(msg);
-    return isManual ? { error: "API key missing" } : null;
-  }
-
   try {
     const now = new Date();
     const nowMs = now.getTime();
@@ -1378,16 +1503,14 @@ async function checkRecentMatches(isManual = false) {
     const existingResults = await query("SELECT match_id FROM results");
     const existingIds = new Set(existingResults.map((r) => r.match_id));
 
-    // Skip Cricbuzz entirely if every match scheduled at or before now already has a result (nothing left to sync).
+    // Skip if every match at or before now already has a result
     const needResultSync = IPL_SCHEDULE.some((m) => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       return nowMs >= startTime.getTime() && !existingIds.has(m.id);
     });
-    if (!needResultSync) {
-      return { updated: 0, checked: 0 };
-    }
+    if (!needResultSync) return { updated: 0, checked: 0 };
 
-    // 1. Candidate matches: manual = any time after start; auto only in [start+4h, start+6h]
+    // Candidate matches: manual = any time after start; auto only in [start+4h, start+6h]
     const pendingMatches = IPL_SCHEDULE.filter((m) => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       if (isManual) return nowMs >= startTime.getTime();
@@ -1401,33 +1524,35 @@ async function checkRecentMatches(isManual = false) {
     const toCheck = pendingMatches.filter(m => !existingIds.has(m.id));
     if (toCheck.length === 0) return { updated: 0, checked: 0 };
 
-    console.log(`🔍 AutomatedResultService: Checking ${toCheck.length} pending matches...`);
+    console.log(`🔍 AutomatedResultService: Checking ${toCheck.length} pending matches via Cricbuzz...`);
     let updatedCount = 0;
 
-    // 2. Fetch IPL series matches from Cricbuzz (RapidAPI: /series/v1/:seriesId)
-    const allMatches = await fetchCricbuzzSeriesMatches();
+    // Fetch from Cricbuzz unofficial API (live + recent)
+    const allMatches = await fetchCricbuzzAll();
     if (allMatches.length === 0) {
-      console.log("⚠️  AutomatedResultService: No matches in series response — check RAPIDAPI_SERIES_ID and API subscription.");
+      console.log("⚠️  AutomatedResultService: No matches returned from Cricbuzz.");
     }
 
     for (const match of toCheck) {
-      // Find matching API entry by date and teams
-      const matchDateStr = match.date; // "2026-03-28"
-      
+      const matchDateStr = match.date;
+
       const apiMatch = allMatches.find(am => {
-        const amDate = new Date(parseInt(am.matchInfo.startDate)).toISOString().split('T')[0];
-        const t1 = am.matchInfo.team1.teamName;
-        const t2 = am.matchInfo.team2.teamName;
-        
-        const teamsMatch = 
-          (TEAM_NAME_MAP[t1] === match.team1 && TEAM_NAME_MAP[t2] === match.team2) ||
-          (TEAM_NAME_MAP[t1] === match.team2 && TEAM_NAME_MAP[t2] === match.team1);
-          
-        return amDate === matchDateStr && teamsMatch;
+        const mi = am.matchInfo;
+        if (!mi?.team1?.teamName || !mi?.team2?.teamName) return false;
+        // Match by date (startDate is Unix ms string) and teams
+        const amDate = mi.startDate
+          ? new Date(parseInt(mi.startDate)).toISOString().split('T')[0]
+          : null;
+        const t1 = TEAM_NAME_MAP[mi.team1.teamName];
+        const t2 = TEAM_NAME_MAP[mi.team2.teamName];
+        const teamsMatch =
+          (t1 === match.team1 && t2 === match.team2) ||
+          (t1 === match.team2 && t2 === match.team1);
+        return (amDate === matchDateStr || !amDate) && teamsMatch;
       });
 
       if (!apiMatch) {
-        console.log(`❓ AutomatedResultService: Could not find match ${match.id} (${match.team1} vs ${match.team2}) on Cricbuzz list.`);
+        console.log(`❓ AutomatedResultService: Could not find ${match.id} (${match.team1} vs ${match.team2}) on Cricbuzz.`);
         continue;
       }
 
@@ -1438,24 +1563,44 @@ async function checkRecentMatches(isManual = false) {
         /^complete|result$/i.test(state) ||
         status.includes("won by") ||
         status.includes("Match abandoned");
+
       if (stateDone) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2);
-        
         if (winner) {
           const scoreSummary = extractScoreSummary(apiMatch.matchInfo);
-          console.log(`🏆 AutomatedResultService: AUTO-DECLARING WINNER for ${match.id}: ${winner}`);
+          const toss = extractTossInfo(apiMatch.matchInfo);
+          console.log(`🏆 AutomatedResultService: AUTO-DECLARING WINNER for ${match.id}: ${winner}${toss ? ` | ${toss}` : ''}`);
           await query(
-            `INSERT INTO results (match_id, winner, score_summary)
-             VALUES ($1, $2, $3)
+            `INSERT INTO results (match_id, winner, score_summary, toss)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (match_id)
              DO UPDATE SET
                winner = EXCLUDED.winner,
-               score_summary = COALESCE(EXCLUDED.score_summary, results.score_summary)`,
-             [match.id, winner, scoreSummary]
-           );
-           // Clear chat history
-           await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
-           updatedCount++;
+               score_summary = COALESCE(EXCLUDED.score_summary, results.score_summary),
+               toss = COALESCE(EXCLUDED.toss, results.toss)`,
+            [match.id, winner, scoreSummary, toss]
+          );
+          await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
+          updatedCount++;
+
+          // Post win announcement to all rooms (once per match)
+          if (!winPostedSet.has(match.id) && await isBotEnabled(match.id)) {
+            winPostedSet.add(match.id);
+            const allRooms = await query('SELECT id FROM rooms');
+            const botName = getBotName(match.id);
+            let winMsg;
+            if (winner === 'nr') {
+              winMsg = `🌧️ Match abandoned — No Result.`;
+            } else if (winner === 'draw') {
+              winMsg = `🤝 What a match! It's a tie!`;
+            } else {
+              winMsg = `🏆 Match Over!\n${winner} won!`;
+              if (scoreSummary) winMsg += `\n📊 ${scoreSummary}`;
+            }
+            for (const room of allRooms) {
+              await postBotMessage(room.id, match.id, winMsg, botName);
+            }
+          }
         }
       } else {
         console.log(`⏳ AutomatedResultService: Match ${match.id} still in progress (Status: ${status}).`);
@@ -1476,6 +1621,786 @@ setInterval(checkRecentMatches, CHECK_INTERVAL);
 
 // Initial check on startup
 setTimeout(checkRecentMatches, 5000); // 5 sec delay to let DB init completion
+
+// ─── Live Score Service ────────────────────────────────────────────────────
+
+const liveScoreCache = new Map(); // ourMatchId -> LiveScorePayload
+const commentaryCache = new Map(); // ourMatchId -> { cricbuzzMatchId, lastTs }
+
+function formatScoreFromMatchData(ourMatch, apiMatch) {
+  const { matchInfo, matchScore } = apiMatch;
+  const status = (matchInfo.status || '').trim();
+
+  function scoreStr(teamShort, inngsObj, teamInfoObj) {
+    if (inngsObj && inngsObj.runs != null) {
+      const ov = inngsObj.overs != null ? inngsObj.overs : (inngsObj.overNbr != null ? inngsObj.overNbr : null);
+      return `${teamShort} ${inngsObj.runs}/${inngsObj.wickets ?? 0}${ov != null ? ` (${ov})` : ''}`;
+    }
+    if (teamInfoObj && teamInfoObj.score != null && Number(teamInfoObj.score) >= 0 && Number(teamInfoObj.score) !== -1) {
+      const ov = teamInfoObj.overs ?? teamInfoObj.overNbr ?? teamInfoObj.oversText ?? null;
+      return `${teamShort} ${teamInfoObj.score}/${teamInfoObj.wickets ?? 0}${ov != null ? ` (${ov})` : ''}`;
+    }
+    return null;
+  }
+
+  const t1Short = TEAM_NAME_MAP[matchInfo.team1?.teamName] || matchInfo.team1?.teamSName || ourMatch.team1;
+  const t2Short = TEAM_NAME_MAP[matchInfo.team2?.teamName] || matchInfo.team2?.teamSName || ourMatch.team2;
+
+  const t1Score = scoreStr(t1Short, matchScore?.team1Score?.inngs1, matchInfo.team1) ||
+                  scoreStr(t1Short, matchScore?.team1Score?.inngs2, null);
+  const t2Score = scoreStr(t2Short, matchScore?.team2Score?.inngs1, matchInfo.team2) ||
+                  scoreStr(t2Short, matchScore?.team2Score?.inngs2, null);
+
+  const parts = [t1Score, t2Score].filter(Boolean);
+  return {
+    score: parts.join(' · ') || null,
+    status: status || null,
+    toss: extractTossInfo(matchInfo),
+  };
+}
+
+async function fetchLiveMatchData() {
+  // Cricbuzz unofficial web API — free, no key required
+  const resp = await axios.get('https://www.cricbuzz.com/api/cricket-match/live', {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://www.cricbuzz.com/',
+      'Origin': 'https://www.cricbuzz.com',
+    },
+    timeout: 10000,
+  });
+  return collectCricbuzzMatchesFromPayload(resp.data);
+}
+
+async function pollLiveScores() {
+  try {
+    const now = new Date();
+    const existingResults = await query('SELECT match_id FROM results');
+    const completedIds = new Set(existingResults.map(r => r.match_id));
+
+    // Remove completed matches from cache
+    for (const id of liveScoreCache.keys()) {
+      if (completedIds.has(id)) liveScoreCache.delete(id);
+    }
+
+    // Matches started in the last 4 hours without a result
+    const liveMatches = IPL_SCHEDULE.filter(m => {
+      const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
+      const cutoff = new Date(startTime.getTime() + 4 * 60 * 60 * 1000);
+      return now >= startTime && now <= cutoff && !completedIds.has(m.id);
+    });
+
+    if (liveMatches.length === 0) return;
+
+    const apiMatches = await fetchLiveMatchData();
+
+    for (const match of liveMatches) {
+      const apiMatch = apiMatches.find(am => {
+        const mi = am.matchInfo;
+        if (!mi) return false;
+        const t1 = TEAM_NAME_MAP[mi.team1?.teamName];
+        const t2 = TEAM_NAME_MAP[mi.team2?.teamName];
+        return (t1 === match.team1 && t2 === match.team2) ||
+               (t1 === match.team2 && t2 === match.team1);
+      });
+
+      if (!apiMatch) continue;
+
+      const { score, status, toss } = formatScoreFromMatchData(match, apiMatch);
+
+      // Seed commentaryCache with Cricbuzz match ID (first time we see this match live)
+      const cricbuzzId = apiMatch.matchInfo?.matchId;
+      if (cricbuzzId && !commentaryCache.has(match.id)) {
+        commentaryCache.set(match.id, {
+          cricbuzzMatchId: String(cricbuzzId),
+          lastTs: Date.now() - 120000, // catch last 2 min on first poll
+        });
+        console.log(`[Commentary] Registered match ${match.id} → Cricbuzz ID ${cricbuzzId}`);
+      }
+
+      const payload = {
+        matchId: match.id,
+        team1: match.team1,
+        team2: match.team2,
+        score: score || null,
+        status: status || null,
+        toss: toss || null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      liveScoreCache.set(match.id, payload);
+      io.emit('live_score', payload);
+      console.log(`[LiveScore] ${match.id}: ${score || 'no score'} | ${status || 'no status'}`);
+
+      // Post toss announcement once when toss info first appears
+      if (toss && !tossPostedSet.has(match.id)) {
+        tossPostedSet.add(match.id);
+        if (await isBotEnabled(match.id)) {
+          const allRooms = await query('SELECT id FROM rooms');
+          const botName = getBotName(match.id);
+          for (const room of allRooms) {
+            await postBotMessage(room.id, match.id, `🪙 ${toss}`, botName);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[LiveScore] Poll error:', err.message);
+  }
+}
+
+setInterval(pollLiveScores, 30 * 1000);
+setTimeout(pollLiveScores, 10000); // 10s after startup
+
+app.get('/api/live-score', asyncRoute(async (req, res) => {
+  res.json(Object.fromEntries(liveScoreCache));
+}));
+
+// ─── Chatbot System ────────────────────────────────────────────────────────
+
+function getBotName(_matchId) {
+  return 'Kira';
+}
+
+function getBotIntro(botName, matchId) {
+  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  const t1 = match?.team1 || '?';
+  const t2 = match?.team2 || '?';
+  const idx = IPL_SCHEDULE.findIndex(m => m.id === matchId);
+  const variants = [
+    `Hey everyone! 👋 I'm ${botName}, your AI cricket companion for today's match! 🏏✨\n\n📍 ${t1} vs ${t2} — let the battle begin!\n\nI'll be dropping live ball-by-ball updates right here as the action unfolds:\n\n🔴 Wickets  •  🔵 Fours  •  🏏 Sixes  •  📊 Over summaries\n\nReact to my updates, cheer for your team, and let's make this match unforgettable! 🚀🔥`,
+    `Helloooo cricket lovers! 🦁 The name's ${botName} and I'm your dedicated live score bot for this epic clash!\n\n⚔️ ${t1} vs ${t2} — who's it gonna be?!\n\nI'll fire ball-by-ball commentary straight into this chat as the game unfolds. React with 🔥 for sixes, 👏 for wickets — let's get loud! 🎉\n\nLet's gooooo! 🚀`,
+    `Hi fam! 🙌 I'm ${botName} — think of me as your cricket BFF who never misses a delivery!\n\n${t1} 🆚 ${t2} — this one's going to be a cracker! 💥\n\nEvery four, every six, every heart-stopping wicket — I've got you covered with live updates. Grab your snacks, react to my posts, and let's enjoy the game together! 🍿🏏`,
+    `Greetings, cricket fans! 🏆 I'm ${botName}, your real-time match commentator for today's game!\n\n🏟️ ${t1} vs ${t2} is about to get electric!\n\nMy job? Keep you updated on every single delivery — the big shots, the crucial wickets, the dramatic finishes. Nothing gets past me! ⚡\n\nHit those reaction buttons and let me know how you're feeling! Let's play! 🏏`,
+    `What's up, legends! 😎 ${botName} here — your go-to bot for live IPL action!\n\n🔥 ${t1} vs ${t2} — brace yourselves!\n\nI'll be your eyes on the pitch, sending ball-by-ball updates so you stay in the thick of the action even when life gets busy. React, chat, and enjoy! 🏏✨`,
+  ];
+  return variants[Math.abs(idx < 0 ? 0 : idx) % variants.length];
+}
+
+async function postBotMessage(roomId, matchId, text, botName) {
+  if (!BOT_USER_ID) return null;
+  try {
+    const saved = await queryOne(`
+      INSERT INTO chat_messages (room_id, match_id, user_id, message, bot_name)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, room_id, match_id, user_id, message, bot_name, created_at
+    `, [roomId, matchId, BOT_USER_ID, text, botName]);
+
+    if (saved) {
+      io.to(`chat_${roomId}_${matchId}`).emit('new_message', {
+        ...saved,
+        username: botName,
+        profile_pic: null,
+        is_bot: true,
+        bot_name: botName,
+        reply_to_message: null,
+        reactions: [],
+      });
+    }
+    return saved;
+  } catch (e) {
+    console.error('[Bot] postBotMessage error:', e.message);
+    return null;
+  }
+}
+
+const introPostedSet = new Set();   // `${roomId}_${matchId}`
+const tossPostedSet  = new Set();   // `${matchId}` — toss announcement per match
+const winPostedSet   = new Set();   // `${matchId}` — win announcement per match
+
+async function postIntroAndSummaryForCompletedMatch(roomId, matchId) {
+  if (!await isBotEnabled(matchId)) return;
+  const key = `${roomId}_${matchId}_completed`;
+  if (introPostedSet.has(key)) return;
+  introPostedSet.add(key);
+
+  // Check DB — only for completed matches
+  const result = await queryOne(
+    'SELECT winner, score_summary, toss FROM results WHERE match_id = $1', [matchId]
+  );
+  if (!result) return;
+
+  // Skip if any bot message already exists in this room+match
+  const existing = await queryOne(
+    'SELECT id FROM chat_messages WHERE room_id = $1 AND match_id = $2 AND bot_name IS NOT NULL LIMIT 1',
+    [roomId, matchId]
+  );
+  if (existing) return;
+
+  const botName = getBotName(matchId);
+  const schedule = require('./schedule.js');
+  const matchInfo = schedule.find(m => m.id === matchId);
+  const t1 = matchInfo?.team1 || 'Team 1';
+  const t2 = matchInfo?.team2 || 'Team 2';
+
+  // Intro
+  await postBotMessage(roomId, matchId, getBotIntro(botName, matchId), botName);
+
+  // Match summary
+  const { winner, score_summary: scoreSummary, toss } = result;
+  let summary = `📋 Match Summary — ${t1} vs ${t2}\n`;
+  if (toss) summary += `\n🪙 ${toss}`;
+  if (winner === 'nr') summary += `\n🌧️ Result: No Result (match abandoned)`;
+  else if (winner === 'draw') summary += `\n🤝 Result: Match tied`;
+  else {
+    summary += `\n🏆 ${winner} won!`;
+    if (scoreSummary) summary += `\n📊 ${scoreSummary}`;
+  }
+  await postBotMessage(roomId, matchId, summary, botName);
+}
+
+async function postIntroIfNeeded(roomId, matchId) {
+  if (!await isBotEnabled(matchId)) return;
+  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  if (!match) return;
+
+  const key = `${roomId}_${matchId}`;
+  if (introPostedSet.has(key)) return;
+  introPostedSet.add(key); // optimistic lock to avoid double-post
+
+  // Check DB to avoid re-posting after server restart
+  const existing = await queryOne(
+    'SELECT id FROM chat_messages WHERE room_id = $1 AND match_id = $2 AND bot_name IS NOT NULL LIMIT 1',
+    [roomId, matchId]
+  );
+  if (existing) return;
+
+  const botName = getBotName(matchId);
+  const startTime = new Date(`${match.date}T${match.time}:00+05:30`);
+  const isUpcoming = new Date() < startTime;
+
+  let intro;
+  if (isUpcoming) {
+    const t1 = match.team1;
+    const t2 = match.team2;
+    const dateStr = startTime.toLocaleDateString('en-IN', {
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+    });
+    intro = `Hey everyone! 👋 I'm ${botName}, your cricket companion for this match!\n\n📍 ${t1} vs ${t2}\n🕐 Match starts: ${dateStr} IST\n\nMake your prediction and get ready — I'll go live with ball-by-ball updates the moment the first ball is bowled! 🏏🔥`;
+  } else {
+    intro = getBotIntro(botName, matchId);
+  }
+
+  await postBotMessage(roomId, matchId, intro, botName);
+  console.log(`[Bot] Posted intro for match ${matchId} in room ${roomId} (${botName})`);
+}
+
+async function isBotEnabled(matchId) {
+  const row = await queryOne("SELECT bot_enabled FROM match_bot_settings WHERE match_id = $1", [matchId]);
+  return row === null ? true : row.bot_enabled; // default ON
+}
+
+// ─── Bot Query Handler ─────────────────────────────────────────────────────
+
+function getHelpText(botName) {
+  return `🏏 Hi! I'm ${botName}. Here's what you can ask me:\n\n` +
+    `📊 Match\n` +
+    `/score — current score & status\n` +
+    `/batting — who's at the crease\n` +
+    `/bowling — current bowler's figures\n` +
+    `/rr — current run rate\n` +
+    `/target — target (2nd innings)\n` +
+    `/rrr — required run rate\n` +
+    `/overs — overs remaining\n\n` +
+    `🏆 Room\n` +
+    `/top — leaderboard top 5\n` +
+    `/votes — vote split for this match\n` +
+    `/who predicted [team] — who picked a team\n\n` +
+    `🎲 Fun\n` +
+    `/win — my prediction for this match`;
+}
+
+async function fetchLatestBallData(matchId) {
+  const state = commentaryCache.get(matchId);
+  if (!state?.cricbuzzMatchId) return null;
+  try {
+    const resp = await axios.get(
+      `https://www.cricbuzz.com/api/cricket-match/${state.cricbuzzMatchId}/full-commentary/1`,
+      { headers: CRICBUZZ_COMMENTARY_HEADERS, timeout: 8000 }
+    );
+    const commentary = resp.data?.commentary || [];
+    // Most recent real delivery (not over separator)
+    const balls = commentary.filter(b => !b.overSeparator && b.batsmanStriker);
+    const latest = balls[0] || null;
+    const miniscore = resp.data?.miniscore || resp.data?.matchScore || null;
+    return { latest, miniscore, commentary };
+  } catch (e) {
+    return null;
+  }
+}
+
+function parseMiniScore(miniscore) {
+  if (!miniscore) return null;
+  const batting = miniscore.batTeam || miniscore.inningScore;
+  if (!batting) return null;
+  const teamName = batting.teamSName || '';
+  const score = batting.score ?? '?';
+  const wickets = batting.wickets ?? 0;
+  const overs = batting.overs ?? '?';
+  const rr = miniscore.currentRunRate != null ? Number(miniscore.currentRunRate).toFixed(2) : null;
+  const rrr = miniscore.requiredRunRate != null ? Number(miniscore.requiredRunRate).toFixed(2) : null;
+  const target = miniscore.target != null ? miniscore.target : null;
+  const ballsLeft = miniscore.remBalls != null ? miniscore.remBalls : null;
+  return { teamName, score, wickets, overs, rr, rrr, target, ballsLeft };
+}
+
+async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
+  if (!await isBotEnabled(matchId)) return; // silently ignore when bot is off
+  const q = rawQuery.trim().toLowerCase().replace(/[?!.,]+$/, '');
+  const botName = getBotName(matchId);
+  const liveData = liveScoreCache.get(matchId);
+  const schedule = require('./schedule.js');
+  const matchInfo = schedule.find(m => m.id === matchId);
+  const t1 = matchInfo?.team1 || 'Team 1';
+  const t2 = matchInfo?.team2 || 'Team 2';
+
+  // Check if this is a completed match
+  const completedResult = await queryOne(
+    'SELECT winner, score_summary, toss FROM results WHERE match_id = $1', [matchId]
+  );
+  const isCompleted = !!completedResult;
+
+  // Check if match hasn't started yet
+  const matchStart = matchInfo
+    ? new Date(`${matchInfo.date}T${matchInfo.time || '19:30'}:00+05:30`)
+    : null;
+  const isNotStarted = !isCompleted && matchStart && new Date() < matchStart;
+  const preStartReply = isNotStarted
+    ? (() => {
+        const timeStr = matchStart.toLocaleTimeString('en-IN', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+        });
+        const dateStr = matchStart.toLocaleDateString('en-IN', {
+          weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata',
+        });
+        return `⏳ The match hasn't started yet!\n\n${t1} vs ${t2} kicks off on ${dateStr} at ${timeStr} IST.\n\nI'll go live with ball-by-ball updates the moment the first ball is bowled. Stay tuned! 🏏🔥`;
+      })()
+    : null;
+
+  let reply = null;
+
+  // ── help ──────────────────────────────────────────────────────────────────
+  if (['help', 'commands', '?'].includes(q)) {
+    reply = getHelpText(botName);
+  }
+
+  // ── score ─────────────────────────────────────────────────────────────────
+  else if (['score', 'scorecard'].includes(q)) {
+    if (isCompleted) {
+      const { score_summary, toss } = completedResult;
+      reply = `📊 Final Scorecard — ${t1} vs ${t2}`;
+      if (score_summary) reply += `\n${score_summary}`;
+      if (toss) reply += `\n🪙 ${toss}`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else if (!liveData?.score) {
+      reply = `No live score yet, ${askerUsername}. Check back once the match starts! 🏏`;
+    } else {
+      reply = `📊 Current Score\n${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`;
+    }
+  }
+
+  // ── result ────────────────────────────────────────────────────────────────
+  else if (['result', 'winner', 'who won'].includes(q)) {
+    if (isCompleted) {
+      const { winner, score_summary, toss } = completedResult;
+      if (winner === 'nr') {
+        reply = `🌧️ No Result — match was abandoned.${toss ? `\n🪙 ${toss}` : ''}`;
+      } else if (winner === 'draw') {
+        reply = `🤝 Match tied!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
+      } else {
+        reply = `🏆 ${winner} won this match!${score_summary ? `\n📊 ${score_summary}` : ''}${toss ? `\n🪙 ${toss}` : ''}`;
+      }
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      reply = liveData?.score
+        ? `⏳ Match still in progress!\n📊 ${liveData.score}${liveData.status ? `\n${liveData.status}` : ''}`
+        : `Match hasn't finished yet, ${askerUsername}!`;
+    }
+  }
+
+  // ── batting ───────────────────────────────────────────────────────────────
+  else if (['batting', 'bat', 'batsman', 'batter', "who's batting", 'who is batting'].includes(q)) {
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      const data = await fetchLatestBallData(matchId);
+      const ball = data?.latest;
+      if (!ball?.batsmanStriker) {
+        reply = liveData?.score
+          ? `🏏 Batting info not available right now. Score: ${liveData.score}`
+          : `No live match data yet, ${askerUsername}!`;
+      } else {
+        const s = ball.batsmanStriker;
+        const ns = ball.batsmanNonStriker;
+        let msg = `🏏 At the Crease\n\n`;
+        msg += `⚡ *Striker:* ${s.batName} — ${s.batRuns ?? 0}* off ${s.batBalls ?? 0} (${s.batFours ?? 0}×4, ${s.batSixes ?? 0}×6)`;
+        if (ns) msg += `\n🔄 *Non-striker:* ${ns.batName} — ${ns.batRuns ?? 0}* off ${ns.batBalls ?? 0}`;
+        reply = msg;
+      }
+    }
+  }
+
+  // ── bowling ───────────────────────────────────────────────────────────────
+  else if (['bowling', 'bowl', 'bowler', "who's bowling", 'who is bowling'].includes(q)) {
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      const data = await fetchLatestBallData(matchId);
+      const ball = data?.latest;
+      if (!ball?.bowlerStriker) {
+        reply = `Bowling info not available right now, ${askerUsername}!`;
+      } else {
+        const b = ball.bowlerStriker;
+        reply = `⚾ Current Bowler\n\n${b.bowlName} — ${b.bowlOvs ?? '?'} ov, ${b.bowlRuns ?? 0} runs, ${b.bowlWkts ?? 0} wkts, Econ: ${b.bowlEcon ?? '?'}`;
+      }
+    }
+  }
+
+  // ── run rate ─────────────────────────────────────────────────────────────
+  else if (['rr', 'crr', 'run rate', 'current run rate'].includes(q)) {
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (!ms?.rr) {
+        reply = `Run rate info isn't available yet, ${askerUsername}!`;
+      } else {
+        reply = `📈 Current Run Rate: *${ms.rr}*${ms.teamName ? ` (${ms.teamName}: ${ms.score}/${ms.wickets})` : ''}`;
+      }
+    }
+  }
+
+  // ── target ────────────────────────────────────────────────────────────────
+  else if (['target', 'what is the target', "what's the target"].includes(q)) {
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (!ms?.target) {
+        reply = `No target set yet — either still 1st innings, ${askerUsername}!`;
+      } else {
+        reply = `🎯 Target: *${ms.target} runs*${ms.teamName ? ` for ${ms.teamName}` : ''}`;
+      }
+    }
+  }
+
+  // ── required rate ─────────────────────────────────────────────────────────
+  else if (['rrr', 'required rate', 'required run rate'].includes(q)) {
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (!ms?.rrr) {
+        reply = `Required run rate isn't available — may still be 1st innings, ${askerUsername}!`;
+      } else {
+        reply = `⚡ Required Run Rate: *${ms.rrr}*${ms.ballsLeft ? ` (${ms.ballsLeft} balls left)` : ''}`;
+      }
+    }
+  }
+
+  // ── overs left ────────────────────────────────────────────────────────────
+  else if (['overs', 'overs left', 'overs remaining'].includes(q)) {
+    if (isCompleted) {
+      reply = `Match is over! Check the result with /score`;
+    } else if (isNotStarted) {
+      reply = preStartReply;
+    } else {
+      const data = await fetchLatestBallData(matchId);
+      const ms = parseMiniScore(data?.miniscore);
+      if (ms?.ballsLeft != null) {
+        const oversLeft = Math.floor(ms.ballsLeft / 6);
+        const ballsExtra = ms.ballsLeft % 6;
+        reply = `⏱️ Overs Remaining: *${oversLeft}.${ballsExtra}* (${ms.ballsLeft} balls left)`;
+      } else if (ms?.overs) {
+        const bowled = parseFloat(ms.overs);
+        const left = (20 - bowled).toFixed(1);
+        reply = `⏱️ Overs bowled: ${ms.overs} / 20 → ~${left} overs remaining`;
+      } else {
+        reply = `Overs info not available right now, ${askerUsername}!`;
+      }
+    }
+  }
+
+  // ── leaderboard ──────────────────────────────────────────────────────────
+  else if (['top', 'leaderboard', 'standings'].includes(q)) {
+    const board = await getRoomLeaderboard(roomId);
+    const top5 = board.filter(r => r.username !== 'scorebot').slice(0, 5);
+    if (!top5.length) {
+      reply = `No predictions made in this room yet, ${askerUsername}!`;
+    } else {
+      const medals = ['🥇', '🥈', '🥉', '#4', '#5'];
+      const lines = top5.map((r, i) => `${medals[i]} ${r.username} — ${r.points} pts`);
+      reply = `🏆 Room Leaderboard (Top 5)\n\n${lines.join('\n')}`;
+    }
+  }
+
+  // ── predictions / vote split ──────────────────────────────────────────────
+  else if (['votes', 'predictions', 'vote split'].includes(q)) {
+    if (isNotStarted || (!isCompleted && !liveData?.score)) {
+      reply = `🗳️ Predictions are still open! Vote split is revealed once the match is underway.\n\nPlace your prediction on the home screen and check back after the first ball! 🏏`;
+    } else {
+      const rows = await query(`
+        SELECT prediction, COUNT(*)::int AS cnt
+        FROM votes
+        WHERE match_id = $1 AND room_id = $2
+        GROUP BY prediction
+      `, [matchId, roomId]);
+      if (!rows.length) {
+        reply = `No predictions yet for this match in this room, ${askerUsername}!`;
+      } else {
+        const total = rows.reduce((s, r) => s + r.cnt, 0);
+        const lines = rows.map(r => {
+          const pct = Math.round((r.cnt / total) * 100);
+          const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
+          return `${r.prediction}: ${bar} ${pct}% (${r.cnt})`;
+        });
+        reply = `📊 Vote Split for ${t1} vs ${t2}\n\n${lines.join('\n')}\nTotal votes: ${total}`;
+      }
+    }
+  }
+
+  // ── who predicted [team] ──────────────────────────────────────────────────
+  else if (q.startsWith('who predicted ') || q.startsWith('who voted for ') || q.startsWith('who picked ')) {
+    const teamQuery = q.replace(/^who (predicted|voted for|picked)\s+/i, '').toUpperCase();
+    const rows = await query(`
+      SELECT u.username FROM votes v
+      JOIN users u ON u.id = v.user_id
+      WHERE v.match_id = $1 AND v.room_id = $2 AND UPPER(v.prediction) = $3
+    `, [matchId, roomId, teamQuery]);
+    if (!rows.length) {
+      reply = `Nobody in this room picked *${teamQuery}* for this match, ${askerUsername}!`;
+    } else {
+      const names = rows.map(r => r.username).join(', ');
+      reply = `🗳️ Picked *${teamQuery}*:\n${names}`;
+    }
+  }
+
+  // ── who will win / prediction ─────────────────────────────────────────────
+  else if (['win', 'who will win', 'predict'].includes(q)) {
+    const responses = [
+      `My crystal ball says… *${t1}*! But cricket always has the last laugh 😄`,
+      `Honestly? *${t2}* looks strong today. But I've been wrong before 🤷`,
+      `If I had to bet — *${t1}* by a whisker! Don't blame me if it goes the other way 😅`,
+      `*${t2}* has the momentum right now. That's my call, ${askerUsername}! 🏏`,
+      `Too close to call! But my gut says *${t1}*. Let's see 🤞`,
+    ];
+    const matchIndex = parseInt(matchId.replace('m', ''), 10) || 0;
+    reply = responses[matchIndex % responses.length];
+    // Lean toward whoever is winning if we have live data
+    if (liveData?.status) {
+      reply += `\n\nP.S. Current status: ${liveData.status}`;
+    }
+  }
+
+  // ── unknown ───────────────────────────────────────────────────────────────
+  else {
+    reply = `Didn't catch that 🤔 Type /help`;
+  }
+
+  if (reply) {
+    await postBotMessage(roomId, matchId, reply, botName);
+  }
+}
+
+// ─── Ball-by-ball Commentary ───────────────────────────────────────────────
+
+const CRICBUZZ_COMMENTARY_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.cricbuzz.com/',
+  'Origin': 'https://www.cricbuzz.com',
+};
+
+function formatBallMessage(ball, matchScore) {
+  if (!ball) return null;
+
+  // Over separator = end-of-over summary
+  if (ball.overSeparator) {
+    const sep = ball.overSeparator;
+    const score = sep.score != null ? `${sep.score}/${sep.wickets ?? 0}` : null;
+    const runsThisOver = sep.runs != null ? `${sep.runs} runs` : null;
+    const parts = [`━━ End of Over ${sep.overNum ?? ''} ━━`];
+    if (runsThisOver) parts.push(runsThisOver);
+    if (score) parts.push(`Score: ${score}`);
+    return parts.join('  •  ');
+  }
+
+  const event = (ball.event || '').toUpperCase();
+  const runs = String(ball.runsScored ?? '');
+  const text = (ball.commText || '').trim();
+  if (!text) return null;
+
+  // Over + ball number
+  const overStr = (ball.oversNum != null && ball.ballNbr != null)
+    ? `${ball.oversNum}.${ball.ballNbr}`
+    : null;
+
+  // Event emoji/label
+  let eventLabel = '';
+  if (event === 'WICKET') eventLabel = '🔴 WICKET!';
+  else if (runs === '6' || event === 'SIX') eventLabel = '🏏 SIX!';
+  else if (runs === '4' || event === 'BOUNDARY' || event === 'FOUR') eventLabel = '🔵 FOUR!';
+  else if (event === 'WIDE') eventLabel = '↔️ Wide';
+  else if (event === 'NO_BALL') eventLabel = '⚠️ No Ball';
+  else if (runs === '0') eventLabel = '🔒 Dot ball';
+  else eventLabel = `+${runs} run${runs === '1' ? '' : 's'}`;
+
+  // Line 1: Over + event
+  const line1 = [overStr ? `Over ${overStr}` : null, eventLabel].filter(Boolean).join('  •  ');
+
+  // Line 2: Batter vs Bowler
+  const batter = ball.batsmanStriker;
+  const bowler = ball.bowlerStriker;
+  let line2 = '';
+  if (batter || bowler) {
+    const batterStr = batter
+      ? `🏏 ${batter.batName} (${batter.batRuns ?? 0}* off ${batter.batBalls ?? 0})`
+      : null;
+    const bowlerStr = bowler
+      ? `⚾ ${bowler.bowlName} (${bowler.bowlWkts ?? 0}/${bowler.bowlRuns ?? 0})`
+      : null;
+    line2 = [batterStr, bowlerStr].filter(Boolean).join('  vs  ');
+  }
+
+  // Line 3: Team score
+  let line3 = '';
+  const teamScore = matchScore || null;
+  if (teamScore) {
+    line3 = `📊 ${teamScore}`;
+  }
+
+  // Line 4: Commentary text
+  const line4 = text;
+
+  return [line1, line2, line3, line4].filter(Boolean).join('\n');
+}
+
+async function pollCommentary() {
+  try {
+    if (commentaryCache.size === 0) return;
+
+    const existingResults = await query('SELECT match_id FROM results');
+    const completedIds = new Set(existingResults.map(r => r.match_id));
+
+    const allRooms = await query('SELECT id FROM rooms');
+    const roomIds = allRooms.map(r => r.id);
+    if (roomIds.length === 0) return;
+
+    for (const [matchId, state] of commentaryCache.entries()) {
+      if (completedIds.has(matchId) || !state.cricbuzzMatchId) continue;
+      if (!await isBotEnabled(matchId)) continue;
+
+      try {
+        const resp = await axios.get(
+          `https://www.cricbuzz.com/api/cricket-match/${state.cricbuzzMatchId}/full-commentary/1`,
+          { headers: CRICBUZZ_COMMENTARY_HEADERS, timeout: 10000 }
+        );
+        const commentary = resp.data?.commentary || [];
+
+        // Extract team score from response-level miniscore or matchScore
+        const miniscore = resp.data?.miniscore || resp.data?.matchScore;
+        let matchScoreStr = null;
+        if (miniscore) {
+          const batting = miniscore.batTeam || miniscore.inningScore;
+          if (batting) {
+            const teamName = batting.teamSName || batting.teamId || '';
+            const score = batting.score != null ? batting.score : null;
+            const wickets = batting.wickets != null ? batting.wickets : null;
+            const overs = batting.overs != null ? batting.overs : null;
+            if (score != null) {
+              matchScoreStr = teamName
+                ? `${teamName}: ${score}/${wickets ?? 0}${overs != null ? ` (${overs} ov)` : ''}`
+                : `${score}/${wickets ?? 0}${overs != null ? ` (${overs} ov)` : ''}`;
+            }
+          }
+        }
+
+        // New balls since lastTs, ordered oldest → newest
+        const newBalls = commentary
+          .filter(b => (b.timestamp || 0) > state.lastTs)
+          .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+        if (newBalls.length === 0) continue;
+
+        const botName = getBotName(matchId);
+
+        for (const ball of newBalls) {
+          const msg = formatBallMessage(ball, matchScoreStr);
+          if (!msg) continue;
+          for (const roomId of roomIds) {
+            await postBotMessage(roomId, matchId, msg, botName);
+          }
+          state.lastTs = Math.max(state.lastTs, ball.timestamp || 0);
+        }
+
+        console.log(`[Commentary] Posted ${newBalls.length} ball(s) for match ${matchId}`);
+      } catch (e) {
+        console.error(`[Commentary] Error for match ${matchId}:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('[Commentary] Poll error:', e.message);
+  }
+}
+
+setInterval(pollCommentary, 30 * 1000);
+setTimeout(pollCommentary, 15000);
+
+// ─── Reactions API ─────────────────────────────────────────────────────────
+
+app.post('/api/reactions', authMiddleware, asyncRoute(async (req, res) => {
+  const { messageId, emoji } = req.body;
+  if (!messageId || !emoji) return res.status(400).json({ error: 'messageId and emoji required' });
+
+  const msg = await queryOne('SELECT room_id, match_id FROM chat_messages WHERE id = $1', [messageId]);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+
+  const existing = await queryOne(
+    'SELECT id FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3',
+    [messageId, req.user.id, emoji]
+  );
+
+  if (existing) {
+    await query('DELETE FROM message_reactions WHERE id = $1', [existing.id]);
+  } else {
+    await query(
+      'INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)',
+      [messageId, req.user.id, emoji]
+    );
+  }
+
+  const reactions = await query(`
+    SELECT mr.emoji, COUNT(*)::int AS count,
+      array_agg(mr.user_id) AS user_ids,
+      array_agg(u.username) AS usernames
+    FROM message_reactions mr
+    JOIN users u ON u.id = mr.user_id
+    WHERE mr.message_id = $1
+    GROUP BY mr.emoji
+  `, [messageId]);
+
+  io.to(`chat_${msg.room_id}_${msg.match_id}`).emit('reaction_update', { messageId, reactions });
+  res.json({ ok: true, reactions });
+}));
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "alive", time: new Date() });

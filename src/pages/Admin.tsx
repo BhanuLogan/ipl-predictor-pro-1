@@ -4,9 +4,8 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
-import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X, RefreshCcw } from "lucide-react";
-import { type MatchOverride, type PollSummary } from "@/lib/api";
-import PollSummaryBanner from "@/components/PollSummaryBanner";
+import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X } from "lucide-react";
+import { type MatchOverride } from "@/lib/api";
 
 const Admin = () => {
   const { user, refreshUser } = useAuth();
@@ -29,27 +28,30 @@ const Admin = () => {
   const [changePwStatus, setChangePwStatus] = useState("");
   const [overrides, setOverrides] = useState<Record<string, MatchOverride>>({});
   const [overrideLoading, setOverrideLoading] = useState<string | null>(null);
+  const [botSettings, setBotSettings] = useState<Record<string, boolean>>({});
   const [announcementText, setAnnouncementText] = useState("");
   const [currentAnnouncement, setCurrentAnnouncement] = useState("");
   const [announcementLoading, setAnnouncementLoading] = useState(false);
-  const [summary, setSummary] = useState<PollSummary | null>(null);
-  const [showSummary, setShowSummary] = useState(false);
 
   const loadData = async (roomId?: number) => {
     try {
       const actualRoomId = roomId ?? selectedRoomId;
-      const [r, v, rms, ovs, ann] = await Promise.all([
+      const [r, v, rms, ovs, ann, bots] = await Promise.all([
         api.getResults(),
         actualRoomId ? api.getVotes(actualRoomId) : Promise.resolve({}),
         user?.is_admin ? api.getAllRoomsAdmin() : Promise.resolve([]),
         api.getMatchOverrides(),
         api.getAnnouncement(),
+        api.getMatchBotSettings(),
       ]);
       setResults(r);
       setVotes(v);
       const ovMap: Record<string, MatchOverride> = {};
       ovs.forEach((o: MatchOverride) => { ovMap[o.match_id] = o; });
       setOverrides(ovMap);
+      const botMap: Record<string, boolean> = {};
+      bots.forEach((b: { match_id: string; bot_enabled: boolean }) => { botMap[b.match_id] = b.bot_enabled; });
+      setBotSettings(botMap);
       setCurrentAnnouncement(ann.text);
       if (user?.is_admin) {
         setRooms(rms);
@@ -66,19 +68,6 @@ const Admin = () => {
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
     loadData();
-
-    // Check for last poll summary
-    api.getLastPollSummary().then((res) => {
-      if (res && !res.noData) {
-        const lastSeen = localStorage.getItem("lastSeenMatchId");
-        const forceShow = sessionStorage.getItem("forceShowBanner") === "true";
-        if (forceShow || res.matchId !== lastSeen) {
-          setSummary(res);
-          setShowSummary(true);
-          sessionStorage.removeItem("forceShowBanner");
-        }
-      }
-    }).catch(() => {});
   }, [user, navigate]);
 
   const handleUnlock = async () => {
@@ -173,6 +162,16 @@ const Admin = () => {
       alert("Failed to set override: " + err.message);
     } finally {
       setOverrideLoading(null);
+    }
+  };
+
+  const handleToggleBot = async (matchId: string, enabled: boolean) => {
+    setBotSettings(prev => ({ ...prev, [matchId]: enabled }));
+    try {
+      await api.setMatchBotSetting(matchId, enabled);
+    } catch (err: any) {
+      setBotSettings(prev => ({ ...prev, [matchId]: !enabled }));
+      alert("Failed to update bot setting: " + err.message);
     }
   };
 
@@ -309,7 +308,7 @@ const Admin = () => {
               
               <div className="flex items-center gap-2 bg-muted rounded-lg px-2.5 py-1 min-w-[100px]">
                 <Timer size={10} className="text-muted-foreground" />
-                <input 
+                <input
                   type="number"
                   placeholder="Delay"
                   value={override?.lock_delay || 0}
@@ -318,6 +317,24 @@ const Admin = () => {
                 />
                 <span className="text-[8px] font-bold text-muted-foreground">MIN</span>
               </div>
+            </div>
+
+            {/* Bot toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                🏏 Commentary Bot
+              </span>
+              <button
+                onClick={() => handleToggleBot(match.id, !(botSettings[match.id] ?? true))}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all ${
+                  (botSettings[match.id] ?? true)
+                    ? "bg-primary/20 text-primary border border-primary/30"
+                    : "bg-muted text-muted-foreground border border-border/50 hover:text-foreground"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${(botSettings[match.id] ?? true) ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
+                {(botSettings[match.id] ?? true) ? "Enabled" : "Disabled"}
+              </button>
             </div>
           </div>
         )}
@@ -413,15 +430,6 @@ const Admin = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      {showSummary && summary && (
-        <PollSummaryBanner 
-          summary={summary} 
-          onClose={() => {
-            setShowSummary(false);
-            if (summary) localStorage.setItem("lastSeenMatchId", summary.matchId);
-          }} 
-        />
-      )}
 
       <main className="container mx-auto max-w-2xl px-4 py-8">
         <div className="mb-8 text-center">
@@ -558,27 +566,6 @@ const Admin = () => {
                   {rooms.length === 0 && <p className="text-xs text-muted-foreground italic">No rooms created yet.</p>}
                 </div>
               </div>
-              {/* Maintenance & Sync Actions */}
-              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-primary">
-                    <RefreshCcw size={16} className={syncing ? "animate-spin" : ""} />
-                    <span className="text-xs font-semibold uppercase tracking-wider">Automated Match Sync</span>
-                  </div>
-                  {syncing && <span className="text-[10px] font-bold text-primary animate-pulse">Syncing matches...</span>}
-                </div>
-                <p className="mb-4 text-[11px] text-muted-foreground leading-relaxed">
-                  Automatically fetch and update match results from Cricbuzz RapidAPI. This will check all completed matches and update winners & scores.
-                </p>
-                <button
-                  onClick={handleSyncResults}
-                  disabled={syncing}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50 shadow-lg shadow-primary/10"
-                >
-                  <RefreshCcw size={16} className={syncing ? "animate-spin" : ""} />
-                  {syncing ? "SYNCING DATA..." : "SYNC FROM CRICBUZZ"}
-                </button>
-              </div>
             </div>
 
             {/* Current / Active Polls Section */}
@@ -599,9 +586,19 @@ const Admin = () => {
             {/* Completed Matches Section */}
             {completedMatches.length > 0 && (
               <div>
-                <h3 className="mb-3 mt-6 font-display text-lg text-secondary uppercase tracking-wide flex items-center gap-2">
-                  📜 Completed Matches
-                </h3>
+                <div className="mb-3 mt-6 flex items-center justify-between gap-3">
+                  <h3 className="font-display text-lg text-secondary uppercase tracking-wide flex items-center gap-2">
+                    📜 Completed Matches
+                  </h3>
+                  <button
+                    onClick={handleSyncResults}
+                    disabled={syncing}
+                    className="flex items-center gap-1.5 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-1.5 text-[11px] font-bold text-secondary transition-all hover:bg-secondary/20 disabled:opacity-50"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={syncing ? "animate-spin" : ""}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    {syncing ? "Syncing…" : "Sync with Cricbuzz"}
+                  </button>
+                </div>
                 <div className="space-y-3">
                   {completedMatches.map((match, i) => {
                     const scheduleIdx = IPL_SCHEDULE.findIndex(m => m.id === match.id);

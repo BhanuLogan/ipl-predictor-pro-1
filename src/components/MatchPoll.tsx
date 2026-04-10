@@ -19,9 +19,10 @@ interface MatchPollProps {
   userRanks?: Record<string, number>;
   roomId?: number;
   override?: { manual_locked: boolean | null; lock_delay: number };
+  liveScore?: { score: string | null; status: string | null; toss?: string | null } | null;
 }
 
-const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes, userRanks, roomId, override }: MatchPollProps) => {
+const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary, onVote, isOpen, allVotes, userRanks, roomId, override, liveScore }: MatchPollProps) => {
   const [selected, setSelected] = useState<string | null>(myPick);
   const [hasVoted, setHasVoted] = useState(!!myPick);
   const [isChanging, setIsChanging] = useState(false);
@@ -149,6 +150,25 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
         <span>{match.venue}</span>
       </div>
 
+      {/* Live Score Banner — shown when match is in progress */}
+      {isOpen && locked && !isCompleted && liveScore && (liveScore.score || liveScore.status || liveScore.toss) && (
+        <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-destructive">Live Score</p>
+          </div>
+          {liveScore.toss && (
+            <p className="text-[11px] text-muted-foreground mb-1 leading-snug">🪙 {liveScore.toss}</p>
+          )}
+          {liveScore.score && (
+            <p className="text-sm font-semibold text-foreground leading-snug">{liveScore.score}</p>
+          )}
+          {liveScore.status && (
+            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{liveScore.status}</p>
+          )}
+        </div>
+      )}
+
       {/* Previous vote banner (shown when user has voted and is not changing) */}
       {hasVoted && !isCompleted && !isChanging && myPick && (
         <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
@@ -226,6 +246,9 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
               ? "🤝 Match Tied"
               : `🏆 ${IPL_TEAMS[result]?.name || result} won!`}
           </p>
+          {scoreSummary && (
+            <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{scoreSummary}</p>
+          )}
           {myPick && (
             <p className="text-xs text-muted-foreground mt-1">
               {result === "nr" || result === "draw"
@@ -286,15 +309,29 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
         </div>
       )}
 
-      {locked && !isCompleted && roomId && (
-        <Link
-          to={`/rooms/${roomId}/chat/${match.id}`}
-          className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-red-500/10 border border-red-500/20 py-3.5 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white shadow-sm"
-        >
-          <MessageCircle size={18} className="animate-pulse" />
-          GO TO CHAT ROOM
-        </Link>
-      )}
+      {!isCompleted && roomId && (() => {
+        const today = new Date().toLocaleDateString("en-CA");
+        const isToday = match.date === today;
+        if (locked) return (
+          <Link
+            to={`/rooms/${roomId}/chat/${match.id}`}
+            className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-red-500/10 border border-red-500/20 py-3.5 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white shadow-sm"
+          >
+            <MessageCircle size={18} className="animate-pulse" />
+            GO TO CHAT ROOM
+          </Link>
+        );
+        if (isToday) return (
+          <Link
+            to={`/rooms/${roomId}/chat/${match.id}`}
+            className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-muted/60 border border-border/50 py-3.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+          >
+            <MessageCircle size={16} />
+            Open Chat Room
+          </Link>
+        );
+        return null;
+      })()}
 
       <UserPredictionsDialog
         username={pickUser}
