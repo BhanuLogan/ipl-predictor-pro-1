@@ -164,6 +164,57 @@ const BotMessage = ({
   );
 };
 
+// ── Seen Avatars (shown below last-seen message) ─────────────────────────────
+type SeenEntry = { userId: number; username: string; profilePic: string | null; messageId: number };
+
+const SeenAvatars = ({ seenBy, currentUserId }: { seenBy: SeenEntry[]; currentUserId?: number }) => {
+  const others = seenBy.filter(s => s.userId !== currentUserId);
+  if (!others.length) return null;
+  return (
+    <div className="flex items-center gap-0.5 mt-0.5">
+      {others.slice(0, 5).map(s => (
+        <div
+          key={s.userId}
+          title={`Seen by ${s.username}`}
+          className="h-4 w-4 rounded-full bg-primary/20 border border-background flex items-center justify-center overflow-hidden flex-shrink-0"
+        >
+          {s.profilePic ? (
+            <img src={s.profilePic} alt={s.username} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-[7px] font-bold text-primary leading-none">
+              {s.username.substring(0, 2).toUpperCase()}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ── Render message text with @mentions highlighted ───────────────────────────
+function renderWithMentions(text: string, currentUsername?: string) {
+  const parts = text.split(/(@\w+)/g);
+  return parts.map((part, i) => {
+    if (/^@\w+$/.test(part)) {
+      const mentioned = part.slice(1);
+      const isMe = mentioned.toLowerCase() === currentUsername?.toLowerCase();
+      return (
+        <span
+          key={i}
+          className={`font-bold rounded px-0.5 ${
+            isMe
+              ? "text-amber-300 bg-amber-400/15"
+              : "text-primary"
+          }`}
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 // ── Main ChatRoom ─────────────────────────────────────────────────────────────
 const ChatRoom: React.FC = () => {
   const { roomId, matchId } = useParams<{ roomId: string; matchId: string }>();
@@ -177,6 +228,12 @@ const ChatRoom: React.FC = () => {
   const [botEnabled, setBotEnabled] = useState<boolean>(true);
   const [suggestions, setSuggestions] = useState<typeof BOT_COMMANDS>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
+  // seen: messageId -> array of users who last-seen this message
+  const [seenState, setSeenState] = useState<Record<number, SeenEntry[]>>({});
+  // @mention state
+  const [roomMembers, setRoomMembers] = useState<string[]>([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState<string[]>([]);
+  const [selectedMention, setSelectedMention] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -206,7 +263,7 @@ const ChatRoom: React.FC = () => {
 
     if (!roomId || !matchId) return;
 
-    // Load history + bot setting
+    // Load history, bot setting, and room members
     api.getChatHistory(Number(roomId), matchId).then((msgs) => {
       setMessages(msgs);
       mergeReactions(msgs);
@@ -215,6 +272,10 @@ const ChatRoom: React.FC = () => {
     api.getMatchBotSettings().then((settings) => {
       const s = settings.find((s) => s.match_id === matchId);
       setBotEnabled(s ? s.bot_enabled : true);
+    }).catch(console.error);
+
+    api.getRoom(Number(roomId)).then((room) => {
+      setRoomMembers(room.members ?? []);
     }).catch(console.error);
 
     // Socket setup
@@ -239,15 +300,36 @@ const ChatRoom: React.FC = () => {
       if (mid === matchId) setBotEnabled(bot_enabled);
     });
 
+    socket.on("seen_update", ({ seenBy }: { seenBy: SeenEntry[] }) => {
+      // Rebuild messageId -> viewers map
+      const map: Record<number, SeenEntry[]> = {};
+      for (const entry of seenBy) {
+        if (!map[entry.messageId]) map[entry.messageId] = [];
+        map[entry.messageId].push(entry);
+      }
+      setSeenState(map);
+    });
+
     return () => {
       socket.off("new_message");
       socket.off("online_users");
       socket.off("reaction_update");
       socket.off("bot_settings_update");
+      socket.off("seen_update");
     };
   }, [roomId, matchId, navigate, mergeReactions]);
 
-  useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+  useEffect(() => {
+    scrollToBottom();
+    // Mark the latest message as seen
+    if (messages.length > 0 && roomId && matchId) {
+      const latest = messages[messages.length - 1];
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("mark_seen", { roomId: Number(roomId), matchId, messageId: latest.id });
+      }
+    }
+  }, [messages, scrollToBottom, roomId, matchId]);
 
   // Auto-suggest bot commands when user types /
   useEffect(() => {
@@ -256,7 +338,7 @@ const ChatRoom: React.FC = () => {
       setSelectedSuggestion(-1);
       return;
     }
-    const typed = newMessage.slice(1).toLowerCase(); // everything after '/'
+    const typed = newMessage.slice(1).toLowerCase();
     const filtered = typed === ''
       ? BOT_COMMANDS
       : BOT_COMMANDS.filter((c) => c.cmd.startsWith(typed));
@@ -271,22 +353,88 @@ const ChatRoom: React.FC = () => {
     inputRef.current?.focus();
   }, []);
 
+  // Detect @mention context: find the @word immediately before the cursor
+  const getMentionContext = (value: string, cursorPos: number): string | null => {
+    const before = value.slice(0, cursorPos);
+    const match = before.match(/@(\w*)$/);
+    return match ? match[1] : null;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setNewMessage(val);
+
+    const cursor = e.target.selectionStart ?? val.length;
+    const partial = getMentionContext(val, cursor);
+
+    if (partial !== null && roomMembers.length > 0) {
+      const filtered = roomMembers.filter(
+        (m) => m.toLowerCase().startsWith(partial.toLowerCase()) && m !== user?.username
+      );
+      setMentionSuggestions(filtered);
+      setSelectedMention(-1);
+    } else {
+      setMentionSuggestions([]);
+    }
+  };
+
+  const applyMention = useCallback((username: string) => {
+    const cursor = inputRef.current?.selectionStart ?? newMessage.length;
+    const before = newMessage.slice(0, cursor);
+    const after = newMessage.slice(cursor);
+    const atIdx = before.lastIndexOf('@');
+    const replaced = `${before.slice(0, atIdx)}@${username} ${after}`;
+    setNewMessage(replaced);
+    setMentionSuggestions([]);
+    setSelectedMention(-1);
+    // Move cursor after the inserted mention
+    setTimeout(() => {
+      const pos = atIdx + username.length + 2; // @ + name + space
+      inputRef.current?.setSelectionRange(pos, pos);
+      inputRef.current?.focus();
+    }, 0);
+  }, [newMessage]);
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!suggestions.length) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedSuggestion((i) => (i + 1) % suggestions.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedSuggestion((i) => (i - 1 + suggestions.length) % suggestions.length);
-    } else if (e.key === 'Tab' || e.key === 'Enter') {
-      if (selectedSuggestion >= 0) {
+    // Mention suggestions take priority
+    if (mentionSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedMention((i) => (i + 1) % mentionSuggestions.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedMention((i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length);
+        return;
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && selectedMention >= 0) {
+        e.preventDefault();
+        applyMention(mentionSuggestions[selectedMention]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setMentionSuggestions([]);
+        setSelectedMention(-1);
+        return;
+      }
+    }
+
+    // Bot command suggestions
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSuggestion((i) => (i + 1) % suggestions.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSuggestion((i) => (i - 1 + suggestions.length) % suggestions.length);
+      } else if ((e.key === 'Tab' || e.key === 'Enter') && selectedSuggestion >= 0) {
         e.preventDefault();
         applySuggestion(suggestions[selectedSuggestion].cmd);
+      } else if (e.key === 'Escape') {
+        setSuggestions([]);
+        setSelectedSuggestion(-1);
       }
-    } else if (e.key === 'Escape') {
-      setSuggestions([]);
-      setSelectedSuggestion(-1);
     }
   };
 
@@ -304,6 +452,8 @@ const ChatRoom: React.FC = () => {
     setReplyingTo(null);
     setSuggestions([]);
     setSelectedSuggestion(-1);
+    setMentionSuggestions([]);
+    setSelectedMention(-1);
   };
 
   const handleReact = useCallback(async (messageId: number, emoji: string) => {
@@ -491,7 +641,9 @@ const ChatRoom: React.FC = () => {
                       </div>
                     )}
                     <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">{msg.message}</p>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">
+                        {renderWithMentions(msg.message, user?.username)}
+                      </p>
                       <span className={`text-[9px] whitespace-nowrap opacity-60 ml-auto pb-0.5 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
                         {format(new Date(msg.created_at), "h:mm a")}
                       </span>
@@ -503,6 +655,12 @@ const ChatRoom: React.FC = () => {
                     currentUserId={user?.id}
                     onReact={handleReact}
                   />
+                  {/* Seen avatars */}
+                  {seenState[msg.id]?.length > 0 && (
+                    <div className={`flex ${isMe ? "justify-end" : "justify-start"} px-1`}>
+                      <SeenAvatars seenBy={seenState[msg.id]} currentUserId={user?.id} />
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -528,14 +686,37 @@ const ChatRoom: React.FC = () => {
               </button>
             </div>
           )}
+          {/* @mention — horizontal scrollable pill row */}
+          {mentionSuggestions.length > 0 && (
+            <div className="mb-1 flex items-center gap-2 overflow-x-auto scrollbar-none py-1 animate-in slide-in-from-bottom-2 duration-150">
+              {mentionSuggestions.map((name, i) => (
+                <button
+                  key={name}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); applyMention(name); }}
+                  className={`flex-shrink-0 flex items-center gap-1.5 rounded-full px-2.5 py-1 border text-xs font-semibold transition-all ${
+                    i === selectedMention
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-muted/60 border-border/60 text-foreground hover:bg-muted hover:border-primary/40"
+                  }`}
+                >
+                  <div className="h-5 w-5 rounded-full bg-primary/25 flex items-center justify-center text-[8px] font-bold text-primary flex-shrink-0 leading-none">
+                    {name.substring(0, 2).toUpperCase()}
+                  </div>
+                  @{name}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <input
               ref={inputRef}
               type="text"
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or /score, /batting, /help..." : "Type a message..."}
+              placeholder={replyingTo ? "Type your reply..." : botEnabled ? "Chat or @mention, /score, /help..." : "Chat or @mention someone..."}
               className="flex-1 rounded-xl border border-border bg-muted px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               maxLength={500}
             />
