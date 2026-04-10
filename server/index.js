@@ -2964,55 +2964,69 @@ ${context}`
 
 /** Format a single ESPN playbyplay item into a ball-by-ball chat message */
 function formatESPNCommentaryItem(item, matchScore) {
-  const shortText = (item.shortText || '').trim();  // "Shami to Allen, 1 run"
-  const commText = (item.text || '').replace(/<[^>]+>/g, '').trim(); // strip HTML
+  const shortText = (item.shortText || '').trim();
+  const commText = (item.text || '').replace(/<[^>]+>/g, '').trim();
   if (!shortText && !commText) return null;
 
-  // Over.ball: ESPN stores as decimal e.g. 0.1 = over 0 ball 1
-  const overOvers = item.over?.overs;
+  // ── Over position (ESPN cricket stores as decimal: 5.3 = over 5, ball 3) ──
+  const overOvers = item.over?.overs ?? item.over?.current ?? item.period;
   const overStr = overOvers != null ? `Over ${overOvers}` : null;
 
-  // Event label from structured fields
-  const isWicket = item.dismissal?.dismissal === true;
-  const scoreVal = item.scoreValue ?? 0;
-  const playType = (item.playType?.description || '').toLowerCase();
-  let eventLabel = '';
-  if (isWicket) eventLabel = '🔴 WICKET!';
-  else if (scoreVal === 6) eventLabel = '🏏 SIX!';
-  else if (scoreVal === 4) eventLabel = '🔵 FOUR!';
-  else if (playType === 'wide') eventLabel = '↔️ Wide';
-  else if (playType.includes('no ball')) eventLabel = '⚠️ No Ball';
-  else if (scoreVal === 0) eventLabel = '🔒 Dot';
-  else eventLabel = `+${scoreVal}`;
+  // ── Event type — check structured fields then fall back to text heuristics ──
+  const typeDesc = (item.type?.description || item.playType?.description || '').toLowerCase();
+  const scoreVal = Number(item.scoreValue ?? item.runsScored ?? item.run ?? 0);
+  const isWicket = item.dismissal?.dismissal === true
+    || typeDesc === 'wicket' || typeDesc.includes('wicket')
+    || /\b(out|dismissed|wicket)\b/i.test(shortText);
+  const isSix    = scoreVal === 6 || typeDesc === 'six';
+  const isFour   = scoreVal === 4 || typeDesc === 'four';
+  const isWide   = typeDesc.includes('wide');
+  const isNoBall = typeDesc.includes('no ball') || typeDesc.includes('noball');
+  const isDot    = !isWicket && !isSix && !isFour && !isWide && !isNoBall && scoreVal === 0;
+
+  let eventLabel;
+  if (isWicket)    eventLabel = '❌ WICKET!';
+  else if (isSix)  eventLabel = '🚀 SIX!';
+  else if (isFour) eventLabel = '💥 FOUR!';
+  else if (isWide) eventLabel = '↔️ Wide';
+  else if (isNoBall) eventLabel = '⚠️ No Ball';
+  else if (isDot)  eventLabel = '⬛ Dot';
+  else             eventLabel = `+${scoreVal}`;
 
   const line1 = [overStr, eventLabel].filter(Boolean).join('  •  ');
 
-  // Batter vs Bowler
-  const batter = item.batsman?.athlete?.shortName;
-  const batterRuns = item.batsman?.totalRuns ?? 0;
-  const batterBalls = item.batsman?.faced ?? 0;
-  const bowler = item.bowler?.athlete?.shortName;
-  const bowlerWkts = item.bowler?.wickets ?? 0;
-  const bowlerRuns = item.bowler?.conceded ?? 0;
-  const line2Parts = [];
-  if (batter) line2Parts.push(`🏏 ${batter} (${batterRuns}* off ${batterBalls})`);
-  if (bowler) line2Parts.push(`⚾ ${bowler} (${bowlerWkts}/${bowlerRuns})`);
-  const line2 = line2Parts.join('  vs  ');
+  // ── Batter (multiple field-name fallbacks for ESPN cricket) ──
+  const batter = item.batsman?.athlete?.shortName
+    || item.batsman?.athlete?.fullName
+    || item.batsman?.name;
+  const batterRuns  = item.batsman?.totalRuns ?? item.batsman?.runs ?? 0;
+  const batterBalls = item.batsman?.faced ?? item.batsman?.balls ?? 0;
 
-  // Score line: prefer liveScoreCache string, fall back to item's own innings data
+  // ── Bowler ──
+  const bowler = item.bowler?.athlete?.shortName
+    || item.bowler?.athlete?.fullName
+    || item.bowler?.name;
+  const bowlerWkts = item.bowler?.wickets ?? 0;
+  const bowlerRuns = item.bowler?.conceded ?? item.bowler?.runs ?? 0;
+
+  const battingStr = batter ? `🏏 ${batter} ${batterRuns}(${batterBalls})` : null;
+  const bowlingStr = bowler ? `⚾ ${bowler} ${bowlerWkts}/${bowlerRuns}` : null;
+  const line2 = [battingStr, bowlingStr].filter(Boolean).join('   ');
+
+  // ── Team score ──
   let line3 = '';
   if (matchScore) {
     line3 = `📊 ${matchScore}`;
   } else if (item.team?.abbreviation && item.innings?.totalRuns != null) {
-    line3 = `📊 ${item.team.abbreviation} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'})`;
+    line3 = `📊 ${item.team.abbreviation} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'} ov)`;
   }
 
-  // Show shortText as a brief header and commText as full detail when both present
-  const textLines = [];
-  if (shortText) textLines.push(shortText);
-  if (commText && commText !== shortText) textLines.push(commText);
-  const commentary = textLines.join('\n');
-  return [line1, line2, line3, commentary].filter(Boolean).join('\n');
+  // ── Commentary text: shortText (summary) + full text below ──
+  const textParts = [];
+  if (shortText) textParts.push(shortText);
+  if (commText && commText !== shortText) textParts.push(commText);
+
+  return [line1, line2, line3, textParts.join('\n')].filter(Boolean).join('\n');
 }
 
 function formatBallMessage(ball, matchScore) {
@@ -3097,35 +3111,57 @@ async function pollCommentary() {
           { timeout: 10000 }
         );
 
-        // ESPN playbyplay can return items under different paths depending on version
-        const items = resp.data?.commentary?.items
+        // ESPN cricket commentary can live under several paths depending on API version:
+        //   commentary (array)  →  resp.data.commentary
+        //   commentary.items    →  resp.data.commentary.items
+        //   plays               →  resp.data.plays
+        const rawComm = resp.data?.commentary;
+        const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items)
           || resp.data?.plays
           || [];
 
+        // On first encounter: log response structure + first item fields for debugging
         if (state.lastId === null) {
-          // First time seeing this match — log structure to help debug
           const topKeys = Object.keys(resp.data || {});
-          const commKeys = resp.data?.commentary ? Object.keys(resp.data.commentary) : [];
-          console.log(`[Commentary] ESPN playbyplay structure for match ${matchId}: topKeys=${JSON.stringify(topKeys)} commentaryKeys=${JSON.stringify(commKeys)} plays=${(resp.data?.plays || []).length} items=${items.length}`);
+          console.log(`[Commentary] ESPN playbyplay topKeys=${JSON.stringify(topKeys)} items=${items.length}`);
+          const first = items[0];
+          if (first) {
+            console.log(`[Commentary] First item keys: ${JSON.stringify(Object.keys(first))}`);
+            console.log(`[Commentary] First item sample: ${JSON.stringify(first).slice(0, 400)}`);
+          }
         }
 
         // Use live score from cache for the score line in each message
         const liveData = liveScoreCache.get(matchId);
         const matchScoreStr = liveData?.score || null;
 
-        // ESPN items have a sequential numeric `id` field (most-recent first in the array)
-        // On first poll (lastId === null): record current max id and skip — avoids flooding old balls
+        // Deduplication via a Set of string IDs — works for numeric IDs, UUIDs, and compound keys.
+        // `state.seenIds` is initialized lazily; `state.lastId` switches from null → 0 after first poll.
+        if (!state.seenIds) state.seenIds = new Set();
+
         if (state.lastId === null) {
-          const maxId = items.reduce((m, b) => Math.max(m, parseInt(b.id || '0') || 0), 0);
-          state.lastId = maxId;
-          console.log(`[Commentary] Initialized lastId=${maxId} for match ${matchId} (${items.length} existing items skipped)`);
+          // First poll: mark all existing items as seen without posting them
+          for (const item of items) {
+            const id = String(item.id ?? item.sequenceNumber ?? '');
+            if (id) state.seenIds.add(id);
+          }
+          state.lastId = 0; // mark initialized
+          console.log(`[Commentary] Initialized for match ${matchId}: ${state.seenIds.size} existing items skipped`);
           continue;
         }
 
-        // Filter items newer than what we've already posted, sort oldest-first for posting order
+        // New items = not yet seen, sorted oldest-first so they post in chronological order
         const newItems = items
-          .filter(b => (parseInt(b.id || '0') || 0) > state.lastId)
-          .sort((a, b) => (parseInt(a.id || '0') || 0) - (parseInt(b.id || '0') || 0));
+          .filter(item => {
+            const id = String(item.id ?? item.sequenceNumber ?? '');
+            return id && !state.seenIds.has(id);
+          })
+          .sort((a, b) => {
+            // Try numeric sort first; fall back to string compare
+            const na = Number(a.id ?? a.sequenceNumber ?? 0);
+            const nb = Number(b.id ?? b.sequenceNumber ?? 0);
+            return (isNaN(na) || isNaN(nb)) ? String(a.id).localeCompare(String(b.id)) : na - nb;
+          });
 
         if (newItems.length === 0) continue;
 
@@ -3137,8 +3173,8 @@ async function pollCommentary() {
           for (const roomId of roomIds) {
             await postBotMessage(roomId, matchId, msg, botName);
           }
-          const itemId = parseInt(item.id || '0') || 0;
-          if (itemId > state.lastId) state.lastId = itemId;
+          const id = String(item.id ?? item.sequenceNumber ?? '');
+          if (id) state.seenIds.add(id);
         }
 
         console.log(`[Commentary] Posted ${newItems.length} ball(s) for match ${matchId}`);
