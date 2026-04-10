@@ -1973,10 +1973,26 @@ setTimeout(checkRecentMatches, 5000); // 5 sec delay to let DB init completion
 
 // ─── Live Score Service ────────────────────────────────────────────────────
 
-const liveScoreCache = new Map(); // ourMatchId -> LiveScorePayload
-const commentaryCache = new Map(); // ourMatchId -> { espnEventId, lastId, toss, lineups }
+const liveScoreCache = new Map();    // ourMatchId -> LiveScorePayload
+const commentaryCache = new Map();   // ourMatchId -> { espnEventId, lastId, toss, lineups }
 // lastId: null = uninitialized (skip existing items on first poll); number = last ESPN item id posted
-const rainDelayState = new Map();  // ourMatchId -> { inDelay: bool, lastPostedAt: number }
+const rainDelayState = new Map();    // ourMatchId -> { inDelay: bool, lastPostedAt: number }
+const liveScoreBotState = new Map(); // ourMatchId -> { lastScore, lastPostedAt, lastWickets }
+
+/** Sum all wickets fallen from a score string like "MI 182/5 (20) · CSK 143/6 (16.3)" */
+function parseWicketsFromScore(score) {
+  let total = 0;
+  for (const m of (score || '').matchAll(/\/(\d+)/g)) total += parseInt(m[1]) || 0;
+  return total;
+}
+
+/** Format a periodic live-score bot message */
+function formatLiveScoreBotMessage(match, score, status) {
+  const lines = [`🏏 ${match.team1} vs ${match.team2}`];
+  if (score) lines.push(`📊 ${score}`);
+  if (status) lines.push(`📌 ${status}`);
+  return lines.join('\n');
+}
 
 /** Build score/status from an ESPN normalized match object */
 function buildScoreFromESPNMatch(espnMatch, ourMatch) {
@@ -2058,6 +2074,31 @@ async function pollLiveScores() {
       io.emit('live_score', payload);
       console.log(`[LiveScore] ${match.id}: ${score || 'no score'} | ${status || 'no status'}`);
 
+      // ── Bot live-score messages ─────────────────────────────────────────────
+      // Post when score changes: immediately on wicket, otherwise throttle to 30s
+      if (score && apiMatch.state === 'in') {
+        const scoreState = liveScoreBotState.get(match.id) || { lastScore: null, lastPostedAt: 0, lastWickets: 0 };
+        const currentWickets = parseWicketsFromScore(score);
+        const wicketFell = currentWickets > scoreState.lastWickets;
+        const scoreChanged = score !== scoreState.lastScore;
+        const SCORE_THROTTLE_MS = 30 * 1000;
+        const shouldPost = scoreChanged && (wicketFell || (Date.now() - scoreState.lastPostedAt >= SCORE_THROTTLE_MS));
+
+        if (shouldPost && await isBotEnabled(match.id)) {
+          const botName = getBotName(match.id);
+          const msg = formatLiveScoreBotMessage(match, score, status);
+          const scoreRoomIds = await getCachedRoomIds();
+          for (const roomId of scoreRoomIds) {
+            await postBotMessage(roomId, match.id, msg, botName);
+          }
+          liveScoreBotState.set(match.id, { lastScore: score, lastPostedAt: Date.now(), lastWickets: currentWickets });
+          console.log(`[LiveScore] Score bot msg posted for ${match.id}${wicketFell ? ' (wicket)' : ''}`);
+        } else if (scoreChanged) {
+          // Score changed but throttled — keep wickets count current so next wicket triggers immediately
+          liveScoreBotState.set(match.id, { ...scoreState, lastWickets: currentWickets });
+        }
+      }
+
       // Post toss + XI announcement once — only when BOTH toss and lineups are available
       if (liveToss && cachedEntry?.lineups && !tossPostedSet.has(match.id)) {
         tossPostedSet.add(match.id);
@@ -2112,7 +2153,7 @@ async function pollLiveScores() {
   }
 }
 
-setInterval(pollLiveScores, 3 * 1000);
+setInterval(pollLiveScores, 5 * 1000);
 setTimeout(pollLiveScores, 10000); // 10s after startup
 
 app.get('/api/live-score', asyncRoute(async (req, res) => {
@@ -3105,7 +3146,7 @@ async function pollCommentary() {
   }
 }
 
-setInterval(pollCommentary, 3 * 1000);
+setInterval(pollCommentary, 5 * 1000);
 setTimeout(pollCommentary, 15000);
 
 // ─── Reactions API ─────────────────────────────────────────────────────────
