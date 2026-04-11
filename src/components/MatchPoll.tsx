@@ -309,10 +309,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
         </div>
       )}
 
-      {!isCompleted && roomId && (() => {
-        const today = new Date().toLocaleDateString("en-CA");
-        const isToday = match.date === today;
-        if (locked) return (
+      {!isCompleted && roomId && (
+        locked ? (
           <Link
             to={`/rooms/${roomId}/chat/${match.id}`}
             className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-red-500/10 border border-red-500/20 py-3.5 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white shadow-sm"
@@ -320,8 +318,7 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
             <MessageCircle size={18} className="animate-pulse" />
             GO TO CHAT ROOM
           </Link>
-        );
-        if (isToday) return (
+        ) : (
           <Link
             to={`/rooms/${roomId}/chat/${match.id}`}
             className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl bg-muted/60 border border-border/50 py-3.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
@@ -329,9 +326,8 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
             <MessageCircle size={16} />
             Open Chat Room
           </Link>
-        );
-        return null;
-      })()}
+        )
+      )}
 
       <UserPredictionsDialog
         username={pickUser}
