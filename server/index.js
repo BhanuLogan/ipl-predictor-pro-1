@@ -1737,6 +1737,23 @@ function extractScoreSummaryESPN(espnMatch) {
   return status || null;
 }
 
+/** Extract the match result description (e.g. "Lucknow Super Giants won by 3 wkts") from
+ *  ESPN summary. Checks, in priority order:
+ *  1. comp.status.type.detail — ESPN sometimes puts the win line here
+ *  2. data.notes — a note whose text contains "won by / tie / abandoned"
+ *  3. comp.situation.lastPlay.text — fallback live-play field */
+function extractResultTextESPN(notes, statusDetail, situation) {
+  const WIN_RE = /won by|tie[d]?|abandoned|no result/i;
+  if (statusDetail && WIN_RE.test(statusDetail)) return statusDetail;
+  if (Array.isArray(notes)) {
+    const rn = notes.find(n => n.type === 'result' || (n.text && WIN_RE.test(n.text)));
+    if (rn?.text) return rn.text.trim();
+  }
+  const lastPlayText = situation?.lastPlay?.text || situation?.text || '';
+  if (lastPlayText && WIN_RE.test(lastPlayText)) return lastPlayText.trim();
+  return null;
+}
+
 /** Extract toss info from ESPN summary notes array.
  *  ESPN format (type:"toss"): "Lucknow Super Giants , elected to field first" */
 function extractTossInfoESPN(notes) {
@@ -1977,7 +1994,9 @@ async function fetchESPNSummary(espnEventId) {
     const winnerName = state === 'post'
       ? (c1.winner ? t1Name : c2.winner ? t2Name : null)
       : null;
-    console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, status="${statusText.slice(0,80)}", winner=${winnerName || 'none'}`);
+    // Prefer a human-readable win line ("Team won by X") over the bare "Final"
+    const resultText = extractResultTextESPN(data.notes, statusText, comp.situation);
+    console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, status="${statusText.slice(0,80)}", result="${resultText || 'none'}", winner=${winnerName || 'none'}`);
 
     // Debug: log notes so impact-player matching can be verified in server logs
     if (data.notes?.length) {
@@ -1991,7 +2010,7 @@ async function fetchESPNSummary(espnEventId) {
       venue,
       // Competition-level state/result
       state,
-      status: statusText,
+      status: resultText || statusText,   // "LSG won by 3 wkts" > "Final"
       winnerName,
       team1: { name: t1Name, short: t1Abbr, score: c1.score || '' },
       team2: { name: t2Name, short: t2Abbr, score: c2.score || '' },
@@ -2251,7 +2270,7 @@ async function checkRecentMatches(isManual = false) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2) ||
           (summary.winnerName ? (TEAM_NAME_MAP[summary.winnerName] || null) : null);
         if (winner) {
-          const scoreSummary = extractScoreSummaryESPN(summary);
+          const scoreSummary = summary.status || null; // e.g. "Rajasthan Royals won by 1 run"
           const toss = summary.toss || null;
           const matchDetails = {
             espnEventId: espnId,
