@@ -1308,7 +1308,7 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ...room, members: members.map(m => m.username) });
 }));
 
-// Set/unset room admin role for a member (only room creator or global admin)
+// Set/unset room admin role for a member (room admins, room creator, or global admin)
 app.put("/api/rooms/:id/members/:userId/admin", authMiddleware, asyncRoute(async (req, res) => {
   const roomId = parseInt(req.params.id);
   const targetUserId = parseInt(req.params.userId);
@@ -1316,8 +1316,13 @@ app.put("/api/rooms/:id/members/:userId/admin", authMiddleware, asyncRoute(async
 
   const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
-  if (!req.user.is_admin && room.created_by !== req.user.id) {
-    return res.status(403).json({ error: "Only the room creator or global admin can manage admin roles" });
+
+  const callerMembership = await queryOne(
+    "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!req.user.is_admin && !callerMembership?.is_room_admin) {
+    return res.status(403).json({ error: "Only room admins can manage admin roles" });
   }
   // Protect the creator's own admin status
   if (targetUserId === room.created_by) {
@@ -1337,6 +1342,31 @@ app.put("/api/rooms/:id/members/:userId/admin", authMiddleware, asyncRoute(async
     "UPDATE room_members SET is_room_admin = $1 WHERE room_id = $2 AND user_id = $3",
     [is_room_admin, roomId, targetUserId]
   );
+  res.json({ ok: true });
+}));
+
+// Remove a member from a room (room admins; cannot remove room creator)
+app.delete("/api/rooms/:id/members/:userId", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const targetUserId = parseInt(req.params.userId);
+  if (isNaN(roomId) || isNaN(targetUserId)) return res.status(400).json({ error: "Invalid id" });
+
+  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+
+  const callerMembership = await queryOne(
+    "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!req.user.is_admin && !callerMembership?.is_room_admin) {
+    return res.status(403).json({ error: "Only room admins can remove members" });
+  }
+  if (targetUserId === room.created_by) {
+    return res.status(400).json({ error: "Cannot remove the room creator" });
+  }
+
+  await query("DELETE FROM room_members WHERE room_id = $1 AND user_id = $2", [roomId, targetUserId]);
+  invalidateRoomsCache();
   res.json({ ok: true });
 }));
 

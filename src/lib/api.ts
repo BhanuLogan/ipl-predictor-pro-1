@@ -390,4 +390,8 @@ export const api = {
       body: JSON.stringify({ is_room_admin }),
     });
   },
+
+  async removeRoomMember(roomId: number, userId: number): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/rooms/${roomId}/members/${userId}`, { method: 'DELETE' });
+  },
 };

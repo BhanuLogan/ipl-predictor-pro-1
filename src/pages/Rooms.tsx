@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api, type Room, type JoinRequest } from "@/lib/api";
-import { Users, Plus, LogIn, Check, Trophy, X, Trash2, LayoutDashboard, Share2, Bell, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Users, Plus, Check, Trophy, X, Trash2, LayoutDashboard, Share2, Bell, CheckCircle, XCircle, Clock } from "lucide-react";
 import Footer from "@/components/Footer";
 
 
@@ -60,6 +60,7 @@ const Rooms = () => {
   const { user } = useAuth();
   const { setActiveRoomId } = useRoom();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"create" | "join" | null>(null);
@@ -68,17 +69,12 @@ const Rooms = () => {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createdRoom, setCreatedRoom] = useState<Room | null>(null);
-  // Direct-join state
-  const [inviteCode, setInviteCode] = useState("");
-  const [joining, setJoining] = useState(false);
-  const [joinError, setJoinError] = useState("");
   // Request-to-join state
-  const [joinTab, setJoinTab] = useState<"direct" | "request">("direct");
   const [requestCode, setRequestCode] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState("");
   const [requestSuccess, setRequestSuccess] = useState("");
-  // Pending requests panel (per room, for creators)
+  // Pending requests panel (per room, for room admins)
   const [joinRequests, setJoinRequests] = useState<Record<number, JoinRequest[]>>({});
   const [loadingRequests, setLoadingRequests] = useState<Record<number, boolean>>({});
   const [expandedRequests, setExpandedRequests] = useState<Record<number, boolean>>({});
@@ -97,6 +93,14 @@ const Rooms = () => {
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
     loadRooms();
+
+    // Auto-open join modal if ?invite= query param is present (from invite link)
+    const inviteParam = searchParams.get("invite") || sessionStorage.getItem("pendingInvite");
+    if (inviteParam) {
+      sessionStorage.removeItem("pendingInvite");
+      setRequestCode(inviteParam.toUpperCase());
+      setModal("join");
+    }
   }, [user, navigate]);
 
   const handleCreate = async () => {
@@ -119,18 +123,6 @@ const Rooms = () => {
     } catch (e: any) {
       alert(e.message || "Failed to delete room");
     }
-  };
-
-  const handleJoin = async () => {
-    if (!inviteCode.trim()) return;
-    setJoining(true); setJoinError("");
-    try {
-      const res = await api.joinRoom(inviteCode.trim());
-      setActiveRoomId(res.room.id);
-      navigate("/");
-    } catch (e: any) {
-      setJoinError(e.message || "Invalid invite code");
-    } finally { setJoining(false); }
   };
 
   const handleRequestJoin = async () => {
@@ -192,8 +184,6 @@ const Rooms = () => {
   const closeModal = () => {
     setModal(null);
     setRoomName(""); setCreateError(""); setCreatedRoom(null);
-    setInviteCode(""); setJoinError("");
-    setJoinTab("direct");
     setRequestCode(""); setRequestError(""); setRequestSuccess("");
   };
 
@@ -216,7 +206,7 @@ const Rooms = () => {
               onClick={() => setModal("join")}
               className="flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground/40 transition-colors"
             >
-              <LogIn size={15} /> Join Room
+              Join Room
             </button>
             <button
               id="create-room-btn"
@@ -240,10 +230,10 @@ const Rooms = () => {
           <div className="rounded-2xl border border-border bg-gradient-card p-12 text-center">
             <div className="text-6xl mb-4">🏏</div>
             <h3 className="font-display text-3xl text-foreground mb-2">No Rooms Yet</h3>
-            <p className="text-muted-foreground mb-6 text-sm">Create a room or join one with an invite code.</p>
+            <p className="text-muted-foreground mb-6 text-sm">Create a room or request to join with an invite code.</p>
             <div className="flex justify-center gap-3">
               <button onClick={() => setModal("join")} className="rounded-xl border border-border px-5 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Join with Code
+                Request to Join
               </button>
               <button onClick={() => setModal("create")} className="rounded-xl bg-primary px-5 py-2.5 font-display text-sm tracking-wider text-primary-foreground hover:brightness-110 glow-gold">
                 Create Room
@@ -453,104 +443,44 @@ const Rooms = () => {
             <button onClick={closeModal} className="rounded-lg p-1 text-muted-foreground hover:text-foreground"><X size={18} /></button>
           </div>
 
-          {/* Tabs */}
-          <div className="flex rounded-xl border border-border bg-muted/20 p-1 mb-5">
-            <button
-              onClick={() => { setJoinTab("direct"); setRequestError(""); setRequestSuccess(""); }}
-              className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                joinTab === "direct"
-                  ? "bg-primary text-primary-foreground shadow"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Join with Code
-            </button>
-            <button
-              onClick={() => { setJoinTab("request"); setJoinError(""); }}
-              className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                joinTab === "request"
-                  ? "bg-primary text-primary-foreground shadow"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Request to Join
-            </button>
-          </div>
-
-          {/* Tab: Direct join with code */}
-          {joinTab === "direct" && (
+          {requestSuccess ? (
+            <div className="text-center py-4">
+              <div className="text-5xl mb-3">📬</div>
+              <p className="font-display text-xl text-secondary mb-1">Request Sent!</p>
+              <p className="text-sm text-muted-foreground mb-5">{requestSuccess}</p>
+              <button
+                onClick={closeModal}
+                className="rounded-xl bg-primary px-8 py-2.5 font-display text-sm tracking-wider text-primary-foreground hover:brightness-110 glow-gold"
+              >
+                DONE
+              </button>
+            </div>
+          ) : (
             <>
               <label className="block text-sm text-muted-foreground mb-2">Invite Code</label>
               <input
-                id="join-code-input"
-                key="direct"
                 autoFocus
-                value={inviteCode}
-                onChange={e => setInviteCode(e.target.value.toUpperCase())}
-                onKeyDown={e => e.key === "Enter" && handleJoin()}
+                value={requestCode}
+                onChange={e => setRequestCode(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === "Enter" && handleRequestJoin()}
                 placeholder="e.g. STAGS1"
                 maxLength={10}
                 className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 font-mono text-lg font-bold text-foreground uppercase tracking-[0.25em] placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:tracking-normal focus:border-primary/60 focus:outline-none transition-colors"
               />
-              {joinError && <p className="mt-1.5 text-xs text-destructive">{joinError}</p>}
-              <div className="mt-5 flex gap-3">
+              <p className="mt-1.5 mb-4 text-[10px] text-muted-foreground flex items-center gap-1">
+                <Clock size={10} /> A room admin will review and approve your request.
+              </p>
+              {requestError && <p className="text-xs text-destructive mb-3">{requestError}</p>}
+              <div className="flex gap-3">
                 <button onClick={closeModal} className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
                 <button
-                  id="join-room-submit"
-                  onClick={handleJoin}
-                  disabled={joining || !inviteCode.trim()}
+                  onClick={handleRequestJoin}
+                  disabled={requesting || !requestCode.trim()}
                   className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed glow-gold"
                 >
-                  {joining ? "…" : "JOIN"}
+                  {requesting ? "…" : "REQUEST"}
                 </button>
               </div>
-            </>
-          )}
-
-          {/* Tab: Request to join */}
-          {joinTab === "request" && (
-            <>
-              {requestSuccess ? (
-                <div className="text-center py-4">
-                  <div className="text-5xl mb-3">📬</div>
-                  <p className="font-display text-xl text-secondary mb-1">Request Sent!</p>
-                  <p className="text-sm text-muted-foreground mb-5">{requestSuccess}</p>
-                  <button
-                    onClick={closeModal}
-                    className="rounded-xl bg-primary px-8 py-2.5 font-display text-sm tracking-wider text-primary-foreground hover:brightness-110 glow-gold"
-                  >
-                    DONE
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <label className="block text-sm text-muted-foreground mb-2">Invite Code</label>
-                  <input
-                    key="request"
-                    autoFocus
-                    value={requestCode}
-                    onChange={e => setRequestCode(e.target.value.toUpperCase())}
-                    onKeyDown={e => e.key === "Enter" && handleRequestJoin()}
-                    placeholder="e.g. STAGS1"
-                    maxLength={10}
-                    className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 font-mono text-lg font-bold text-foreground uppercase tracking-[0.25em] placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:tracking-normal focus:border-primary/60 focus:outline-none transition-colors"
-                  />
-                  <p className="mt-1.5 mb-4 text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Clock size={10} /> The room creator will be notified and must approve your request.
-                  </p>
-                  {requestError && <p className="text-xs text-destructive mb-3">{requestError}</p>}
-                  <div className="flex gap-3">
-                    <button onClick={closeModal} className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
-                    <button
-                      onClick={handleRequestJoin}
-                      disabled={requesting || !requestCode.trim()}
-                      className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed glow-gold"
-                    >
-                      {requesting ? "…" : "REQUEST"}
-                    </button>
-                  </div>
-                </>
-              )}
             </>
           )}
         </Modal>

@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api, type LeaderboardEntry, type Room } from "@/lib/api";
 import UserPredictionsDialog from "@/components/UserPredictionsDialog";
-import { ArrowLeft, Copy, Check, MessageCircle, MapPin } from "lucide-react";
+import { ArrowLeft, Copy, Check } from "lucide-react";
 
 import { getAvatarUrl, assignRanks } from "@/lib/utils";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, type Match, type MatchResult } from "@/lib/data";
 import Footer from "@/components/Footer";
 
 
@@ -85,55 +84,6 @@ function PodiumTile({ entry, rank, cfg, isCurrentUser, onAvatarClick }: {
   );
 }
 
-/* ─── Match card for Matches tab ─── */
-function RoomMatchCard({ match, roomId, result, liveScore, badge }: {
-  match: Match;
-  roomId: number;
-  result?: MatchResult;
-  liveScore?: { score: string | null; status: string | null };
-  badge?: React.ReactNode;
-}) {
-  const t1 = IPL_TEAMS[match.team1];
-  const t2 = IPL_TEAMS[match.team2];
-  return (
-    <div className="rounded-xl border border-border bg-gradient-card p-4 flex flex-col gap-3 hover:border-primary/30 transition-all">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground flex items-center gap-1 truncate">
-          <MapPin size={10} className="shrink-0" />{match.venue.split(",")[0]}
-        </span>
-        {badge}
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-col items-center gap-1 flex-1">
-          <div className="h-10 w-10 rounded-full overflow-hidden bg-white border border-border/50 flex items-center justify-center" style={{ backgroundColor: t1.logo ? undefined : t1.color }}>
-            {t1.logo ? <img src={t1.logo} alt={match.team1} className="h-full w-full object-contain p-1" /> : <span className="text-xs font-bold" style={{ color: t1.textColor }}>{match.team1}</span>}
-          </div>
-          <span className="text-xs font-semibold text-foreground">{match.team1}</span>
-        </div>
-        <div className="text-center px-2">
-          <p className="text-[10px] text-muted-foreground font-medium">{formatMatchDate(match.date, match.time)}</p>
-          {result && <p className="text-xs font-bold mt-1 text-secondary">{result.winner === "nr" ? "No Result" : result.winner === "draw" ? "Tied" : `${result.winner} won`}</p>}
-          {!result && liveScore?.score && <p className="text-xs font-mono text-primary mt-1 truncate max-w-[110px]">{liveScore.score}</p>}
-          {!result && !liveScore?.score && <span className="text-[10px] text-muted-foreground">VS</span>}
-        </div>
-        <div className="flex flex-col items-center gap-1 flex-1">
-          <div className="h-10 w-10 rounded-full overflow-hidden bg-white border border-border/50 flex items-center justify-center" style={{ backgroundColor: t2.logo ? undefined : t2.color }}>
-            {t2.logo ? <img src={t2.logo} alt={match.team2} className="h-full w-full object-contain p-1" /> : <span className="text-xs font-bold" style={{ color: t2.textColor }}>{match.team2}</span>}
-          </div>
-          <span className="text-xs font-semibold text-foreground">{match.team2}</span>
-        </div>
-      </div>
-      {result?.scoreSummary && <p className="text-[11px] text-muted-foreground text-center">{result.scoreSummary}</p>}
-      <Link
-        to={`/rooms/${roomId}/chat/${match.id}`}
-        className="flex items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 py-2 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
-      >
-        <MessageCircle size={13} /> Open Chat
-      </Link>
-    </div>
-  );
-}
-
 /* ─── Copy button ─── */
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -154,32 +104,20 @@ const RoomLeaderboard = () => {
   const [room, setRoom] = useState<Room | null>(null);
   const [leaderboard, setLeaderboard] = useState<(LeaderboardEntry & { rank: number })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"podium" | "table" | "matches">("podium");
+  const [view, setView] = useState<"podium" | "table">("podium");
   const [pickUser, setPickUser] = useState<string | null>(null);
   const [adminUpdating, setAdminUpdating] = useState<number | null>(null);
-  const [results, setResults] = useState<Record<string, MatchResult>>({});
-  const [liveScores, setLiveScores] = useState<Record<string, { score: string | null; status: string | null }>>({});
+  const [memberRemoving, setMemberRemoving] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
     const roomId = parseInt(id!);
     if (isNaN(roomId)) { navigate("/rooms"); return; }
     setLoading(true);
-    Promise.all([
-      api.getRoom(roomId),
-      api.getRoomLeaderboard(roomId),
-      api.getResults(),
-      api.getLiveScores(),
-    ])
-      .then(([roomData, boardData, resultsData, liveData]) => {
+    Promise.all([api.getRoom(roomId), api.getRoomLeaderboard(roomId)])
+      .then(([roomData, boardData]) => {
         setRoom(roomData);
         setLeaderboard(assignRanks(boardData));
-        setResults(resultsData);
-        const liveMap: Record<string, { score: string | null; status: string | null }> = {};
-        for (const [k, v] of Object.entries(liveData)) {
-          liveMap[k] = { score: v.score, status: v.status };
-        }
-        setLiveScores(liveMap);
       })
       .catch(() => navigate("/rooms"))
       .finally(() => setLoading(false));
@@ -200,10 +138,27 @@ const RoomLeaderboard = () => {
     }
   };
 
+  const handleRemoveMember = async (entry: LeaderboardEntry & { rank: number }) => {
+    if (!entry.user_id || !room) return;
+    if (!confirm(`Remove ${entry.username} from this room?`)) return;
+    setMemberRemoving(entry.user_id);
+    try {
+      await api.removeRoomMember(room.id, entry.user_id);
+      setLeaderboard(prev => assignRanks(prev.filter(e => e.user_id !== entry.user_id)));
+    } catch (e: any) {
+      alert(e.message || "Failed to remove member");
+    } finally {
+      setMemberRemoving(null);
+    }
+  };
+
   if (!user) return null;
 
-  // Can manage admin roles: global admin or room creator
-  const canManageAdmins = user.is_admin || (room?.created_by != null && room.created_by === user.id);
+  // Current user's leaderboard entry (for is_room_admin check)
+  const currentUserEntry = leaderboard.find(e => e.username === user.username);
+  const isCurrentUserRoomAdmin = currentUserEntry?.is_room_admin ?? false;
+  // Can manage admin roles and remove members: global admin, room creator, or room admin
+  const canManageAdmins = user.is_admin || room?.created_by === user.id || isCurrentUserRoomAdmin;
 
   const top3 = leaderboard.slice(0, 3);
   const rest = leaderboard.slice(3);
@@ -237,7 +192,7 @@ const RoomLeaderboard = () => {
           <div className="inline-flex p-1 bg-muted/50 rounded-xl border border-border">
             <button
               onClick={() => setView("podium")}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === "podium"
+              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${view === "podium"
                   ? "bg-primary text-primary-foreground shadow-md"
                   : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -246,21 +201,12 @@ const RoomLeaderboard = () => {
             </button>
             <button
               onClick={() => setView("table")}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === "table"
+              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${view === "table"
                   ? "bg-primary text-primary-foreground shadow-md"
                   : "text-muted-foreground hover:text-foreground"
                 }`}
             >
-              TABLE
-            </button>
-            <button
-              onClick={() => setView("matches")}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === "matches"
-                  ? "bg-primary text-primary-foreground shadow-md"
-                  : "text-muted-foreground hover:text-foreground"
-                }`}
-            >
-              MATCHES
+              POINTS TABLE
             </button>
           </div>
         </div>
@@ -342,21 +288,9 @@ const RoomLeaderboard = () => {
                       </p>
                       <p className="text-xs text-muted-foreground">{entry.voted} voted · {entry.correct} correct · {entry.nr} NR · {entry.matches} total</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {canManageAdmins && entry.username !== user.username && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleToggleAdmin(entry); }}
-                          disabled={adminUpdating === entry.user_id}
-                          className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-40 ${entry.is_room_admin ? "text-amber-400 hover:bg-amber-400/10" : "text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10"}`}
-                          title={entry.is_room_admin ? "Demote from admin" : "Promote to admin"}
-                        >
-                          {adminUpdating === entry.user_id ? "…" : entry.is_room_admin ? "Demote" : "Make Admin"}
-                        </button>
-                      )}
-                      <div className="text-right">
-                        <p className="font-display text-3xl text-gradient-gold leading-none">{entry.points}</p>
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Points</p>
-                      </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-display text-3xl text-gradient-gold leading-none">{entry.points}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Points</p>
                     </div>
                   </div>
                 ))}
@@ -380,6 +314,7 @@ const RoomLeaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NR</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
+                  {canManageAdmins && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground" />}
                 </tr>
               </thead>
               <tbody>
@@ -413,16 +348,6 @@ const RoomLeaderboard = () => {
                           {entry.username}
                           {entry.is_room_admin && <span title="Room Admin" className="text-amber-400 text-sm">👑</span>}
                         </span>
-                        {canManageAdmins && entry.username !== user.username && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleToggleAdmin(entry); }}
-                            disabled={adminUpdating === entry.user_id}
-                            className={`mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-40 ${entry.is_room_admin ? "text-amber-400 hover:bg-amber-400/10" : "text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10"}`}
-                            title={entry.is_room_admin ? "Demote from admin" : "Promote to admin"}
-                          >
-                            {adminUpdating === entry.user_id ? "…" : entry.is_room_admin ? "Demote" : "Make Admin"}
-                          </button>
-                        )}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-center text-sm font-medium">{entry.matches}</td>
@@ -436,64 +361,36 @@ const RoomLeaderboard = () => {
                     <td className="px-4 py-4 text-right">
                       <span className="font-display text-xl text-gradient-gold">{entry.points}</span>
                     </td>
+                    {canManageAdmins && (
+                      <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
+                        {entry.username !== user.username && entry.user_id !== room?.created_by && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleToggleAdmin(entry)}
+                              disabled={adminUpdating === entry.user_id}
+                              className={`rounded px-1.5 py-1 text-[10px] font-medium transition-colors disabled:opacity-40 whitespace-nowrap ${entry.is_room_admin ? "text-amber-400 hover:bg-amber-400/10" : "text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10"}`}
+                              title={entry.is_room_admin ? "Demote from admin" : "Promote to admin"}
+                            >
+                              {adminUpdating === entry.user_id ? "…" : entry.is_room_admin ? "Demote" : "Make Admin"}
+                            </button>
+                            <button
+                              onClick={() => handleRemoveMember(entry)}
+                              disabled={memberRemoving === entry.user_id}
+                              className="rounded px-1.5 py-1 text-[10px] font-medium text-rose-400 hover:bg-rose-400/10 transition-colors disabled:opacity-40"
+                              title="Remove from room"
+                            >
+                              {memberRemoving === entry.user_id ? "…" : "Remove"}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-
-        {/* Matches View */}
-        {!loading && view === "matches" && room && (() => {
-          const completedMatches = IPL_SCHEDULE.filter(m => results[m.id]);
-          const notCompleted = IPL_SCHEDULE.filter(m => !results[m.id]);
-          const now = new Date();
-          const liveOrRecent = notCompleted.filter(m => {
-            const start = new Date(`${m.date}T${m.time}:00+05:30`);
-            return now >= new Date(start.getTime() - 30 * 60 * 1000) && now <= new Date(start.getTime() + 6 * 60 * 60 * 1000);
-          });
-          const liveIds = new Set(liveOrRecent.map(m => m.id));
-          const upcomingMatches = notCompleted.filter(m => !liveIds.has(m.id));
-
-          return (
-            <div className="space-y-6 animate-fade-in">
-              {liveOrRecent.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-widest mb-3 pl-1">🔴 Live / In Progress</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {liveOrRecent.map(m => (
-                      <RoomMatchCard key={m.id} match={m} roomId={room.id} liveScore={liveScores[m.id]}
-                        badge={<span className="text-[10px] font-bold text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full animate-pulse">LIVE</span>}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {upcomingMatches.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-widest mb-3 pl-1">📅 Upcoming</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {upcomingMatches.map(m => (
-                      <RoomMatchCard key={m.id} match={m} roomId={room.id}
-                        badge={<span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">Upcoming</span>}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {completedMatches.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-widest mb-3 pl-1">✅ Completed</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {[...completedMatches].reverse().map(m => (
-                      <RoomMatchCard key={m.id} match={m} roomId={room.id} result={results[m.id]} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         <Footer />
       </main>
