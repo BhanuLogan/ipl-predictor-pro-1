@@ -1,4 +1,4 @@
-import type { MatchResult } from "@/lib/data";
+import type { MatchResult, Match } from "@/lib/data";
 
 const API_URL = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, "");
 
@@ -371,6 +371,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ messageId, emoji }),
     });
+  },
+
+  async getMatches(): Promise<Match[]> {
+    return apiFetch('/api/matches');
+  },
+
+  async syncSchedule(): Promise<{ updated: number; error?: string }> {
+    return apiFetch('/api/admin/sync-schedule', { method: 'POST' });
   },
 
   async getMatchBotSettings(): Promise<{ match_id: string; bot_enabled: boolean }[]> {

@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult } from "@/lib/data";
+import { IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult, type Match } from "@/lib/data";
+import { useMatches } from "@/lib/matches";
 import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X } from "lucide-react";
 import { type MatchOverride } from "@/lib/api";
 
 const Admin = () => {
+  const matches = useMatches();
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [results, setResults] = useState<Record<string, MatchResult>>({});
@@ -15,6 +17,7 @@ const Admin = () => {
   const [adminPw, setAdminPw] = useState("");
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [syncingSchedule, setSyncingSchedule] = useState(false);
   const [rooms, setRooms] = useState<any[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   // Add vote modal state
@@ -110,6 +113,22 @@ const Admin = () => {
       setAddVoteError(err.message || "Failed to add vote");
     } finally {
       setAddVoteLoading(false);
+    }
+  };
+
+  const handleSyncSchedule = async () => {
+    setSyncingSchedule(true);
+    try {
+      const res = await api.syncSchedule();
+      if (res.error) {
+        alert("Schedule sync failed: " + res.error);
+      } else {
+        alert(`Schedule sync complete! Updated ${res.updated} ESPN event IDs.`);
+      }
+    } catch (err: any) {
+      alert("Error syncing schedule: " + err.message);
+    } finally {
+      setSyncingSchedule(false);
     }
   };
 
@@ -209,11 +228,11 @@ const Admin = () => {
 
   // Categorize matches: current/active polls (open, no result) and completed (has result)
   // Only show matches that are locked (started) or the current open poll — hide future upcoming
-  const openPollIds = new Set(getPollOpenMatches(results).map(m => m.id));
-  const currentPolls = IPL_SCHEDULE.filter(m => !results[m.id] && (isVotingLocked(m, overrides[m.id]) || openPollIds.has(m.id)));
-  const completedMatches = IPL_SCHEDULE.filter(m => results[m.id]).reverse();
+  const openPollIds = new Set(getPollOpenMatches(matches, results).map(m => m.id));
+  const currentPolls = matches.filter(m => !results[m.id] && (isVotingLocked(m, overrides[m.id]) || openPollIds.has(m.id)));
+  const completedMatches = matches.filter(m => results[m.id]).reverse();
 
-  const renderMatch = (match: typeof IPL_SCHEDULE[0], i: number, index: number) => {
+  const renderMatch = (match: Match, i: number, index: number) => {
     const result = results[match.id];
     const team1 = IPL_TEAMS[match.team1];
     const team2 = IPL_TEAMS[match.team2];
@@ -580,7 +599,7 @@ const Admin = () => {
                 </h3>
                 <div className="space-y-3">
                   {currentPolls.map((match, i) => {
-                    const scheduleIdx = IPL_SCHEDULE.findIndex(m => m.id === match.id);
+                    const scheduleIdx = matches.findIndex(m => m.id === match.id);
                     return renderMatch(match, i, scheduleIdx);
                   })}
                 </div>
@@ -594,18 +613,29 @@ const Admin = () => {
                   <h3 className="font-display text-lg text-secondary uppercase tracking-wide flex items-center gap-2">
                     📜 Completed Matches
                   </h3>
-                  <button
-                    onClick={handleSyncResults}
-                    disabled={syncing}
-                    className="flex items-center gap-1.5 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-1.5 text-[11px] font-bold text-secondary transition-all hover:bg-secondary/20 disabled:opacity-50"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={syncing ? "animate-spin" : ""}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                    {syncing ? "Syncing…" : "Sync Results"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSyncSchedule}
+                      disabled={syncingSchedule}
+                      className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-[11px] font-bold text-primary transition-all hover:bg-primary/20 disabled:opacity-50"
+                      title="Sync match ESPN IDs from ESPN API"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={syncingSchedule ? "animate-spin" : ""}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                      {syncingSchedule ? "Syncing…" : "Sync Schedule"}
+                    </button>
+                    <button
+                      onClick={handleSyncResults}
+                      disabled={syncing}
+                      className="flex items-center gap-1.5 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-1.5 text-[11px] font-bold text-secondary transition-all hover:bg-secondary/20 disabled:opacity-50"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={syncing ? "animate-spin" : ""}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                      {syncing ? "Syncing…" : "Sync Results"}
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   {completedMatches.map((match, i) => {
-                    const scheduleIdx = IPL_SCHEDULE.findIndex(m => m.id === match.id);
+                    const scheduleIdx = matches.findIndex(m => m.id === match.id);
                     return renderMatch(match, i, scheduleIdx);
                   })}
                 </div>

@@ -8,7 +8,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { IPL_SCHEDULE, IPL_TEAMS, formatMatchDate, isVotingLocked } from "@/lib/data";
+import { IPL_TEAMS, formatMatchDate, isVotingLocked } from "@/lib/data";
+import { useMatches } from "@/lib/matches";
 
 function outcomeLabel(outcome: string | null, prediction: string, isHidden: boolean) {
   if (isHidden) return { emoji: "🔒", hint: "Prediction hidden until match starts" };
@@ -27,6 +28,7 @@ type Props = {
 };
 
 const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) => {
+  const matches = useMatches();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [votes, setVotes] = useState<
@@ -42,7 +44,7 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
     api
       .getUserPredictions(username, roomId || undefined)
       .then((r) => {
-        const order = new Map(IPL_SCHEDULE.map((m, i) => [m.id, i]));
+        const order = new Map(matches.map((m, i) => [m.id, i]));
         const sorted = [...r.votes].sort(
           (a, b) => (order.get(a.matchId) ?? 999) - (order.get(b.matchId) ?? 999)
         );
@@ -68,7 +70,7 @@ const UserPredictionsDialog = ({ username, roomId, open, onOpenChange }: Props) 
           ) : (
             <ul className="space-y-2.5 text-sm">
               {votes.map((v) => {
-                const match = IPL_SCHEDULE.find((m) => m.id === v.matchId);
+                const match = matches.find((m) => m.id === v.matchId);
                 const isHidden = v.prediction === "HIDDEN";
 
                 const { emoji, hint } = outcomeLabel(v.outcome, v.prediction, isHidden);
