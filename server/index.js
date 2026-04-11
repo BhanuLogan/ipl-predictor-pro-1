@@ -2972,10 +2972,43 @@ ${context}`
  *  Sixes have playType="run" with scoreValue=6 (no dedicated "six" type).
  *  Batter/bowler names are at athlete.name — shortName does not exist.
  */
-function formatESPNCommentaryItem(item, matchScore) {
-  const shortText = (item.shortText || '').trim();
-  const commText  = (item.text || '').replace(/<[^>]+>/g, '').trim();
+/**
+ * Convert full player name → "F LastName" format (e.g. "Virat Kohli" → "V Kohli").
+ * Falls back to shortName if available, or the full name if single word.
+ * Verified field paths from ESPN playbyplay API (event 1527689):
+ *   athlete.shortName  – "Kohli" / "Archer"
+ *   athlete.name       – "Virat Kohli" / "Jofra Archer"
+ */
+function espnPlayerName(athlete) {
+  if (!athlete) return null;
+  const full = (athlete.name || '').trim();
+  if (!full) return null;
+  const parts = full.split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  // "Virat Kohli" → "V Kohli", "Jasprit Bumrah" → "J Bumrah"
+  return `${parts[0][0]} ${parts.slice(1).join(' ')}`;
+}
 
+/**
+ * Format a single ESPN playbyplay commentary item into a ball-by-ball chat message.
+ *
+ * Verified field paths from live API (event 1527689, IPL 2026):
+ *   over.overs            – decimal over notation (0.2, 5.3 …)
+ *   playType.description  – "no run" | "out" | "four" | "run" | "wide" | "bye"
+ *   scoreValue            – runs scored; sixes have playType="run" + scoreValue=6
+ *   dismissal.dismissal   – boolean, true on a wicket ball
+ *   batsman.athlete.name  – full batter name
+ *   batsman.totalRuns     – batter runs scored so far
+ *   batsman.faced         – balls faced so far
+ *   bowler.athlete.name   – full bowler name
+ *   bowler.wickets        – wickets taken in this innings
+ *   bowler.conceded       – runs conceded in this innings
+ *   homeScore             – batting team score string e.g. "0/1"
+ *   awayScore             – fielding team score string e.g. "0"
+ *   shortText             – "Archer to Padikkal, no run"  (line 4)
+ *   text                  – HTML commentary text          (line 5)
+ */
+function formatESPNCommentaryItem(item, matchScore) {
   // ── Line 1: Over • Event ─────────────────────────────────────────────────
   const overOvers = item.over?.overs;
   const overStr   = overOvers != null ? `Over ${overOvers}` : null;
@@ -2983,12 +3016,12 @@ function formatESPNCommentaryItem(item, matchScore) {
   const typeDesc = (item.playType?.description || '').toLowerCase();
   const scoreVal = Number(item.scoreValue ?? 0);
 
-  const isWicket  = item.dismissal?.dismissal === true || typeDesc === 'out';
-  const isSix     = scoreVal === 6;               // "run" + scoreValue=6
-  const isFour    = typeDesc === 'four' || scoreVal === 4;
-  const isWide    = typeDesc === 'wide';
-  const isNoBall  = typeDesc === 'no ball' || typeDesc === 'noball';
-  const isDot     = typeDesc === 'no run' ||
+  const isWicket = item.dismissal?.dismissal === true || typeDesc === 'out';
+  const isSix    = scoreVal === 6;                // "run" + scoreValue=6
+  const isFour   = typeDesc === 'four' || scoreVal === 4;
+  const isWide   = typeDesc === 'wide';
+  const isNoBall = typeDesc === 'no ball' || typeDesc === 'noball';
+  const isDot    = typeDesc === 'no run' ||
     (!isWicket && !isSix && !isFour && !isWide && !isNoBall && scoreVal === 0);
 
   let eventLabel;
@@ -3001,13 +3034,14 @@ function formatESPNCommentaryItem(item, matchScore) {
   else               eventLabel = `+${scoreVal}`;
 
   const line1 = [overStr, eventLabel].filter(Boolean).join('  •  ');
+  if (!line1) return null;
 
-  // ── Line 2: 🏏 Batter runs(balls)   ⚾ Bowler wkts/runs ─────────────────
-  const batter      = item.batsman?.athlete?.name;   // ESPN uses .name, not .shortName
+  // ── Line 2: 🏏 V Kohli 34(22)   ⚾ J Bumrah 2/28 ─────────────────────────
+  const batter      = espnPlayerName(item.batsman?.athlete);
   const batterRuns  = item.batsman?.totalRuns ?? 0;
   const batterBalls = item.batsman?.faced ?? 0;
 
-  const bowler     = item.bowler?.athlete?.name;
+  const bowler     = espnPlayerName(item.bowler?.athlete);
   const bowlerWkts = item.bowler?.wickets ?? 0;
   const bowlerRuns = item.bowler?.conceded ?? 0;
 
@@ -3015,19 +3049,23 @@ function formatESPNCommentaryItem(item, matchScore) {
   const bowlingStr = bowler ? `⚾ ${bowler} ${bowlerWkts}/${bowlerRuns}` : null;
   const line2 = [battingStr, bowlingStr].filter(Boolean).join('   ');
 
-  // ── Line 3: 📊 Team score ────────────────────────────────────────────────
+  // ── Line 3: 📊 score ─────────────────────────────────────────────────────
+  // Prefer the live score cache value; fall back to homeScore/awayScore on the item
   let line3 = '';
   if (matchScore) {
     line3 = `📊 ${matchScore}`;
+  } else if (item.homeScore || item.awayScore) {
+    const parts = [item.homeScore, item.awayScore].filter(Boolean);
+    line3 = `📊 ${parts.join(' · ')}`;
   } else if (item.innings?.totalRuns != null) {
-    const teamName = item.team?.name || '';
-    line3 = `📊 ${teamName} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'} ov)`;
+    const abbr = item.team?.abbreviation || item.team?.name || '';
+    line3 = `📊 ${abbr} ${item.innings.totalRuns}/${item.innings.wickets ?? 0} (${overOvers ?? '?'} ov)`;
   }
 
-  // Must have at minimum the over/event line to be worth posting
-  if (!line1) return null;
+  // ── Lines 4-5: "Archer to Padikkal, no run" + stripped HTML commentary ──
+  const shortText = (item.shortText || '').trim();
+  const commText  = (item.text || '').replace(/<[^>]+>/g, '').trim();
 
-  // ── Lines 4-5: shortText summary + full commentary ───────────────────────
   const textParts = [];
   if (shortText) textParts.push(shortText);
   if (commText && commText !== shortText) textParts.push(commText);
@@ -3134,11 +3172,13 @@ async function pollCommentary() {
         const liveData = liveScoreCache.get(matchId);
         const matchScoreStr = liveData?.score || null;
 
-        // Stable dedup key: prefer numeric id/sequenceNumber, fall back to over+text
+        // Stable dedup key.
+        // ESPN items have item.id (string e.g. "120") and item.sequence (number e.g. 100002).
+        // Fall back to over.overs + shortText slice when both are missing.
         function itemKey(item) {
-          const primary = item.id ?? item.sequenceNumber;
+          const primary = item.id ?? item.sequence ?? item.sequenceNumber;
           if (primary != null && String(primary) !== '') return String(primary);
-          const over = item.over?.overs ?? item.over?.current ?? item.period ?? '';
+          const over = item.over?.overs ?? '';
           const txt  = (item.shortText || item.text || '').slice(0, 30);
           const key  = `${over}_${txt}`;
           return key !== '_' ? key : null; // null = truly empty, skip
