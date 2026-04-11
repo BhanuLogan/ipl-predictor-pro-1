@@ -1803,14 +1803,13 @@ async function fetchESPNAll(datesParam = null) {
   const url = datesParam
     ? `${ESPN_IPL_BASE}/events?limit=100&dates=${datesParam}`
     : `${ESPN_IPL_BASE}/events?limit=100`;
+  console.log(`[ESPN] GET ${url}`);
   const resp = await axios.get(url, { timeout: 10000 });
   const events = resp.data?.events || [];
-  if (!events.length) {
-    console.log(`[ESPN] /events returned 0 events (dates=${datesParam || 'default'}). Keys:`, Object.keys(resp.data || {}));
-    return [];
-  }
+  console.log(`[ESPN] ${resp.status} ${url} — ${events.length} events, top-level keys: ${Object.keys(resp.data || {}).join(', ')}`);
+  if (!events.length) return [];
   const first = events[0];
-  console.log(`[ESPN] /events returned ${events.length} event(s) (dates=${datesParam || 'default'}). First: id=${first?.id}`);
+  console.log(`[ESPN] First event: id=${first?.id}, state=${first?.competitions?.[0]?.status?.type?.state}`);
   return events.map(adaptESPNEvent).filter(Boolean);
 }
 
@@ -1946,14 +1945,17 @@ function formatTossMessage(toss, lineups) {
   return lines.join('\n');
 }
 
-/** Fetch toss info + playing XIs for a specific ESPN event via the summary endpoint */
+/** Fetch toss info + playing XIs for a specific ESPN event via the summary endpoint.
+ *  Also returns state/status/winnerName/team1/team2 for use in checkRecentMatches. */
 async function fetchESPNSummary(espnEventId) {
   try {
-    const resp = await axios.get(
-      `${ESPN_IPL_BASE}/summary?event=${espnEventId}`,
-      { timeout: 8000 }
-    );
+    const url = `${ESPN_IPL_BASE}/summary?event=${espnEventId}`;
+    console.log(`[ESPN] GET ${url}`);
+    const resp = await axios.get(url, { timeout: 8000 });
     const data = resp.data || {};
+    const topKeys = Object.keys(data);
+    console.log(`[ESPN] ${resp.status} ${url} — keys: ${topKeys.join(', ')}`);
+
     const comp = data.header?.competitions?.[0] || {};
     const venueObj = comp.venue || {};
     const venueName = venueObj.fullName || null;
@@ -1961,6 +1963,22 @@ async function fetchESPNSummary(espnEventId) {
     const venue = venueName
       ? (venueCity && !venueName.includes(venueCity) ? `${venueName}, ${venueCity}` : venueName)
       : null;
+
+    // Competition-level state/result info (used by checkRecentMatches)
+    const comps = comp.competitors || [];
+    const c1 = comps[0] || {};
+    const c2 = comps[1] || {};
+    const t1Name = c1.team?.displayName || c1.displayName || '';
+    const t2Name = c2.team?.displayName || c2.displayName || '';
+    const t1Abbr = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
+    const t2Abbr = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
+    const state = comp.status?.type?.state || 'pre';
+    const statusText = comp.status?.type?.detail || comp.status?.type?.description || '';
+    const winnerName = state === 'post'
+      ? (c1.winner ? t1Name : c2.winner ? t2Name : null)
+      : null;
+    console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, status="${statusText.slice(0,80)}", winner=${winnerName || 'none'}`);
+
     // Debug: log notes so impact-player matching can be verified in server logs
     if (data.notes?.length) {
       console.log(`[ESPN] Notes for event ${espnEventId}:`, JSON.stringify(data.notes.map(n => ({ type: n.type, text: (n.text || '').slice(0, 120) }))));
@@ -1971,8 +1989,15 @@ async function fetchESPNSummary(espnEventId) {
       headToHeadGames: data.headToHeadGames || null,
       standings: data.standings?.children?.[0]?.standings?.entries || null,
       venue,
+      // Competition-level state/result
+      state,
+      status: statusText,
+      winnerName,
+      team1: { name: t1Name, short: t1Abbr, score: c1.score || '' },
+      team2: { name: t2Name, short: t2Abbr, score: c2.score || '' },
     };
   } catch (e) {
+    console.error(`[ESPN] fetchESPNSummary error for event ${espnEventId}:`, e.message);
     return null;
   }
 }
@@ -2075,7 +2100,10 @@ function formatPointsTable(entries) {
 
 /** Fetch ESPN matchcard data (batting + bowling) for a given event */
 async function fetchESPNScorecard(espnEventId) {
-  const resp = await axios.get(`${ESPN_IPL_BASE}/summary?event=${espnEventId}`, { timeout: 8000 });
+  const url = `${ESPN_IPL_BASE}/summary?event=${espnEventId}`;
+  console.log(`[ESPN] GET ${url} (scorecard)`);
+  const resp = await axios.get(url, { timeout: 8000 });
+  console.log(`[ESPN] ${resp.status} ${url} (scorecard) — matchcards: ${(resp.data?.matchcards || []).length}`);
   const matchcards = resp.data?.matchcards || [];
   const header = resp.data?.header?.competitions?.[0];
   const status = header?.status?.type?.description || '';
@@ -2194,41 +2222,25 @@ async function checkRecentMatches(isManual = false) {
     const notFoundOnESPN = [];
     const stillInProgress = [];
 
-    // Build a date range covering all pending match dates → today.
-    // Without this ESPN returns only today's events and misses yesterday's finished matches.
-    const todayStr = now.toISOString().split('T')[0];
-    const pendingDates = toCheck.map(m => m.date).sort();
-    const earliestDate = pendingDates[0];
-    const datesParam = earliestDate < todayStr
-      ? `${earliestDate.replace(/-/g, '')}-${todayStr.replace(/-/g, '')}`
-      : todayStr.replace(/-/g, '');
-
-    const allMatches = await fetchESPNAll(datesParam);
-    if (allMatches.length === 0) {
-      console.log("⚠️  AutomatedResultService: No matches returned from ESPN.");
-    }
-
     for (const match of toCheck) {
-      const matchDateStr = match.date;
-
-      const apiMatch = allMatches.find(am => {
-        const t1 = am.team1.short;
-        const t2 = am.team2.short;
-        const amDate = am.startDateISO ? am.startDateISO.split('T')[0] : null;
-        const teamsMatch =
-          (t1 === match.team1 && t2 === match.team2) ||
-          (t1 === match.team2 && t2 === match.team1);
-        return (amDate === matchDateStr || !amDate) && teamsMatch;
-      });
-
-      if (!apiMatch) {
-        console.log(`❓ AutomatedResultService: Could not find ${match.id} (${match.team1} vs ${match.team2}) on ESPN.`);
+      // Use espn_event_id directly — avoids date-range list lookup which misses older matches
+      const espnId = match.espn_event_id;
+      if (!espnId) {
+        console.log(`❓ AutomatedResultService: No ESPN ID for ${match.id} (${match.team1} vs ${match.team2}), skipping`);
         notFoundOnESPN.push(`${match.team1} vs ${match.team2}`);
         continue;
       }
 
-      const status = apiMatch.status || "";
-      const state = apiMatch.state || "pre";
+      console.log(`🔍 AutomatedResultService: Fetching ESPN summary for ${match.id} (event ${espnId})`);
+      const summary = await fetchESPNSummary(espnId);
+      if (!summary) {
+        console.log(`❓ AutomatedResultService: ESPN summary not available for ${match.id} (event ${espnId})`);
+        notFoundOnESPN.push(`${match.team1} vs ${match.team2}`);
+        continue;
+      }
+
+      const status = summary.status || "";
+      const state = summary.state || "pre";
 
       const stateDone =
         state === 'post' ||
@@ -2237,17 +2249,16 @@ async function checkRecentMatches(isManual = false) {
 
       if (stateDone) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2) ||
-          (apiMatch.winnerName ? (TEAM_NAME_MAP[apiMatch.winnerName] || null) : null);
+          (summary.winnerName ? (TEAM_NAME_MAP[summary.winnerName] || null) : null);
         if (winner) {
-          const scoreSummary = extractScoreSummaryESPN(apiMatch);
-          const summary = await fetchESPNSummary(apiMatch.espnEventId);
-          const toss = summary?.toss || null;
+          const scoreSummary = extractScoreSummaryESPN(summary);
+          const toss = summary.toss || null;
           const matchDetails = {
-            espnEventId: apiMatch.espnEventId,
-            team1: apiMatch.team1,
-            team2: apiMatch.team2,
-            state: apiMatch.state,
-            status: apiMatch.status,
+            espnEventId: espnId,
+            team1: summary.team1,
+            team2: summary.team2,
+            state,
+            status,
           };
           console.log(`🏆 AutomatedResultService: AUTO-DECLARING WINNER for ${match.id}: ${winner}${toss ? ` | ${toss}` : ''}`);
           await query(
@@ -2459,8 +2470,9 @@ async function pollLiveScores() {
         }
       }
 
-      // Post toss + XI announcement once — only when BOTH toss and lineups are available
-      if (liveToss && cachedEntry?.lineups && !tossPostedSet.has(match.id)) {
+      // Post toss + XI announcement once — only when match has started (state='in')
+      // AND both toss result and lineups are confirmed, so pre-match speculation is skipped.
+      if (liveToss && cachedEntry?.lineups && apiMatch.state === 'in' && !tossPostedSet.has(match.id)) {
         tossPostedSet.add(match.id);
         if (await isBotEnabled(match.id)) {
           const tossRoomIds = await getCachedRoomIds();
@@ -2697,12 +2709,12 @@ async function fetchLatestBallData(matchId) {
   const state = commentaryCache.get(matchId);
   if (!state?.espnEventId) return null;
   try {
-    const resp = await axios.get(
-      `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
-      { timeout: 8000 }
-    );
+    const url = `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`;
+    console.log(`[ESPN] GET ${url}`);
+    const resp = await axios.get(url, { timeout: 8000 });
     const rawComm = resp.data?.commentary;
     const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || resp.data?.plays || [];
+    console.log(`[ESPN] ${resp.status} ${url} — ${items.length} items`);
     const latest = items[0] || null;
     const liveData = liveScoreCache.get(matchId);
     const miniscore = liveData?.score
@@ -3514,16 +3526,16 @@ async function pollCommentary() {
       if (!await isBotEnabled(matchId)) continue;
 
       try {
-        const resp = await axios.get(
-          `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
-          { timeout: 10000 }
-        );
+        const pbpUrl = `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`;
+        console.log(`[ESPN] GET ${pbpUrl} (commentary match=${matchId})`);
+        const resp = await axios.get(pbpUrl, { timeout: 10000 });
 
         // commentary may be an array or an object with .items; plays is a fallback key
         const rawComm = resp.data?.commentary;
         const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items)
           || resp.data?.plays
           || [];
+        console.log(`[ESPN] ${resp.status} ${pbpUrl} — ${items.length} items`);
 
         // Log response structure on very first poll to aid debugging
         if (state.lastId === null) {
