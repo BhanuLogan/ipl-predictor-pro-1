@@ -3367,7 +3367,7 @@ ${context}`
     } else {
       try {
         const { innings, status, competitors } = await fetchESPNScorecard(espnId);
-        if (!Object.keys(innings).length) {
+        if (!Object.keys(innings).length && !competitors.length) {
           reply = `No scorecard data yet. Check back once the first ball is bowled! 🏏`;
         } else {
           const title = `${t1} vs ${t2}${status ? ' — ' + status : ''}`;
