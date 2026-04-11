@@ -68,6 +68,17 @@ export interface Room {
   members?: string[];
   created_by?: number;
   created_by_username?: string;
+  pending_requests?: number;
+}
+
+export interface JoinRequest {
+  id: number;
+  room_id: number;
+  user_id: number;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  username: string;
+  profile_pic?: string;
 }
 
 export interface UserOutcome {
@@ -296,6 +307,25 @@ export const api = {
 
   async deleteRoom(id: number): Promise<void> {
     return apiFetch(`/api/rooms/${id}`, { method: "DELETE" });
+  },
+
+  async requestJoinRoom(inviteCode: string): Promise<{ ok: boolean; message: string }> {
+    return apiFetch("/api/rooms/join-request", {
+      method: "POST",
+      body: JSON.stringify({ inviteCode }),
+    });
+  },
+
+  async getJoinRequests(roomId: number): Promise<JoinRequest[]> {
+    return apiFetch(`/api/rooms/${roomId}/join-requests`);
+  },
+
+  async approveJoinRequest(roomId: number, requestId: number): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/rooms/${roomId}/join-requests/${requestId}/approve`, { method: "POST" });
+  },
+
+  async rejectJoinRequest(roomId: number, requestId: number): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/rooms/${roomId}/join-requests/${requestId}/reject`, { method: "POST" });
   },
 
   async getAllRoomsAdmin(): Promise<Room[]> {

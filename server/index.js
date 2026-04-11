@@ -263,6 +263,17 @@ async function initDb() {
     );
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS room_join_requests (
+      id SERIAL PRIMARY KEY,
+      room_id INT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(room_id, user_id)
+    );
+  `);
+
   const existing = await queryOne(
     "SELECT id FROM users WHERE username = $1",
     [ADMIN_USERNAME]
@@ -1126,11 +1137,57 @@ app.post("/api/rooms/join", authMiddleware, asyncRoute(async (req, res) => {
   res.json({ room });
 }));
 
+// Request to join a room (creates a pending request for admin approval)
+app.post("/api/rooms/join-request", authMiddleware, asyncRoute(async (req, res) => {
+  const { inviteCode } = req.body;
+  if (!inviteCode) return res.status(400).json({ error: "Invite code required" });
+
+  const room = await queryOne(
+    "SELECT id, name, invite_code, created_by FROM rooms WHERE UPPER(invite_code) = UPPER($1)",
+    [inviteCode.trim()]
+  );
+  if (!room) return res.status(404).json({ error: "Invalid invite code" });
+
+  const alreadyMember = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [room.id, req.user.id]
+  );
+  if (alreadyMember) return res.status(400).json({ error: "You are already a member of this room" });
+
+  const existing = await queryOne(
+    "SELECT status FROM room_join_requests WHERE room_id = $1 AND user_id = $2",
+    [room.id, req.user.id]
+  );
+  if (existing) {
+    if (existing.status === 'pending') return res.status(400).json({ error: "You already have a pending request for this room" });
+    if (existing.status === 'approved') return res.status(400).json({ error: "Your request was already approved — try joining directly" });
+    // Rejected previously — allow re-request
+    await query(
+      "UPDATE room_join_requests SET status = 'pending', created_at = NOW() WHERE room_id = $1 AND user_id = $2",
+      [room.id, req.user.id]
+    );
+    io.emit("join_request_new", { roomId: room.id, roomName: room.name, username: req.user.username });
+    return res.json({ ok: true, message: "Join request re-submitted. The room creator will review it." });
+  }
+
+  await query(
+    "INSERT INTO room_join_requests (room_id, user_id) VALUES ($1, $2)",
+    [room.id, req.user.id]
+  );
+  io.emit("join_request_new", { roomId: room.id, roomName: room.name, username: req.user.username });
+  res.json({ ok: true, message: "Join request sent! The room creator will review it." });
+}));
+
 // My rooms
 app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
   const rooms = await query(`
     SELECT r.id, r.name, r.invite_code, r.created_by,
-           COUNT(rm2.user_id)::int AS member_count
+           COUNT(DISTINCT rm2.user_id)::int AS member_count,
+           (
+             SELECT COUNT(*)::int
+             FROM room_join_requests rjr
+             WHERE rjr.room_id = r.id AND rjr.status = 'pending'
+           ) AS pending_requests
     FROM rooms r
     JOIN room_members rm  ON rm.room_id  = r.id AND rm.user_id = $1
     JOIN room_members rm2 ON rm2.room_id = r.id
@@ -1234,6 +1291,81 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
     [roomId]
   );
   res.json({ ...room, members: members.map(m => m.username) });
+}));
+
+// Get pending join requests for a room (creator or admin)
+app.get("/api/rooms/:id/join-requests", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  if (isNaN(roomId)) return res.status(400).json({ error: "Invalid room id" });
+
+  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!req.user.is_admin && room.created_by !== req.user.id) {
+    return res.status(403).json({ error: "Only the room creator or admin can view join requests" });
+  }
+
+  const requests = await query(`
+    SELECT rjr.id, rjr.room_id, rjr.user_id, rjr.status, rjr.created_at,
+           u.username, u.profile_pic
+    FROM room_join_requests rjr
+    JOIN users u ON u.id = rjr.user_id
+    WHERE rjr.room_id = $1 AND rjr.status = 'pending'
+    ORDER BY rjr.created_at ASC
+  `, [roomId]);
+
+  res.json(requests);
+}));
+
+// Approve a join request (creator or admin)
+app.post("/api/rooms/:id/join-requests/:requestId/approve", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const requestId = parseInt(req.params.requestId);
+  if (isNaN(roomId) || isNaN(requestId)) return res.status(400).json({ error: "Invalid id" });
+
+  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!req.user.is_admin && room.created_by !== req.user.id) {
+    return res.status(403).json({ error: "Only the room creator or admin can approve join requests" });
+  }
+
+  const joinReq = await queryOne(
+    "SELECT id, user_id, status FROM room_join_requests WHERE id = $1 AND room_id = $2",
+    [requestId, roomId]
+  );
+  if (!joinReq) return res.status(404).json({ error: "Join request not found" });
+  if (joinReq.status !== 'pending') return res.status(400).json({ error: "Request is no longer pending" });
+
+  await query(
+    "INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    [roomId, joinReq.user_id]
+  );
+  await query("UPDATE room_join_requests SET status = 'approved' WHERE id = $1", [requestId]);
+  io.emit("join_request_approved", { userId: joinReq.user_id, roomId });
+  invalidateRoomsCache();
+  res.json({ ok: true });
+}));
+
+// Reject a join request (creator or admin)
+app.post("/api/rooms/:id/join-requests/:requestId/reject", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const requestId = parseInt(req.params.requestId);
+  if (isNaN(roomId) || isNaN(requestId)) return res.status(400).json({ error: "Invalid id" });
+
+  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!req.user.is_admin && room.created_by !== req.user.id) {
+    return res.status(403).json({ error: "Only the room creator or admin can reject join requests" });
+  }
+
+  const joinReq = await queryOne(
+    "SELECT id, status FROM room_join_requests WHERE id = $1 AND room_id = $2",
+    [requestId, roomId]
+  );
+  if (!joinReq) return res.status(404).json({ error: "Join request not found" });
+  if (joinReq.status !== 'pending') return res.status(400).json({ error: "Request is no longer pending" });
+
+  await query("UPDATE room_join_requests SET status = 'rejected' WHERE id = $1", [requestId]);
+  res.json({ ok: true });
 }));
 
 // Get chat history

@@ -3,8 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
-import { api, type Room } from "@/lib/api";
-import { Users, Plus, LogIn, Copy, Check, Trophy, X, Trash2, LayoutDashboard, Share2 } from "lucide-react";
+import { api, type Room, type JoinRequest } from "@/lib/api";
+import { Users, Plus, LogIn, Check, Trophy, X, Trash2, LayoutDashboard, Share2, Bell, CheckCircle, XCircle, Clock } from "lucide-react";
 import Footer from "@/components/Footer";
 
 
@@ -68,10 +68,20 @@ const Rooms = () => {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createdRoom, setCreatedRoom] = useState<Room | null>(null);
-  // Join state
+  // Direct-join state
   const [inviteCode, setInviteCode] = useState("");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState("");
+  // Request-to-join state
+  const [joinTab, setJoinTab] = useState<"direct" | "request">("direct");
+  const [requestCode, setRequestCode] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState("");
+  const [requestSuccess, setRequestSuccess] = useState("");
+  // Pending requests panel (per room, for creators)
+  const [joinRequests, setJoinRequests] = useState<Record<number, JoinRequest[]>>({});
+  const [loadingRequests, setLoadingRequests] = useState<Record<number, boolean>>({});
+  const [expandedRequests, setExpandedRequests] = useState<Record<number, boolean>>({});
 
   const loadRooms = async () => {
     try {
@@ -123,10 +133,68 @@ const Rooms = () => {
     } finally { setJoining(false); }
   };
 
+  const handleRequestJoin = async () => {
+    if (!requestCode.trim()) return;
+    setRequesting(true); setRequestError(""); setRequestSuccess("");
+    try {
+      const res = await api.requestJoinRoom(requestCode.trim());
+      setRequestSuccess(res.message || "Join request sent! The room creator will review it.");
+    } catch (e: any) {
+      setRequestError(e.message || "Failed to send join request");
+    } finally { setRequesting(false); }
+  };
+
+  const loadJoinRequests = async (roomId: number) => {
+    setLoadingRequests(prev => ({ ...prev, [roomId]: true }));
+    try {
+      const reqs = await api.getJoinRequests(roomId);
+      setJoinRequests(prev => ({ ...prev, [roomId]: reqs }));
+    } catch {}
+    finally { setLoadingRequests(prev => ({ ...prev, [roomId]: false })); }
+  };
+
+  const toggleRequestsPanel = (roomId: number) => {
+    const nowExpanded = !expandedRequests[roomId];
+    setExpandedRequests(prev => ({ ...prev, [roomId]: nowExpanded }));
+    if (nowExpanded) loadJoinRequests(roomId);
+  };
+
+  const handleApprove = async (roomId: number, requestId: number) => {
+    try {
+      await api.approveJoinRequest(roomId, requestId);
+      setJoinRequests(prev => ({
+        ...prev,
+        [roomId]: (prev[roomId] || []).filter(r => r.id !== requestId),
+      }));
+      setRooms(prev => prev.map(r =>
+        r.id === roomId
+          ? { ...r, pending_requests: Math.max(0, (r.pending_requests || 1) - 1), member_count: (r.member_count || 0) + 1 }
+          : r
+      ));
+    } catch (e: any) { alert(e.message || "Failed to approve request"); }
+  };
+
+  const handleReject = async (roomId: number, requestId: number) => {
+    try {
+      await api.rejectJoinRequest(roomId, requestId);
+      setJoinRequests(prev => ({
+        ...prev,
+        [roomId]: (prev[roomId] || []).filter(r => r.id !== requestId),
+      }));
+      setRooms(prev => prev.map(r =>
+        r.id === roomId
+          ? { ...r, pending_requests: Math.max(0, (r.pending_requests || 1) - 1) }
+          : r
+      ));
+    } catch (e: any) { alert(e.message || "Failed to reject request"); }
+  };
+
   const closeModal = () => {
     setModal(null);
     setRoomName(""); setCreateError(""); setCreatedRoom(null);
     setInviteCode(""); setJoinError("");
+    setJoinTab("direct");
+    setRequestCode(""); setRequestError(""); setRequestSuccess("");
   };
 
   if (!user) return null;
@@ -199,6 +267,19 @@ const Rooms = () => {
                     <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
                       <Users size={11} /> {room.member_count} member{room.member_count !== 1 ? "s" : ""}
                     </span>
+                    {/* Pending requests bell — creator/admin only */}
+                    {(user.is_admin || room.created_by === user.id) && (room.pending_requests || 0) > 0 && (
+                      <button
+                        onClick={() => toggleRequestsPanel(room.id)}
+                        className="relative rounded-lg p-1.5 text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+                        title={`${room.pending_requests} pending join request${room.pending_requests !== 1 ? "s" : ""}`}
+                      >
+                        <Bell size={14} />
+                        <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-black leading-none">
+                          {room.pending_requests}
+                        </span>
+                      </button>
+                    )}
                     {(user.is_admin || room.created_by === user.id) && (
                       <button
                         onClick={() => handleDelete(room)}
@@ -221,6 +302,60 @@ const Rooms = () => {
                     <CopyBtn text={`${window.location.origin}/join/${room.invite_code}`} label="Link" />
                   </div>
                 </div>
+
+                {/* Pending join requests panel — creator/admin only */}
+                {(user.is_admin || room.created_by === user.id) && expandedRequests[room.id] && (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] uppercase tracking-widest text-amber-400/80 font-semibold">
+                        Pending Requests
+                      </p>
+                      <button
+                        onClick={() => setExpandedRequests(prev => ({ ...prev, [room.id]: false }))}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+
+                    {loadingRequests[room.id] && (
+                      <p className="text-xs text-muted-foreground text-center py-2">Loading…</p>
+                    )}
+
+                    {!loadingRequests[room.id] && (joinRequests[room.id] || []).length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-2">No pending requests</p>
+                    )}
+
+                    {(joinRequests[room.id] || []).map(req => (
+                      <div key={req.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {req.profile_pic ? (
+                            <img src={req.profile_pic} alt="" className="h-6 w-6 rounded-full object-cover shrink-0" />
+                          ) : (
+                            <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                              <span className="text-[9px] font-bold text-primary">{req.username[0].toUpperCase()}</span>
+                            </div>
+                          )}
+                          <span className="text-xs font-medium text-foreground truncate">{req.username}</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => handleApprove(room.id, req.id)}
+                            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-emerald-400 hover:bg-emerald-400/10 transition-colors"
+                          >
+                            <CheckCircle size={12} /> Approve
+                          </button>
+                          <button
+                            onClick={() => handleReject(room.id, req.id)}
+                            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-rose-400 hover:bg-rose-400/10 transition-colors"
+                          >
+                            <XCircle size={12} /> Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <button
                   onClick={() => {
@@ -313,33 +448,111 @@ const Rooms = () => {
       {/* ── Join Room Modal ── */}
       {modal === "join" && (
         <Modal onClose={closeModal}>
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-5">
             <h3 className="font-display text-3xl text-gradient-gold">JOIN ROOM</h3>
             <button onClick={closeModal} className="rounded-lg p-1 text-muted-foreground hover:text-foreground"><X size={18} /></button>
           </div>
-          <label className="block text-sm text-muted-foreground mb-2">Invite Code</label>
-          <input
-            id="join-code-input"
-            autoFocus
-            value={inviteCode}
-            onChange={e => setInviteCode(e.target.value.toUpperCase())}
-            onKeyDown={e => e.key === "Enter" && handleJoin()}
-            placeholder="e.g. STAGS1"
-            maxLength={10}
-            className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 font-mono text-lg font-bold text-foreground uppercase tracking-[0.25em] placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:tracking-normal focus:border-primary/60 focus:outline-none transition-colors"
-          />
-          {joinError && <p className="mt-1.5 text-xs text-destructive">{joinError}</p>}
-          <div className="mt-5 flex gap-3">
-            <button onClick={closeModal} className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+
+          {/* Tabs */}
+          <div className="flex rounded-xl border border-border bg-muted/20 p-1 mb-5">
             <button
-              id="join-room-submit"
-              onClick={handleJoin}
-              disabled={joining || !inviteCode.trim()}
-              className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed glow-gold"
+              onClick={() => { setJoinTab("direct"); setRequestError(""); setRequestSuccess(""); }}
+              className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                joinTab === "direct"
+                  ? "bg-primary text-primary-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
-              {joining ? "…" : "JOIN"}
+              Join with Code
+            </button>
+            <button
+              onClick={() => { setJoinTab("request"); setJoinError(""); }}
+              className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                joinTab === "request"
+                  ? "bg-primary text-primary-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Request to Join
             </button>
           </div>
+
+          {/* Tab: Direct join with code */}
+          {joinTab === "direct" && (
+            <>
+              <label className="block text-sm text-muted-foreground mb-2">Invite Code</label>
+              <input
+                id="join-code-input"
+                key="direct"
+                autoFocus
+                value={inviteCode}
+                onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === "Enter" && handleJoin()}
+                placeholder="e.g. STAGS1"
+                maxLength={10}
+                className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 font-mono text-lg font-bold text-foreground uppercase tracking-[0.25em] placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:tracking-normal focus:border-primary/60 focus:outline-none transition-colors"
+              />
+              {joinError && <p className="mt-1.5 text-xs text-destructive">{joinError}</p>}
+              <div className="mt-5 flex gap-3">
+                <button onClick={closeModal} className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+                <button
+                  id="join-room-submit"
+                  onClick={handleJoin}
+                  disabled={joining || !inviteCode.trim()}
+                  className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed glow-gold"
+                >
+                  {joining ? "…" : "JOIN"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Tab: Request to join */}
+          {joinTab === "request" && (
+            <>
+              {requestSuccess ? (
+                <div className="text-center py-4">
+                  <div className="text-5xl mb-3">📬</div>
+                  <p className="font-display text-xl text-secondary mb-1">Request Sent!</p>
+                  <p className="text-sm text-muted-foreground mb-5">{requestSuccess}</p>
+                  <button
+                    onClick={closeModal}
+                    className="rounded-xl bg-primary px-8 py-2.5 font-display text-sm tracking-wider text-primary-foreground hover:brightness-110 glow-gold"
+                  >
+                    DONE
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label className="block text-sm text-muted-foreground mb-2">Invite Code</label>
+                  <input
+                    key="request"
+                    autoFocus
+                    value={requestCode}
+                    onChange={e => setRequestCode(e.target.value.toUpperCase())}
+                    onKeyDown={e => e.key === "Enter" && handleRequestJoin()}
+                    placeholder="e.g. STAGS1"
+                    maxLength={10}
+                    className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 font-mono text-lg font-bold text-foreground uppercase tracking-[0.25em] placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:tracking-normal focus:border-primary/60 focus:outline-none transition-colors"
+                  />
+                  <p className="mt-1.5 mb-4 text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Clock size={10} /> The room creator will be notified and must approve your request.
+                  </p>
+                  {requestError && <p className="text-xs text-destructive mb-3">{requestError}</p>}
+                  <div className="flex gap-3">
+                    <button onClick={closeModal} className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+                    <button
+                      onClick={handleRequestJoin}
+                      disabled={requesting || !requestCode.trim()}
+                      className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed glow-gold"
+                    >
+                      {requesting ? "…" : "REQUEST"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </Modal>
       )}
     </div>
