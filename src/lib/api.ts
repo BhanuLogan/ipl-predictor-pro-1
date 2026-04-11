@@ -279,11 +279,6 @@ export const api = {
     return apiFetch("/api/admin/sync-results", { method: "POST" });
   },
 
-  // Leaderboard
-  async getLeaderboard(): Promise<LeaderboardEntry[]> {
-    return apiFetch("/api/leaderboard");
-  },
-
   // Rooms
   async createRoom(name: string): Promise<Room> {
     return apiFetch("/api/rooms", { method: "POST", body: JSON.stringify({ name }) });

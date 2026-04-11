@@ -930,11 +930,6 @@ async function getLeaderboardInternal() {
   return enriched;
 }
 
-app.get("/api/leaderboard", asyncRoute(async (req, res) => {
-  const enriched = await getLeaderboardInternal();
-  res.json(enriched);
-}));
-
 app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) => {
   // 1. Get the latest match with a result
   const lastResult = await queryOne(`
