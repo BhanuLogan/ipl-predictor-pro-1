@@ -2239,6 +2239,14 @@ async function pollLiveScores() {
 
       if (!apiMatch) continue;
 
+      // When ESPN marks the match as finished, immediately trigger result sync
+      // (bypasses the 4h auto-sync delay so next-day polls open promptly)
+      if (apiMatch.state === 'post' && !completedIds.has(match.id) && !resultTriggerSet.has(match.id)) {
+        resultTriggerSet.add(match.id);
+        console.log(`[LiveScore] Match ${match.id} is 'post' — triggering immediate result sync`);
+        checkRecentMatches(true).catch(e => console.error('[LiveScore] Result trigger failed:', e.message));
+      }
+
       const { score, status, toss } = buildScoreFromESPNMatch(apiMatch, match);
 
       // Match is considered over when ESPN marks state='post' OR the status text says so
