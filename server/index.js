@@ -2262,11 +2262,12 @@ function buildScorecardFromRosters(rosters, competitors) {
           const ov = `${Math.floor(b / 6)}.${b % 6}`;
           periods[period].bowlers.push({
             name,
-            overs:   ov,
-            runs:    s.conceded ?? 0,
-            wickets: s.wickets  ?? 0,
-            maidens: s.maidens  ?? 0,
-            econ:    typeof s.economyRate === 'number' ? s.economyRate.toFixed(2) : '-',
+            overs:      ov,
+            ballsCount: b,           // raw count for computing innings total overs
+            runs:       s.conceded ?? 0,
+            wickets:    s.wickets  ?? 0,
+            maidens:    s.maidens  ?? 0,
+            econ:       typeof s.economyRate === 'number' ? s.economyRate.toFixed(2) : '-',
           });
         }
       }
@@ -2278,11 +2279,22 @@ function buildScorecardFromRosters(rosters, competitors) {
     const batters = data.batters.sort((a, b) => a.position - b.position);
     if (!batters.length) continue;
     const { teamName, teamAbbr: tAbbr } = batters[0];
+
+    // Compute total overs from bowler ball counts and append to score
+    // if the competitor score string doesn't already include overs info.
+    const totalBalls = data.bowlers.reduce((sum, b) => sum + (b.ballsCount || 0), 0);
+    let score = compScore[tAbbr] || '';
+    if (totalBalls > 0 && !score.includes('(')) {
+      const ovFull = Math.floor(totalBalls / 6);
+      const ovPart = totalBalls % 6;
+      score = `${score} (${ovFull}.${ovPart} ov)`;
+    }
+
     innings.push({
       inningsNumber: Number(period),
       teamName,
       teamAbbr: tAbbr,
-      score: compScore[tAbbr] || '',
+      score,
       batters,
       bowlers: data.bowlers,
     });
