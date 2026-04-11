@@ -2178,7 +2178,154 @@ async function fetchESPNScorecard(espnEventId) {
     }
   }
 
-  return { innings, status, competitors };
+  const rosters = resp.data?.rosters || [];
+  return { innings, status, competitors, rosters };
+}
+
+/** Flatten rosters stats array (nested or outer) into a plain key→value map */
+function rosterStatsMap(ls) {
+  const arr =
+    ls?.linescores?.[0]?.statistics?.categories?.[0]?.stats ||
+    ls?.statistics?.categories?.[0]?.stats || [];
+  const m = {};
+  for (const s of arr) m[s.name] = s.value;
+  return m;
+}
+
+const DISMISSAL_CARD = {
+  'not out': 'not out', 'c': 'caught', 'b': 'bowled', 'lbw': 'lbw',
+  'run out': 'run out', 'st': 'stumped', 'c&b': 'c&b', 'retired': 'retired',
+  'hit wicket': 'hit wicket', 'obstructing': 'obstructing', 'timed out': 'timed out',
+};
+
+/**
+ * Build both innings from rosters[].roster[].linescores[].statistics.
+ * Returns an array of { inningsNumber, teamName, teamAbbr, score, batters[], bowlers[] }
+ * sorted by inningsNumber. Batters sorted by battingPosition; bowlers by order bowled.
+ *
+ * Uses rosters instead of matchcards because:
+ *  - rosters always have up-to-date final stats (no stale mid-innings cache)
+ *  - both innings are always present (one per period per player)
+ *  - includes captain/WK flags and full dismissal info
+ */
+function buildScorecardFromRosters(rosters, competitors) {
+  // competitor scores: abbr → full score string (e.g. "212/2")
+  const compScore = {};
+  for (const comp of competitors) {
+    const name = comp.team?.displayName || comp.displayName || '';
+    const abbr = TEAM_NAME_MAP[name] || teamAbbr(name) || name;
+    if (abbr) compScore[abbr] = comp.score || '';
+  }
+
+  // periods: inningsNumber → { batters[], bowlers[] }
+  const periods = {};
+
+  for (const roster of rosters) {
+    const tName = roster.team?.displayName || '';
+    const tAbbr = roster.team?.abbreviation || TEAM_NAME_MAP[tName] || teamAbbr(tName) || tName;
+
+    for (const player of roster.roster || []) {
+      const name = player.athlete?.battingName || player.athlete?.displayName || '';
+      const isWK  = player.position?.abbreviation === 'WK' ||
+                    player.athlete?.position?.abbreviation === 'WK';
+      const isCap = !!player.captain;
+
+      for (const ls of player.linescores || []) {
+        const period = ls.period;
+        if (!periods[period]) periods[period] = { batters: [], bowlers: [] };
+
+        const s = rosterStatsMap(ls);
+
+        if (s.batted === 1) {
+          const dis = s.dismissalCard || 'not out';
+          periods[period].batters.push({
+            teamName: tName, teamAbbr: tAbbr, name, isWK, isCap,
+            position:  s.battingPosition ?? 99,
+            runs:      s.runs  ?? 0,
+            balls:     s.ballsFaced ?? 0,
+            fours:     s.fours ?? 0,
+            sixes:     s.sixes ?? 0,
+            sr:        typeof s.strikeRate === 'number' ? s.strikeRate.toFixed(1) : '-',
+            dismissal: DISMISSAL_CARD[dis] || dis,
+          });
+        }
+
+        if ((s.balls ?? 0) > 0) {
+          const b  = s.balls;
+          const ov = `${Math.floor(b / 6)}.${b % 6}`;
+          periods[period].bowlers.push({
+            name,
+            overs:   ov,
+            runs:    s.conceded ?? 0,
+            wickets: s.wickets  ?? 0,
+            maidens: s.maidens  ?? 0,
+            econ:    typeof s.economyRate === 'number' ? s.economyRate.toFixed(2) : '-',
+          });
+        }
+      }
+    }
+  }
+
+  const innings = [];
+  for (const [period, data] of Object.entries(periods).sort((a, b) => Number(a[0]) - Number(b[0]))) {
+    const batters = data.batters.sort((a, b) => a.position - b.position);
+    if (!batters.length) continue;
+    const { teamName, teamAbbr: tAbbr } = batters[0];
+    innings.push({
+      inningsNumber: Number(period),
+      teamName,
+      teamAbbr: tAbbr,
+      score: compScore[tAbbr] || '',
+      batters,
+      bowlers: data.bowlers,
+    });
+  }
+  return innings;
+}
+
+/** Format innings built from rosters data as a monospace-friendly tabular scorecard */
+function formatRosterScorecard(innings, matchTitle) {
+  const BAT_HDR = `${'Batter'.padEnd(22)} ${'Dismissal'.padEnd(11)} ${'R'.padStart(4)} ${'B'.padStart(4)} ${'4s'.padStart(4)} ${'6s'.padStart(4)} ${'SR'.padStart(7)}`;
+  const BAT_SEP = '─'.repeat(BAT_HDR.length);
+  const BWL_HDR = `${'Bowler'.padEnd(22)} ${'O'.padStart(5)} ${'R'.padStart(4)} ${'W'.padStart(4)} ${'Econ'.padStart(6)}`;
+  const BWL_SEP = '─'.repeat(BWL_HDR.length);
+
+  const lines = [`📋 Scorecard — ${matchTitle}`];
+
+  for (const inns of innings) {
+    lines.push('');
+    lines.push(`━━ ${inns.teamAbbr} — ${inns.score} ━━`);
+    lines.push('');
+    lines.push(BAT_HDR);
+    lines.push(BAT_SEP);
+
+    for (const p of inns.batters) {
+      const suffix = [p.isCap ? '(c)' : '', p.isWK ? '(wk)' : ''].filter(Boolean).join('');
+      const label  = (p.name + (suffix ? ' ' + suffix : '')).slice(0, 22).padEnd(22);
+      const dis    = (p.dismissal || 'not out').slice(0, 11).padEnd(11);
+      lines.push(
+        `${label} ${dis} ` +
+        `${String(p.runs).padStart(4)} ${String(p.balls).padStart(4)} ` +
+        `${String(p.fours).padStart(4)} ${String(p.sixes).padStart(4)} ${String(p.sr).padStart(7)}`
+      );
+    }
+
+    if (inns.bowlers.length) {
+      lines.push('');
+      lines.push(BWL_HDR);
+      lines.push(BWL_SEP);
+      // Sort by overs bowled descending so primary bowlers appear first
+      const sortedBowlers = [...inns.bowlers].sort((a, b) => parseFloat(b.overs) - parseFloat(a.overs));
+      for (const p of sortedBowlers) {
+        lines.push(
+          `${p.name.padEnd(22)} ${String(p.overs).padStart(5)} ` +
+          `${String(p.runs).padStart(4)} ${String(p.wickets).padStart(4)} ${String(p.econ).padStart(6)}`
+        );
+      }
+    }
+  }
+
+  return lines.join('\n');
 }
 
 /** Format batting + bowling innings block as text (tabular format) */
@@ -3366,11 +3513,17 @@ ${context}`
         : `Scorecard isn't available yet — match hasn't started! 🏏`;
     } else {
       try {
-        const { innings, status, competitors } = await fetchESPNScorecard(espnId);
-        if (!Object.keys(innings).length && !competitors.length) {
+        const { innings, status, competitors, rosters } = await fetchESPNScorecard(espnId);
+        const title = `${t1} vs ${t2}${status ? ' — ' + status : ''}`;
+
+        // Prefer rosters-based scorecard — always has up-to-date final stats
+        // for both innings and never shows stale mid-innings data.
+        const rosterInnings = buildScorecardFromRosters(rosters, competitors);
+        if (rosterInnings.length > 0) {
+          reply = formatRosterScorecard(rosterInnings, title);
+        } else if (!Object.keys(innings).length && !competitors.length) {
           reply = `No scorecard data yet. Check back once the first ball is bowled! 🏏`;
         } else {
-          const title = `${t1} vs ${t2}${status ? ' — ' + status : ''}`;
           reply = formatScorecardText(innings, title, competitors);
         }
       } catch (e) {
