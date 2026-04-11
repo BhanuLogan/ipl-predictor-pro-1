@@ -2118,13 +2118,20 @@ async function fetchESPNPointsTable(preferredEventId = null) {
   }));
 }
 
-/** Format points table entries as a text block (proportional-font safe) */
+/** Format points table as a monospace-aligned table */
 function formatPointsTable(entries) {
-  const lines = ['🏆 IPL 2026 Points Table\n'];
+  const HDR = `${'#'.padStart(2)}  ${'Team'.padEnd(5)}  ${'M'.padStart(2)}  ${'W'.padStart(2)}  ${'L'.padStart(2)}  ${'NR'.padStart(2)}  ${'Pts'.padStart(3)}     NRR`;
+  const SEP = '─'.repeat(HDR.length);
+  const lines = ['🏆 IPL 2026 Points Table', '', HDR, SEP];
   for (const e of entries) {
     const nrr = parseFloat(e.nrr);
     const nrrStr = isNaN(nrr) ? (e.nrr || '—') : (nrr >= 0 ? '+' + nrr.toFixed(3) : nrr.toFixed(3));
-    lines.push(`${e.rank}. ${e.team}  —  ${e.w}W ${e.l}L ${e.nr}NR  |  ${e.pts} pts  |  NRR ${nrrStr}`);
+    lines.push(
+      `${String(e.rank).padStart(2)}  ${String(e.team).padEnd(5)}  ` +
+      `${String(e.m).padStart(2)}  ${String(e.w).padStart(2)}  ` +
+      `${String(e.l).padStart(2)}  ${String(e.nr).padStart(2)}  ` +
+      `${String(e.pts).padStart(3)}  ${nrrStr.padStart(8)}`
+    );
   }
   return lines.join('\n');
 }
