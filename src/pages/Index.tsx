@@ -4,7 +4,8 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, getPollOpenMatches, type MatchResult } from "@/lib/data";
+import { getPollOpenMatches, type MatchResult } from "@/lib/data";
+import { useMatches } from "@/lib/matches";
 import { Users } from "lucide-react";
 import OpenPolls from "@/components/dashboard/OpenPolls";
 import CompletedMatches from "@/components/dashboard/CompletedMatches";
@@ -18,6 +19,7 @@ import { getSocket, connectSocket } from "@/lib/socket";
 const PAGE_SIZE = 10;
 
 const Index = () => {
+  const matches = useMatches();
   const { user } = useAuth();
   const { activeRoom, loading: roomLoading } = useRoom();
   const navigate = useNavigate();
@@ -120,16 +122,16 @@ const Index = () => {
   };
 
   // Memoized Lists
-  const openPolls = useMemo(() => getPollOpenMatches(results, overrides), [results, overrides]);
+  const openPolls = useMemo(() => getPollOpenMatches(matches, results, overrides), [matches, results, overrides]);
 
   const pastMatches = useMemo(() => {
-    return IPL_SCHEDULE.filter(m => results[m.id]).reverse();
-  }, [results]);
+    return matches.filter(m => results[m.id]).reverse();
+  }, [matches, results]);
 
   const upcomingLocked = useMemo(() => {
     const openIds = new Set(openPolls.map(o => o.id));
-    return IPL_SCHEDULE.filter(m => !results[m.id] && !openIds.has(m.id));
-  }, [results, openPolls]);
+    return matches.filter(m => !results[m.id] && !openIds.has(m.id));
+  }, [matches, results, openPolls]);
 
   const paginatedUpcoming = useMemo(() => {
     return upcomingLocked.slice((upcomingPage - 1) * PAGE_SIZE, upcomingPage * PAGE_SIZE);
@@ -195,6 +197,7 @@ const Index = () => {
           allVotes={allVotes}
           onVote={handleVote}
           completedCount={completedCount}
+          totalMatchCount={matches.length}
           results={results}
           overrides={overrides}
           roomId={activeRoom.id}

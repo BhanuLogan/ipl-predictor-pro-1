@@ -104,6 +104,7 @@ export const IPL_SCHEDULE: Match[] = [
 // Poll open logic: match poll is open if before match time and previous match has result (or first match)
 // Also always includes matches that have a manual override (forced lock or forced open)
 export function getPollOpenMatches(
+  matches: Match[],
   results: Record<string, MatchResult>,
   overrides?: Record<string, { manual_locked: boolean | null; lock_delay: number }>
 ): Match[] {
@@ -119,15 +120,15 @@ export function getPollOpenMatches(
   };
 
   // 1. Logic based on schedule and results
-  for (let i = 0; i < IPL_SCHEDULE.length; i++) {
-    const m = IPL_SCHEDULE[i];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
     if (results[m.id]) continue;
-    
+
     // First match or match after a completed match
-    if (i === 0 || results[IPL_SCHEDULE[i - 1].id]) {
+    if (i === 0 || results[matches[i - 1].id]) {
       add(m);
       // Doubleheader logic: if next match is same day, open it too
-      const next = IPL_SCHEDULE[i + 1];
+      const next = matches[i + 1];
       if (next && !results[next.id] && next.date === m.date) {
         add(next);
       }
@@ -138,15 +139,15 @@ export function getPollOpenMatches(
   // 2. Add any matches that have a manual override
   if (overrides) {
     Object.keys(overrides).forEach(id => {
-      const match = IPL_SCHEDULE.find(m => m.id === id);
+      const match = matches.find(m => m.id === id);
       if (match && !results[match.id]) {
         add(match);
       }
     });
   }
 
-  // Final sort by schedule
-  return open.sort((a, b) => IPL_SCHEDULE.indexOf(a) - IPL_SCHEDULE.indexOf(b));
+  // Final sort by schedule order
+  return open.sort((a, b) => matches.indexOf(a) - matches.indexOf(b));
 }
 
 // Check if voting is locked (after match start time on match day)
