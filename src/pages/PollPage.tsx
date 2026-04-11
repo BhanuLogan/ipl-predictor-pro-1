@@ -5,11 +5,13 @@ import MatchPoll from "@/components/MatchPoll";
 import { useAuth } from "@/lib/auth";
 import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
-import { IPL_SCHEDULE, getPollOpenMatches, isVotingLocked, type MatchResult } from "@/lib/data";
+import { getPollOpenMatches, isVotingLocked, type MatchResult } from "@/lib/data";
+import { useMatches } from "@/lib/matches";
 import { assignRanks } from "@/lib/utils";
 import AnnouncementMarquee from "@/components/AnnouncementMarquee";
 
 const PollPage = () => {
+  const matches = useMatches();
   const { matchId } = useParams<{ matchId: string }>();
   const { user } = useAuth();
   const { activeRoom, loading: roomLoading } = useRoom();
@@ -23,7 +25,7 @@ const PollPage = () => {
   const [overrides, setOverrides] = useState<Record<string, any>>({});
   const [announcement, setAnnouncement] = useState("");
 
-  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  const match = matches.find(m => m.id === matchId);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
@@ -103,7 +105,7 @@ const PollPage = () => {
      return null;
   }
 
-  const openMatches = getPollOpenMatches(results, overrides);
+  const openMatches = getPollOpenMatches(matches, results, overrides);
   const isValid = openMatches.some(m => m.id === match.id) || !!results[match.id]?.winner || isVotingLocked(match, overrides[match.id]);
 
   if (!isValid) {

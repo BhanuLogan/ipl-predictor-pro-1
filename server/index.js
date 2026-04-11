@@ -8,10 +8,10 @@ const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const http = require("http");
 const { Server } = require("socket.io");
-const IPL_SCHEDULE = require("./schedule");
+let matchesCache = require("./schedule");
 
 async function isVotingLocked(matchId) {
-  const match = IPL_SCHEDULE.find((m) => m.id === matchId);
+  const match = matchesCache.find((m) => m.id === matchId);
   if (!match) return false;
 
   const override = await queryOne("SELECT manual_locked, lock_delay FROM match_overrides WHERE match_id = $1", [matchId]);
@@ -102,6 +102,22 @@ async function getCachedRoomIds() {
 // Invalidate caches when results/rooms change (called after writes)
 function invalidateResultsCache() { _completedIdsCache.ts = 0; }
 function invalidateRoomsCache()   { _roomIdsCache.ts = 0; }
+
+async function loadMatchesCache() {
+  try {
+    const rows = await query(
+      `SELECT id, match_num, date::text AS date, time, team1, team2,
+              COALESCE(venue, '') AS venue, espn_event_id
+       FROM matches ORDER BY match_num ASC`
+    );
+    if (rows.length > 0) {
+      matchesCache = rows;
+      console.log(`[Matches] Loaded ${matchesCache.length} matches from DB`);
+    }
+  } catch (e) {
+    console.error('[Matches] Error loading from DB, using hardcoded schedule:', e.message);
+  }
+}
 
 async function initDb() {
   // ── Rooms ──
@@ -291,6 +307,36 @@ async function initDb() {
       UNIQUE(room_id, user_id)
     );
   `);
+
+  // Matches table (stores IPL schedule, synced from ESPN)
+  await query(`
+    CREATE TABLE IF NOT EXISTS matches (
+      id TEXT PRIMARY KEY,
+      espn_event_id TEXT,
+      match_num INTEGER UNIQUE NOT NULL,
+      date DATE NOT NULL,
+      time TEXT NOT NULL DEFAULT '19:30',
+      team1 TEXT NOT NULL,
+      team2 TEXT NOT NULL,
+      venue TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  // Seed from hardcoded schedule if table is empty
+  const matchCountRow = await queryOne('SELECT COUNT(*)::int AS n FROM matches');
+  if (!matchCountRow || matchCountRow.n === 0) {
+    const SEED_SCHEDULE = require('./schedule');
+    for (let i = 0; i < SEED_SCHEDULE.length; i++) {
+      const m = SEED_SCHEDULE[i];
+      await query(
+        `INSERT INTO matches (id, match_num, date, time, team1, team2, venue)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+        [m.id, i + 1, m.date, m.time || '19:30', m.team1, m.team2, m.venue || '']
+      );
+    }
+    console.log(`[Matches] Seeded ${SEED_SCHEDULE.length} matches from hardcoded schedule`);
+  }
 
   const existing = await queryOne(
     "SELECT id FROM users WHERE username = $1",
@@ -851,7 +897,7 @@ app.post("/api/result", authMiddleware, adminMiddleware, asyncRoute(async (req, 
 function computeUserTimingStats(voteRows) {
   if (!voteRows || voteRows.length === 0) return {};
 
-  const matchMap = new Map(IPL_SCHEDULE.map((m) => [m.id, m]));
+  const matchMap = new Map(matchesCache.map((m) => [m.id, m]));
   const byUser = new Map();
 
   for (const row of voteRows) {
@@ -957,7 +1003,7 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
   }
 
   const matchId = lastResult.match_id;
-  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  const match = matchesCache.find(m => m.id === matchId);
   if (!match) return res.json({ noData: true });
 
   // 2. Get votes for this match
@@ -1686,6 +1732,23 @@ function extractScoreSummaryESPN(espnMatch) {
   return status || null;
 }
 
+/** Extract the match result description (e.g. "Lucknow Super Giants won by 3 wkts") from
+ *  ESPN summary. Checks, in priority order:
+ *  1. comp.status.type.detail — ESPN sometimes puts the win line here
+ *  2. data.notes — a note whose text contains "won by / tie / abandoned"
+ *  3. comp.situation.lastPlay.text — fallback live-play field */
+function extractResultTextESPN(notes, statusDetail, situation) {
+  const WIN_RE = /won by|tie[d]?|abandoned|no result/i;
+  if (statusDetail && WIN_RE.test(statusDetail)) return statusDetail;
+  if (Array.isArray(notes)) {
+    const rn = notes.find(n => n.type === 'result' || (n.text && WIN_RE.test(n.text)));
+    if (rn?.text) return rn.text.trim();
+  }
+  const lastPlayText = situation?.lastPlay?.text || situation?.text || '';
+  if (lastPlayText && WIN_RE.test(lastPlayText)) return lastPlayText.trim();
+  return null;
+}
+
 /** Extract toss info from ESPN summary notes array.
  *  ESPN format (type:"toss"): "Lucknow Super Giants , elected to field first" */
 function extractTossInfoESPN(notes) {
@@ -1752,15 +1815,64 @@ async function fetchESPNAll(datesParam = null) {
   const url = datesParam
     ? `${ESPN_IPL_BASE}/events?limit=100&dates=${datesParam}`
     : `${ESPN_IPL_BASE}/events?limit=100`;
+  console.log(`[ESPN] GET ${url}`);
   const resp = await axios.get(url, { timeout: 10000 });
   const events = resp.data?.events || [];
-  if (!events.length) {
-    console.log(`[ESPN] /events returned 0 events (dates=${datesParam || 'default'}). Keys:`, Object.keys(resp.data || {}));
-    return [];
-  }
+  console.log(`[ESPN] ${resp.status} ${url} — ${events.length} events, top-level keys: ${Object.keys(resp.data || {}).join(', ')}`);
+  if (!events.length) return [];
   const first = events[0];
-  console.log(`[ESPN] /events returned ${events.length} event(s) (dates=${datesParam || 'default'}). First: id=${first?.id}`);
+  console.log(`[ESPN] First event: id=${first?.id}, state=${first?.competitions?.[0]?.status?.type?.state}`);
   return events.map(adaptESPNEvent).filter(Boolean);
+}
+
+/** Sync ESPN event IDs into the matches table. Fetches all IPL 2026 events from ESPN
+ *  and matches them to DB rows by date + team abbreviations. */
+async function syncMatchesFromESPN() {
+  try {
+    console.log('[Matches] Syncing schedule from ESPN...');
+    const espnEvents = await fetchESPNAll('20260301-20260531');
+    if (!espnEvents.length) {
+      console.log('[Matches] ESPN returned 0 events for schedule sync');
+      return { updated: 0 };
+    }
+
+    let updated = 0;
+    const existing = await query('SELECT id, team1, team2, date::text AS date FROM matches');
+
+    for (const evt of espnEvents) {
+      const t1 = evt.team1.short;
+      const t2 = evt.team2.short;
+      const evtDate = evt.startDateISO?.split('T')[0];
+      if (!t1 || !t2 || !evtDate) continue;
+
+      const match = existing.find(m =>
+        m.date === evtDate && (
+          (m.team1 === t1 && m.team2 === t2) ||
+          (m.team1 === t2 && m.team2 === t1)
+        )
+      );
+
+      if (match && evt.espnEventId) {
+        const r = await query(
+          `UPDATE matches SET espn_event_id = $1
+           WHERE id = $2 AND (espn_event_id IS NULL OR espn_event_id != $1)
+           RETURNING id`,
+          [evt.espnEventId, match.id]
+        );
+        if (r.length > 0) {
+          console.log(`[Matches] Updated ESPN ID for ${match.id}: ${evt.espnEventId}`);
+          updated++;
+        }
+      }
+    }
+
+    await loadMatchesCache();
+    console.log(`[Matches] Sync complete: updated ${updated} ESPN IDs`);
+    return { updated };
+  } catch (e) {
+    console.error('[Matches] Sync error:', e.message);
+    return { error: e.message };
+  }
 }
 
 /** Parse playing XI and impact player pool for both teams from ESPN summary data */
@@ -1845,7 +1957,6 @@ function formatTossMessage(toss, lineups) {
   return lines.join('\n');
 }
 
-/** Fetch toss info + playing XIs for a specific ESPN event via the summary endpoint */
 /** Extract human-readable result text ("Team won by X") from a completed match.
  *  Checks status detail, notes array, and situation.lastPlay as fallbacks. */
 function extractResultTextESPN(notes, statusDetail, situation) {
@@ -1860,13 +1971,17 @@ function extractResultTextESPN(notes, statusDetail, situation) {
   return null;
 }
 
+/** Fetch toss info + playing XIs for a specific ESPN event via the summary endpoint.
+ *  Also returns state/status/winnerName/team1/team2 for use in checkRecentMatches. */
 async function fetchESPNSummary(espnEventId) {
   try {
     const url = `${ESPN_IPL_BASE}/summary?event=${espnEventId}`;
     console.log(`[ESPN] GET ${url}`);
     const resp = await axios.get(url, { timeout: 8000 });
-    console.log(`[ESPN] ${resp.status} ${url} — keys: ${Object.keys(resp.data || {}).join(', ')}`);
     const data = resp.data || {};
+    const topKeys = Object.keys(data);
+    console.log(`[ESPN] ${resp.status} ${url} — keys: ${topKeys.join(', ')}`);
+
     const comp = data.header?.competitions?.[0] || {};
 
     // Venue
@@ -1895,7 +2010,7 @@ async function fetchESPNSummary(espnEventId) {
       : null;
     console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, result="${resultText || statusDetail}", winner=${winnerName || 'none'}`);
 
-    // Debug: log notes
+    // Debug: log notes so impact-player matching can be verified in server logs
     if (data.notes?.length) {
       console.log(`[ESPN] Notes for event ${espnEventId}:`, JSON.stringify(data.notes.map(n => ({ type: n.type, text: (n.text || '').slice(0, 120) }))));
     }
@@ -1933,8 +2048,7 @@ async function getESPNEventId(matchId, match) {
 
   // Step 2b: look for ESPN ID in any stored result between same teams
   if (match?.team1 && match?.team2) {
-    const IPL_SCHEDULE = require('./schedule.js');
-    const sameTeamIds = IPL_SCHEDULE
+    const sameTeamIds = matchesCache
       .filter(m => (m.team1 === match.team1 && m.team2 === match.team2) ||
                    (m.team1 === match.team2 && m.team2 === match.team1))
       .map(m => m.id);
@@ -2017,7 +2131,10 @@ function formatPointsTable(entries) {
 
 /** Fetch ESPN matchcard data (batting + bowling) for a given event */
 async function fetchESPNScorecard(espnEventId) {
-  const resp = await axios.get(`${ESPN_IPL_BASE}/summary?event=${espnEventId}`, { timeout: 8000 });
+  const url = `${ESPN_IPL_BASE}/summary?event=${espnEventId}`;
+  console.log(`[ESPN] GET ${url} (scorecard)`);
+  const resp = await axios.get(url, { timeout: 8000 });
+  console.log(`[ESPN] ${resp.status} ${url} (scorecard) — matchcards: ${(resp.data?.matchcards || []).length}`);
   const matchcards = resp.data?.matchcards || [];
   const header = resp.data?.header?.competitions?.[0];
   const status = header?.status?.type?.description || '';
@@ -2111,14 +2228,14 @@ async function checkRecentMatches(isManual = false) {
     const existingIds = new Set(existingResults.map((r) => r.match_id));
 
     // Skip if every match at or before now already has a result
-    const needResultSync = IPL_SCHEDULE.some((m) => {
+    const needResultSync = matchesCache.some((m) => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       return nowMs >= startTime.getTime() && !existingIds.has(m.id);
     });
     if (!needResultSync) return { updated: 0, checked: 0 };
 
     // Candidate matches: manual = any time after start; auto only in [start+4h, start+6h]
-    const pendingMatches = IPL_SCHEDULE.filter((m) => {
+    const pendingMatches = matchesCache.filter((m) => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       if (isManual) return nowMs >= startTime.getTime();
       const windowStart = startTime.getTime() + AUTO_RESULT_CHECK_DELAY_MS;
@@ -2153,7 +2270,7 @@ async function checkRecentMatches(isManual = false) {
         continue;
       }
 
-      const status = status.status || "";
+      const status = summary.status || "";
       const state  = summary.state  || "pre";
 
       const stateDone =
@@ -2164,7 +2281,7 @@ async function checkRecentMatches(isManual = false) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2) ||
           (summary.winnerName ? (TEAM_NAME_MAP[summary.winnerName] || null) : null);
         if (winner) {
-          const scoreSummary = summary.status || null;
+          const scoreSummary = summary.status || null; // e.g. "Rajasthan Royals won by 1 run"
           const toss = summary.toss || null;
           const matchDetails = {
             espnEventId: espnId,
@@ -2469,6 +2586,15 @@ app.get('/api/live-score', asyncRoute(async (req, res) => {
   res.json(Object.fromEntries(liveScoreCache));
 }));
 
+app.get('/api/matches', asyncRoute(async (req, res) => {
+  res.json(matchesCache);
+}));
+
+app.post('/api/admin/sync-schedule', authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const result = await syncMatchesFromESPN();
+  res.json(result);
+}));
+
 // ─── Chatbot System ────────────────────────────────────────────────────────
 
 function getBotName(_matchId) {
@@ -2476,10 +2602,10 @@ function getBotName(_matchId) {
 }
 
 function getBotIntro(botName, matchId) {
-  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  const match = matchesCache.find(m => m.id === matchId);
   const t1 = match?.team1 || '?';
   const t2 = match?.team2 || '?';
-  const idx = IPL_SCHEDULE.findIndex(m => m.id === matchId);
+  const idx = matchesCache.findIndex(m => m.id === matchId);
   const variants = [
     `Hey everyone! 👋 I'm ${botName}, your AI cricket companion for today's match! 🏏✨\n\n📍 ${t1} vs ${t2} — let the battle begin!\n\nI'll be dropping live ball-by-ball updates right here as the action unfolds:\n\n🔴 Wickets  •  🔵 Fours  •  🏏 Sixes  •  📊 Over summaries\n\nReact to my updates, cheer for your team, and let's make this match unforgettable! 🚀🔥`,
     `Helloooo cricket lovers! 🦁 The name's ${botName} and I'm your dedicated live score bot for this epic clash!\n\n⚔️ ${t1} vs ${t2} — who's it gonna be?!\n\nI'll fire ball-by-ball commentary straight into this chat as the game unfolds. React with 🔥 for sixes, 👏 for wickets — let's get loud! 🎉\n\nLet's gooooo! 🚀`,
@@ -2541,8 +2667,7 @@ async function postIntroAndSummaryForCompletedMatch(roomId, matchId) {
   if (existing) return;
 
   const botName = getBotName(matchId);
-  const schedule = require('./schedule.js');
-  const matchInfo = schedule.find(m => m.id === matchId);
+  const matchInfo = matchesCache.find(m => m.id === matchId);
   const t1 = matchInfo?.team1 || 'Team 1';
   const t2 = matchInfo?.team2 || 'Team 2';
 
@@ -2564,7 +2689,7 @@ async function postIntroAndSummaryForCompletedMatch(roomId, matchId) {
 
 async function postIntroIfNeeded(roomId, matchId) {
   if (!await isBotEnabled(matchId)) return;
-  const match = IPL_SCHEDULE.find(m => m.id === matchId);
+  const match = matchesCache.find(m => m.id === matchId);
   if (!match) return;
 
   const key = `${roomId}_${matchId}`;
@@ -2638,12 +2763,12 @@ async function fetchLatestBallData(matchId) {
   const state = commentaryCache.get(matchId);
   if (!state?.espnEventId) return null;
   try {
-    const resp = await axios.get(
-      `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
-      { timeout: 8000 }
-    );
+    const url = `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`;
+    console.log(`[ESPN] GET ${url}`);
+    const resp = await axios.get(url, { timeout: 8000 });
     const rawComm = resp.data?.commentary;
     const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || resp.data?.plays || [];
+    console.log(`[ESPN] ${resp.status} ${url} — ${items.length} items`);
     const latest = items[0] || null;
     const liveData = liveScoreCache.get(matchId);
     const miniscore = liveData?.score
@@ -2675,8 +2800,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   const q = rawQuery.trim().toLowerCase().replace(/[?!.,]+$/, '');
   const botName = getBotName(matchId);
   const liveData = liveScoreCache.get(matchId);
-  const schedule = require('./schedule.js');
-  const matchInfo = schedule.find(m => m.id === matchId);
+  const matchInfo = matchesCache.find(m => m.id === matchId);
   const t1 = matchInfo?.team1 || 'Team 1';
   const t2 = matchInfo?.team2 || 'Team 2';
 

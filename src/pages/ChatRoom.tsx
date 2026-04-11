@@ -4,7 +4,8 @@ import { ArrowLeft, Send, MessageCircle, X } from "lucide-react";
 import { api, ChatMessage, MessageReaction, User } from "@/lib/api";
 import { connectSocket, getSocket } from "@/lib/socket";
 import Header from "@/components/Header";
-import { IPL_SCHEDULE, IPL_TEAMS } from "@/lib/data";
+import { IPL_TEAMS } from "@/lib/data";
+import { useMatches } from "@/lib/matches";
 import { format } from "date-fns";
 
 const REACTION_EMOJIS = [
@@ -369,6 +370,7 @@ function renderWithMentions(text: string, currentUsername?: string) {
 
 // ── Main ChatRoom ─────────────────────────────────────────────────────────────
 const ChatRoom: React.FC = () => {
+  const matches = useMatches();
   const { roomId, matchId } = useParams<{ roomId: string; matchId: string }>();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -389,7 +391,7 @@ const ChatRoom: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const match = IPL_SCHEDULE.find((m) => m.id === matchId);
+  const match = matches.find((m) => m.id === matchId);
   const t1 = match ? IPL_TEAMS[match.team1] : null;
   const t2 = match ? IPL_TEAMS[match.team2] : null;
 

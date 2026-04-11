@@ -1,6 +1,6 @@
 import React from "react";
 import MatchPoll from "@/components/MatchPoll";
-import { IPL_SCHEDULE, isVotingLocked, type Match } from "@/lib/data";
+import { isVotingLocked, type Match } from "@/lib/data";
 import { Coffee } from "lucide-react";
 
 
@@ -11,13 +11,14 @@ interface Props {
   allVotes: Record<string, Record<string, string>>;
   onVote: (matchId: string, prediction: string, isBulk?: boolean) => Promise<void>;
   completedCount: number;
+  totalMatchCount: number;
   results: Record<string, any>;
   overrides: Record<string, any>;
   roomId?: number;
   liveScores?: Record<string, { score: string | null; status: string | null; updatedAt: string }>;
 }
 
-const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, results, overrides, roomId, liveScores }: Props) => {
+const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, totalMatchCount, results, overrides, roomId, liveScores }: Props) => {
   if (openPolls.length > 0) {
     return (
       <div className="mb-8">
@@ -62,7 +63,7 @@ const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote
       </h2>
       <div className="mt-4 rounded-2xl bg-gradient-card border border-border p-8">
         <p className="text-muted-foreground">
-          {IPL_SCHEDULE.every(m => results[m.id])
+          {completedCount >= totalMatchCount && totalMatchCount > 0
             ? "🏆 IPL 2026 is complete! Check the leaderboard!"
             : completedCount === 0
               ? "🚀 IPL 2026 starts March 28! First poll opens then."
