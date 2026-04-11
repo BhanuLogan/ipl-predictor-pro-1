@@ -43,6 +43,7 @@ export interface User {
 }
 
 export interface LeaderboardEntry {
+  user_id?: number;
   username: string;
   profile_pic?: string;
   points: number;
@@ -52,6 +53,7 @@ export interface LeaderboardEntry {
   matches: number;
   /** Average absolute minutes between vote time and match time (higher is better). */
   nrr?: number | null;
+  is_room_admin?: boolean;
 }
 
 export interface UserPredictionVote {
@@ -69,6 +71,7 @@ export interface Room {
   created_by?: number;
   created_by_username?: string;
   pending_requests?: number;
+  user_is_room_admin?: boolean;
 }
 
 export interface JoinRequest {
@@ -378,6 +381,13 @@ export const api = {
     return apiFetch('/api/admin/match-bot-settings', {
       method: 'POST',
       body: JSON.stringify({ matchId, bot_enabled }),
+    });
+  },
+
+  async setRoomMemberAdmin(roomId: number, userId: number, is_room_admin: boolean): Promise<{ ok: boolean }> {
+    return apiFetch(`/api/rooms/${roomId}/members/${userId}/admin`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_room_admin }),
     });
   },
 };

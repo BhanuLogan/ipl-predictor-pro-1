@@ -138,7 +138,7 @@ const Rooms = () => {
     setRequesting(true); setRequestError(""); setRequestSuccess("");
     try {
       const res = await api.requestJoinRoom(requestCode.trim());
-      setRequestSuccess(res.message || "Join request sent! The room creator will review it.");
+      setRequestSuccess(res.message || "Join request sent! A room admin will review it.");
     } catch (e: any) {
       setRequestError(e.message || "Failed to send join request");
     } finally { setRequesting(false); }
@@ -267,8 +267,8 @@ const Rooms = () => {
                     <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
                       <Users size={11} /> {room.member_count} member{room.member_count !== 1 ? "s" : ""}
                     </span>
-                    {/* Pending requests bell — creator/admin only */}
-                    {(user.is_admin || room.created_by === user.id) && (room.pending_requests || 0) > 0 && (
+                    {/* Pending requests bell — room admins only */}
+                    {(user.is_admin || room.created_by === user.id || room.user_is_room_admin) && (room.pending_requests || 0) > 0 && (
                       <button
                         onClick={() => toggleRequestsPanel(room.id)}
                         className="relative rounded-lg p-1.5 text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
@@ -303,8 +303,8 @@ const Rooms = () => {
                   </div>
                 </div>
 
-                {/* Pending join requests panel — creator/admin only */}
-                {(user.is_admin || room.created_by === user.id) && expandedRequests[room.id] && (
+                {/* Pending join requests panel — room admins only */}
+                {(user.is_admin || room.created_by === user.id || room.user_is_room_admin) && expandedRequests[room.id] && (
                   <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] uppercase tracking-widest text-amber-400/80 font-semibold">

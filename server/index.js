@@ -120,8 +120,26 @@ async function initDb() {
       room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL, -- will add FK later
       joined_at TIMESTAMPTZ DEFAULT NOW(),
+      is_room_admin BOOLEAN DEFAULT FALSE,
       PRIMARY KEY (room_id, user_id)
     );
+  `);
+
+  // Add is_room_admin to existing room_members tables
+  await query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'room_members' AND column_name = 'is_room_admin') THEN
+        ALTER TABLE room_members ADD COLUMN is_room_admin BOOLEAN DEFAULT FALSE;
+      END IF;
+    END $$;
+  `);
+
+  // Backfill: ensure all existing room creators are marked as room admins
+  await query(`
+    UPDATE room_members rm
+    SET is_room_admin = TRUE
+    FROM rooms r
+    WHERE rm.room_id = r.id AND rm.user_id = r.created_by AND rm.is_room_admin = FALSE
   `);
 
   await query(`
@@ -1106,7 +1124,7 @@ app.post("/api/rooms", authMiddleware, asyncRoute(async (req, res) => {
       [name.trim(), generateInviteCode(), req.user.id]
     );
     await query(
-      `INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      `INSERT INTO room_members (room_id, user_id, is_room_admin) VALUES ($1, $2, TRUE) ON CONFLICT (room_id, user_id) DO UPDATE SET is_room_admin = TRUE`,
       [room.id, req.user.id]
     );
     res.json(room);
@@ -1162,7 +1180,7 @@ app.post("/api/rooms/join-request", authMiddleware, asyncRoute(async (req, res) 
       [room.id, req.user.id]
     );
     io.emit("join_request_new", { roomId: room.id, roomName: room.name, username: req.user.username });
-    return res.json({ ok: true, message: "Join request re-submitted. The room creator will review it." });
+    return res.json({ ok: true, message: "Join request re-submitted. A room admin will review it." });
   }
 
   await query(
@@ -1170,13 +1188,14 @@ app.post("/api/rooms/join-request", authMiddleware, asyncRoute(async (req, res) 
     [room.id, req.user.id]
   );
   io.emit("join_request_new", { roomId: room.id, roomName: room.name, username: req.user.username });
-  res.json({ ok: true, message: "Join request sent! The room creator will review it." });
+  res.json({ ok: true, message: "Join request sent! A room admin will review it." });
 }));
 
 // My rooms
 app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
   const rooms = await query(`
     SELECT r.id, r.name, r.invite_code, r.created_by,
+           rm.is_room_admin AS user_is_room_admin,
            COUNT(DISTINCT rm2.user_id)::int AS member_count,
            (
              SELECT COUNT(*)::int
@@ -1186,7 +1205,7 @@ app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
     FROM rooms r
     JOIN room_members rm  ON rm.room_id  = r.id AND rm.user_id = $1
     JOIN room_members rm2 ON rm2.room_id = r.id
-    GROUP BY r.id, r.name, r.invite_code, r.created_by
+    GROUP BY r.id, r.name, r.invite_code, r.created_by, rm.is_room_admin
     ORDER BY r.name ASC
   `, [req.user.id]);
   res.json(rooms);
@@ -1202,6 +1221,7 @@ async function getRoomLeaderboard(roomId) {
       u.id AS user_id,
       u.username,
       u.profile_pic,
+      rm.is_room_admin,
       COALESCE(SUM(
         CASE
           WHEN vr.winner IN ('nr','draw') THEN 1
@@ -1224,7 +1244,7 @@ async function getRoomLeaderboard(roomId) {
       FROM results r
       JOIN votes v ON v.match_id = r.match_id AND v.room_id = $1 AND v.created_at >= $2
     ) vr ON vr.user_id = u.id
-    GROUP BY u.id, u.username, u.profile_pic
+    GROUP BY u.id, u.username, u.profile_pic, rm.is_room_admin
   `, [roomId, room.created_at]);
 
   const userIds = board.map((b) => b.user_id);
@@ -1279,13 +1299,45 @@ app.get("/api/rooms/:id", authMiddleware, asyncRoute(async (req, res) => {
     [roomId, req.user.id]
   );
   if (!member && !req.user.is_admin) return res.status(403).json({ error: "Not a member of this room" });
-  const room = await queryOne("SELECT id, name, invite_code FROM rooms WHERE id = $1", [roomId]);
+  const room = await queryOne("SELECT id, name, invite_code, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
   const members = await query(
     `SELECT u.username FROM users u JOIN room_members rm ON rm.user_id = u.id WHERE rm.room_id = $1 ORDER BY u.username ASC`,
     [roomId]
   );
   res.json({ ...room, members: members.map(m => m.username) });
+}));
+
+// Set/unset room admin role for a member (only room creator or global admin)
+app.put("/api/rooms/:id/members/:userId/admin", authMiddleware, asyncRoute(async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const targetUserId = parseInt(req.params.userId);
+  if (isNaN(roomId) || isNaN(targetUserId)) return res.status(400).json({ error: "Invalid id" });
+
+  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  if (!room) return res.status(404).json({ error: "Room not found" });
+  if (!req.user.is_admin && room.created_by !== req.user.id) {
+    return res.status(403).json({ error: "Only the room creator or global admin can manage admin roles" });
+  }
+  // Protect the creator's own admin status
+  if (targetUserId === room.created_by) {
+    return res.status(400).json({ error: "Cannot change admin status of room creator" });
+  }
+
+  const { is_room_admin } = req.body;
+  if (typeof is_room_admin !== "boolean") return res.status(400).json({ error: "is_room_admin must be boolean" });
+
+  const targetMember = await queryOne(
+    "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, targetUserId]
+  );
+  if (!targetMember) return res.status(404).json({ error: "User is not a member of this room" });
+
+  await query(
+    "UPDATE room_members SET is_room_admin = $1 WHERE room_id = $2 AND user_id = $3",
+    [is_room_admin, roomId, targetUserId]
+  );
+  res.json({ ok: true });
 }));
 
 // Get pending join requests for a room (creator or admin)
@@ -1295,8 +1347,12 @@ app.get("/api/rooms/:id/join-requests", authMiddleware, asyncRoute(async (req, r
 
   const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
-  if (!req.user.is_admin && room.created_by !== req.user.id) {
-    return res.status(403).json({ error: "Only the room creator or admin can view join requests" });
+  const membership = await queryOne(
+    "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!req.user.is_admin && !membership?.is_room_admin) {
+    return res.status(403).json({ error: "Only room admins can view join requests" });
   }
 
   const requests = await query(`
@@ -1319,8 +1375,12 @@ app.post("/api/rooms/:id/join-requests/:requestId/approve", authMiddleware, asyn
 
   const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
-  if (!req.user.is_admin && room.created_by !== req.user.id) {
-    return res.status(403).json({ error: "Only the room creator or admin can approve join requests" });
+  const approveMembership = await queryOne(
+    "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!req.user.is_admin && !approveMembership?.is_room_admin) {
+    return res.status(403).json({ error: "Only room admins can approve join requests" });
   }
 
   const joinReq = await queryOne(
@@ -1348,8 +1408,12 @@ app.post("/api/rooms/:id/join-requests/:requestId/reject", authMiddleware, async
 
   const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
-  if (!req.user.is_admin && room.created_by !== req.user.id) {
-    return res.status(403).json({ error: "Only the room creator or admin can reject join requests" });
+  const rejectMembership = await queryOne(
+    "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
+    [roomId, req.user.id]
+  );
+  if (!req.user.is_admin && !rejectMembership?.is_room_admin) {
+    return res.status(403).json({ error: "Only room admins can reject join requests" });
   }
 
   const joinReq = await queryOne(
@@ -2175,15 +2239,19 @@ async function pollLiveScores() {
 
       if (!apiMatch) continue;
 
-      // When ESPN marks the match as finished, immediately trigger result sync
+      const { score, status, toss } = buildScoreFromESPNMatch(apiMatch, match);
+
+      // Match is considered over when ESPN marks state='post' OR the status text says so
+      const matchAppearsOver = apiMatch.state === 'post' ||
+        (status && /won by|match abandoned|no result|tied/i.test(status));
+
+      // When match appears over, immediately trigger result sync
       // (bypasses the 4h auto-sync delay so next-day polls open promptly)
-      if (apiMatch.state === 'post' && !completedIds.has(match.id) && !resultTriggerSet.has(match.id)) {
+      if (matchAppearsOver && !completedIds.has(match.id) && !resultTriggerSet.has(match.id)) {
         resultTriggerSet.add(match.id);
-        console.log(`[LiveScore] Match ${match.id} is 'post' — triggering immediate result sync`);
+        console.log(`[LiveScore] Match ${match.id} appears over — triggering immediate result sync`);
         checkRecentMatches(true).catch(e => console.error('[LiveScore] Result trigger failed:', e.message));
       }
-
-      const { score, status, toss } = buildScoreFromESPNMatch(apiMatch, match);
 
       // Seed commentaryCache with ESPN event ID on first encounter
       if (apiMatch.espnEventId && !commentaryCache.has(match.id)) {
@@ -2219,8 +2287,8 @@ async function pollLiveScores() {
 
       // ── Bot live-score messages ─────────────────────────────────────────────
       // Post when score changes: immediately on wicket, otherwise throttle to 15s.
-      // Only skip when ESPN confirms match is finished ('post').
-      if (score && apiMatch.state !== 'post') {
+      // Skip once match appears over (state=post or status says "won by" etc).
+      if (score && !matchAppearsOver) {
         const scoreState = liveScoreBotState.get(match.id) || { lastScore: null, lastPostedAt: 0, lastWickets: 0 };
         const currentWickets = parseWicketsFromScore(score);
         const wicketFell = currentWickets > scoreState.lastWickets;
