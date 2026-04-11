@@ -312,13 +312,8 @@ async function initDb() {
     WHERE name = 'STAGS' AND created_by IS NULL
   `);
 
-  // Add all existing non-admin users to STAGS (idempotent)
-  await query(`
-    INSERT INTO room_members (room_id, user_id)
-    SELECT r.id, u.id FROM rooms r, users u
-    WHERE r.name = 'STAGS' AND NOT u.is_admin
-    ON CONFLICT DO NOTHING
-  `);
+  // STAGS auto-join removed — users join via invite code / join request only.
+  // Auto-adding on every startup was causing removed users to be re-added.
 }
 
 app.use(cors());
@@ -1890,13 +1885,15 @@ async function fetchESPNSummary(espnEventId) {
     const t2Name = c2.team?.displayName || c2.displayName || '';
     const t1Abbr = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
     const t2Abbr = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
-    const state      = comp.status?.type?.state || 'pre';
-    const statusRaw  = comp.status?.type?.detail || comp.status?.type?.description || '';
-    const resultText = extractResultTextESPN(data.notes, statusRaw, comp.situation);
+    const state         = comp.status?.type?.state || 'pre';
+    const statusSummary = comp.status?.summary || '';             // e.g. "CSK won by 23 runs"
+    const statusDetail  = comp.status?.type?.detail || comp.status?.type?.description || '';
+    // Prefer status.summary (direct win text) over detail/notes fallbacks
+    const resultText = statusSummary || extractResultTextESPN(data.notes, statusDetail, comp.situation);
     const winnerName = state === 'post'
       ? (c1.winner ? t1Name : c2.winner ? t2Name : null)
       : null;
-    console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, result="${resultText || statusRaw}", winner=${winnerName || 'none'}`);
+    console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, result="${resultText || statusDetail}", winner=${winnerName || 'none'}`);
 
     // Debug: log notes
     if (data.notes?.length) {
@@ -1910,7 +1907,7 @@ async function fetchESPNSummary(espnEventId) {
       venue,
       // Result info
       state,
-      status: resultText || statusRaw,
+      status: resultText || statusDetail,
       winnerName,
       team1: { name: t1Name, short: t1Abbr, score: c1.score || '' },
       team2: { name: t2Name, short: t2Abbr, score: c2.score || '' },
@@ -2156,7 +2153,7 @@ async function checkRecentMatches(isManual = false) {
         continue;
       }
 
-      const status = summary.status || "";
+      const status = status.status || "";
       const state  = summary.state  || "pre";
 
       const stateDone =
@@ -2329,10 +2326,13 @@ async function pollMatchData() {
       if (c2.score) scoreParts.push(`${t2Abbr} ${c2.score}`);
       const score = scoreParts.join(' · ') || null;
 
-      const state     = comp.status?.type?.state || 'pre';
-      const statusRaw = comp.status?.type?.detail || comp.status?.type?.description || '';
+      const state         = comp.status?.type?.state || 'pre';
+      // status.summary has the human-readable result ("CSK won by 23 runs") for completed matches
+      const statusSummary = comp.status?.summary || '';
+      const statusDetail  = comp.status?.type?.detail || comp.status?.type?.description || '';
+      const statusRaw     = statusSummary || statusDetail;
 
-      // Enrich status with live run-rate info from situation
+      // Enrich in-progress status with live run-rate info from situation
       const situation = comp.situation || {};
       const crr = situation.currentRunRate  != null ? Number(situation.currentRunRate).toFixed(2)  : null;
       const rrr = situation.requiredRunRate != null ? Number(situation.requiredRunRate).toFixed(2) : null;
