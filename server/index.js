@@ -2270,7 +2270,7 @@ async function checkRecentMatches(isManual = false) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2) ||
           (summary.winnerName ? (TEAM_NAME_MAP[summary.winnerName] || null) : null);
         if (winner) {
-          const scoreSummary = extractScoreSummaryESPN(summary);
+          const scoreSummary = summary.status || null; // e.g. "Rajasthan Royals won by 1 run"
           const toss = summary.toss || null;
           const matchDetails = {
             espnEventId: espnId,
