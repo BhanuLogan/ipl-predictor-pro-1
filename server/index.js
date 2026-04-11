@@ -2352,12 +2352,17 @@ async function pollLiveScores() {
           liveScoreBotState.set(match.id, { lastScore: score, lastPostedAt: Date.now(), lastWickets: currentWickets });
 
           const botName = getBotName(match.id);
-          const msg = formatLiveScoreBotMessage(match, score, status);
-          const scoreRoomIds = await getCachedRoomIds();
-          for (const roomId of scoreRoomIds) {
-            await postBotMessage(roomId, match.id, msg, botName);
+          const ballData = await fetchLatestBallData(match.id);
+          const msg = ballData?.latest
+            ? formatESPNCommentaryItem(ballData.latest, score)
+            : null;
+          if (msg) {
+            const scoreRoomIds = await getCachedRoomIds();
+            for (const roomId of scoreRoomIds) {
+              await postBotMessage(roomId, match.id, msg, botName);
+            }
+            console.log(`[LiveScore] Score posted for ${match.id}${wicketFell ? ' (wicket)' : ''}: ${score}`);
           }
-          console.log(`[LiveScore] Score posted for ${match.id}${wicketFell ? ' (wicket)' : ''}: ${score}`);
         } else if (scoreChanged) {
           // Score changed but throttled — keep wickets current so next wicket fires immediately
           liveScoreBotState.set(match.id, { ...scoreState, lastWickets: currentWickets });
