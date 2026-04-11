@@ -94,13 +94,18 @@ const Index = () => {
   // Real-time live score updates via Socket.IO
   useEffect(() => {
     const sock = getSocket();
-    const handler = (data: { matchId: string; score: string | null; status: string | null; updatedAt: string }) => {
+    const liveScoreHandler = (data: { matchId: string; score: string | null; status: string | null; updatedAt: string }) => {
       setLiveScores(prev => ({ ...prev, [data.matchId]: data }));
     };
-    sock.on('live_score', handler);
+    const resultUpdatedHandler = () => { loadData(); };
+    sock.on('live_score', liveScoreHandler);
+    sock.on('result_updated', resultUpdatedHandler);
     if (!sock.connected) connectSocket();
-    return () => { sock.off('live_score', handler); };
-  }, []);
+    return () => {
+      sock.off('live_score', liveScoreHandler);
+      sock.off('result_updated', resultUpdatedHandler);
+    };
+  }, [loadData]);
 
   const handleVote = async (matchId: string, prediction: string, isBulk?: boolean) => {
     if (!activeRoom) return;

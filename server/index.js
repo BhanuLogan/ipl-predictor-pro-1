@@ -1931,6 +1931,8 @@ async function checkRecentMatches(isManual = false) {
           );
           await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
           updatedCount++;
+          invalidateResultsCache();
+          io.emit('result_updated', { matchId: match.id, winner });
 
           // Post win announcement to all rooms (once per match)
           if (!winPostedSet.has(match.id) && await isBotEnabled(match.id)) {
@@ -1978,6 +1980,7 @@ const commentaryCache = new Map();   // ourMatchId -> { espnEventId, lastId, tos
 // lastId: null = uninitialized (skip existing items on first poll); number = last ESPN item id posted
 const rainDelayState = new Map();    // ourMatchId -> { inDelay: bool, lastPostedAt: number }
 const liveScoreBotState = new Map(); // ourMatchId -> { lastScore, lastPostedAt, lastWickets }
+const resultTriggerSet = new Set();  // ourMatchId -> triggered (prevent duplicate auto-result triggers)
 
 /** Sum all wickets fallen from a score string like "MI 182/5 (20) · CSK 143/6 (16.3)" */
 function parseWicketsFromScore(score) {
@@ -2039,6 +2042,14 @@ async function pollLiveScores() {
       });
 
       if (!apiMatch) continue;
+
+      // When ESPN marks the match as finished, immediately trigger result sync
+      // (bypasses the 4h auto-sync delay so next-day polls open promptly)
+      if (apiMatch.state === 'post' && !completedIds.has(match.id) && !resultTriggerSet.has(match.id)) {
+        resultTriggerSet.add(match.id);
+        console.log(`[LiveScore] Match ${match.id} is 'post' — triggering immediate result sync`);
+        checkRecentMatches(true).catch(e => console.error('[LiveScore] Result trigger failed:', e.message));
+      }
 
       const { score, status, toss } = buildScoreFromESPNMatch(apiMatch, match);
 
