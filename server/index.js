@@ -3301,8 +3301,13 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
       reply = `No predictions made in this room yet, ${askerUsername}!`;
     } else {
       const medals = ['🥇', '🥈', '🥉', '#4', '#5'];
-      const lines = top5.map((r, i) => `${medals[i]} ${r.username} — ${r.points} pts`);
-      reply = `🏆 Room Leaderboard (Top 5)\n\n${lines.join('\n')}`;
+      const HDR = `${'#'.padEnd(2)}  ${'Player'.padEnd(16)}  ${'Pts'.padStart(3)}  ${'✓'.padStart(3)}  ${'Voted'.padStart(5)}`;
+      const SEP = '─'.repeat(HDR.length);
+      const rows = top5.map((r, i) =>
+        `${medals[i].padEnd(2)}  ${r.username.slice(0, 16).padEnd(16)}  ` +
+        `${String(r.points).padStart(3)}  ${String(r.correct).padStart(3)}  ${String(r.voted).padStart(5)}`
+      );
+      reply = `🏆 Room Leaderboard (Top 5)\n\n${HDR}\n${SEP}\n${rows.join('\n')}`;
     }
   }
 

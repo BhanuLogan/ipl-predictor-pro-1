@@ -299,7 +299,7 @@ const BotMessage = ({
             }`}
           >
             <p className={`whitespace-pre-wrap break-words ${
-              msg.message.startsWith('📋 Scorecard') || msg.message.startsWith('🏆 IPL')
+              msg.message.startsWith('📋 Scorecard') || msg.message.startsWith('🏆 IPL') || msg.message.startsWith('🏆 Room')
                 ? 'text-xs font-mono leading-snug'
                 : 'text-sm leading-relaxed'
             } text-foreground`}>
