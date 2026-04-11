@@ -2397,7 +2397,7 @@ async function pollMatchData() {
     }
 
     // Matches within monitoring window: 30 min before start to 6h after start
-    const liveMatches = IPL_SCHEDULE.filter(m => {
+    const liveMatches = matchesCache.filter(m => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       const preWindow = new Date(startTime.getTime() - 30 * 60 * 1000);
       const cutoff    = new Date(startTime.getTime() + 6 * 60 * 60 * 1000);
