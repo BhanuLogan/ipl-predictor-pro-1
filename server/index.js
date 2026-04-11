@@ -2214,11 +2214,22 @@ setTimeout(checkRecentMatches, 5000); // 5 sec delay to let DB init completion
 // ─── Live Score Service ────────────────────────────────────────────────────
 
 const liveScoreCache = new Map();    // ourMatchId -> LiveScorePayload
-const commentaryCache = new Map();   // ourMatchId -> { espnEventId, lastId, toss, lineups }
+const commentaryCache = new Map();   // ourMatchId -> { espnEventId, lastId, toss, lineups, seenIds }
 // lastId: null = uninitialized (skip existing items on first poll); number = last ESPN item id posted
 const rainDelayState = new Map();    // ourMatchId -> { inDelay: bool, lastPostedAt: number }
 const liveScoreBotState = new Map(); // ourMatchId -> { lastScore, lastPostedAt, lastWickets }
 const resultTriggerSet = new Set();  // ourMatchId -> triggered (prevent duplicate auto-result triggers)
+const matchESPNIdMap = new Map();    // ourMatchId -> espnEventId (loaded from DB at startup)
+
+async function loadMatchESPNIds() {
+  try {
+    const rows = await query('SELECT id, espn_event_id FROM matches WHERE espn_event_id IS NOT NULL');
+    for (const row of rows) matchESPNIdMap.set(row.id, row.espn_event_id);
+    console.log(`[Matches] Loaded ${matchESPNIdMap.size} ESPN IDs from DB`);
+  } catch (e) {
+    console.error('[Matches] Could not load ESPN IDs from DB:', e.message);
+  }
+}
 
 /** Sum all wickets fallen from a score string like "MI 182/5 (20) · CSK 143/6 (16.3)" */
 function parseWicketsFromScore(score) {
@@ -2227,204 +2238,210 @@ function parseWicketsFromScore(score) {
   return total;
 }
 
-/** Format a periodic live-score bot message */
-function formatLiveScoreBotMessage(match, score, status) {
-  const lines = [`🏏 ${match.team1} vs ${match.team2}`];
-  if (score) lines.push(`📊 ${score}`);
-  if (status) lines.push(`📌 ${status}`);
-  return lines.join('\n');
+// Stable dedup key for ESPN commentary items
+function itemKey(item) {
+  const primary = item.id ?? item.sequence ?? item.sequenceNumber;
+  if (primary != null && String(primary) !== '') return String(primary);
+  const over = item.over?.overs ?? '';
+  const txt  = (item.shortText || item.text || '').slice(0, 30);
+  const key  = `${over}_${txt}`;
+  return key !== '_' ? key : null;
 }
 
-/** Build score/status from an ESPN normalized match object */
-function buildScoreFromESPNMatch(espnMatch, ourMatch) {
-  const t1Short = espnMatch.team1.short || ourMatch.team1;
-  const t2Short = espnMatch.team2.short || ourMatch.team2;
-  const parts = [];
-  if (espnMatch.team1.score) parts.push(`${t1Short} ${espnMatch.team1.score}`);
-  if (espnMatch.team2.score) parts.push(`${t2Short} ${espnMatch.team2.score}`);
-  return {
-    score: parts.join(' · ') || null,
-    status: espnMatch.status || null,
-    toss: null, // ESPN events endpoint does not expose toss
-  };
-}
-
-async function pollLiveScores() {
+/** Unified match data poller — one /summary call per live match replaces
+ *  the old /events + /playbyplay approach. Handles live scores, ball-by-ball
+ *  commentary, toss announcements, rain delays, and result triggers. */
+async function pollMatchData() {
   try {
     const now = new Date();
     const completedIds = await getCachedCompletedIds();
 
-    // Remove completed matches from cache
     for (const id of liveScoreCache.keys()) {
       if (completedIds.has(id)) liveScoreCache.delete(id);
     }
 
-    // Matches within monitoring window: 30 min before start (pre-match delays) to 6h after start
+    // Matches within monitoring window: 30 min before start to 6h after start
     const liveMatches = IPL_SCHEDULE.filter(m => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       const preWindow = new Date(startTime.getTime() - 30 * 60 * 1000);
-      const cutoff = new Date(startTime.getTime() + 6 * 60 * 60 * 1000);
+      const cutoff    = new Date(startTime.getTime() + 6 * 60 * 60 * 1000);
       return now >= preWindow && now <= cutoff && !completedIds.has(m.id);
     });
 
     if (liveMatches.length === 0) return;
 
-    const apiMatches = await fetchESPNAll();
+    const roomIds   = await getCachedRoomIds();
 
     for (const match of liveMatches) {
-      const apiMatch = apiMatches.find(am => {
-        const t1 = am.team1.short;
-        const t2 = am.team2.short;
-        return (t1 === match.team1 && t2 === match.team2) ||
-          (t1 === match.team2 && t2 === match.team1);
-      });
-
-      if (!apiMatch) continue;
-
-      // When ESPN marks the match as finished, immediately trigger result sync
-      // (bypasses the 4h auto-sync delay so next-day polls open promptly)
-      if (apiMatch.state === 'post' && !completedIds.has(match.id) && !resultTriggerSet.has(match.id)) {
-        resultTriggerSet.add(match.id);
-        console.log(`[LiveScore] Match ${match.id} is 'post' — triggering immediate result sync`);
-        checkRecentMatches(true).catch(e => console.error('[LiveScore] Result trigger failed:', e.message));
+      const espnId = matchESPNIdMap.get(match.id);
+      if (!espnId) {
+        console.log(`[Poll] No ESPN ID for ${match.id}, skipping`);
+        continue;
       }
 
-      const { score, status, toss } = buildScoreFromESPNMatch(apiMatch, match);
+      // ── Fetch summary ───────────────────────────────────────────────────────
+      let data;
+      try {
+        const url = `${ESPN_IPL_BASE}/summary?event=${espnId}`;
+        console.log(`[ESPN] GET ${url}`);
+        const resp = await axios.get(url, { timeout: 10000 });
+        console.log(`[ESPN] ${resp.status} ${url}`);
+        data = resp.data || {};
+      } catch (e) {
+        console.error(`[Poll] Fetch error for ${match.id} (event ${espnId}):`, e.message);
+        continue;
+      }
 
-      // Match is considered over when ESPN marks state='post' OR the status text says so
-      const matchAppearsOver = apiMatch.state === 'post' ||
-        (status && /won by|match abandoned|no result|tied/i.test(status));
+      // ── Scores & state ──────────────────────────────────────────────────────
+      const comp        = data.header?.competitions?.[0] || {};
+      const competitors = comp.competitors || [];
+      const c1 = competitors[0] || {};
+      const c2 = competitors[1] || {};
+      const t1Name  = c1.team?.displayName || c1.displayName || '';
+      const t2Name  = c2.team?.displayName || c2.displayName || '';
+      const t1Abbr  = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
+      const t2Abbr  = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
 
-      // When match appears over, immediately trigger result sync
-      // (bypasses the 4h auto-sync delay so next-day polls open promptly)
+      const scoreParts = [];
+      if (c1.score) scoreParts.push(`${t1Abbr} ${c1.score}`);
+      if (c2.score) scoreParts.push(`${t2Abbr} ${c2.score}`);
+      const score = scoreParts.join(' · ') || null;
+
+      const state     = comp.status?.type?.state || 'pre';
+      const statusRaw = comp.status?.type?.detail || comp.status?.type?.description || '';
+
+      // Enrich status with live run-rate info from situation
+      const situation = comp.situation || {};
+      const crr = situation.currentRunRate  != null ? Number(situation.currentRunRate).toFixed(2)  : null;
+      const rrr = situation.requiredRunRate != null ? Number(situation.requiredRunRate).toFixed(2) : null;
+      let status = statusRaw;
+      if (state === 'in' && (crr || rrr)) {
+        const rrParts = [];
+        if (crr) rrParts.push(`CRR: ${crr}`);
+        if (rrr) rrParts.push(`RRR: ${rrr}`);
+        status = [statusRaw, rrParts.join(' · ')].filter(Boolean).join(' | ');
+      }
+
+      const matchAppearsOver = state === 'post' ||
+        /won by|match abandoned|no result|tied/i.test(statusRaw);
+
       if (matchAppearsOver && !completedIds.has(match.id) && !resultTriggerSet.has(match.id)) {
         resultTriggerSet.add(match.id);
-        console.log(`[LiveScore] Match ${match.id} appears over — triggering immediate result sync`);
-        checkRecentMatches(true).catch(e => console.error('[LiveScore] Result trigger failed:', e.message));
+        console.log(`[Poll] Match ${match.id} appears over — triggering result sync`);
+        checkRecentMatches(true).catch(e => console.error('[Poll] Result trigger failed:', e.message));
       }
 
-      // Seed commentaryCache with ESPN event ID on first encounter
-      if (apiMatch.espnEventId && !commentaryCache.has(match.id)) {
-        const entry = { espnEventId: apiMatch.espnEventId, lastId: null, toss: null, lineups: null };
-        commentaryCache.set(match.id, entry);
-        console.log(`[Commentary] Registered match ${match.id} → ESPN ID ${apiMatch.espnEventId}`);
-      }
+      // ── Toss & lineups ──────────────────────────────────────────────────────
+      const toss    = extractTossInfoESPN(data.notes);
+      const lineups = extractLineupsESPN(data.rosters, data.notes);
 
-      // Re-fetch summary every poll cycle until BOTH toss and lineups are populated
+      if (!commentaryCache.has(match.id)) {
+        commentaryCache.set(match.id, { espnEventId: espnId, lastId: null, toss: null, lineups: null, seenIds: null });
+        console.log(`[Commentary] Registered match ${match.id} → ESPN ID ${espnId}`);
+      }
       const cachedEntry = commentaryCache.get(match.id);
-      if (cachedEntry && (!cachedEntry.toss || !cachedEntry.lineups)) {
-        fetchESPNSummary(apiMatch.espnEventId).then(d => {
-          if (d?.toss) cachedEntry.toss = d.toss;
-          if (d?.lineups) cachedEntry.lineups = d.lineups;
-        }).catch(() => {});
-      }
+      if (toss)    cachedEntry.toss    = toss;
+      if (lineups) cachedEntry.lineups = lineups;
 
-      const liveToss = cachedEntry?.toss || null;
-
+      // ── Emit live_score ─────────────────────────────────────────────────────
       const payload = {
         matchId: match.id,
         team1: match.team1,
         team2: match.team2,
-        score: score || null,
+        score:  score  || null,
         status: status || null,
-        toss: liveToss,
+        toss:   toss || cachedEntry.toss || null,
         updatedAt: new Date().toISOString(),
       };
-
       liveScoreCache.set(match.id, payload);
       io.emit('live_score', payload);
-      console.log(`[LiveScore] ${match.id}: ${score || 'no score'} | ${status || 'no status'}`);
+      console.log(`[LiveScore] ${match.id}: ${score || 'no score'} | ${statusRaw || 'no status'}`);
 
-      // ── Bot live-score messages ─────────────────────────────────────────────
-      // Post when score changes: immediately on wicket, otherwise throttle to 15s.
-      // Skip once match appears over (state=post or status says "won by" etc).
-      if (score && !matchAppearsOver) {
-        const scoreState = liveScoreBotState.get(match.id) || { lastScore: null, lastPostedAt: 0, lastWickets: 0 };
-        const currentWickets = parseWicketsFromScore(score);
-        const wicketFell = currentWickets > scoreState.lastWickets;
-        const scoreChanged = score !== scoreState.lastScore;
-        const SCORE_THROTTLE_MS = 15 * 1000;
-        const shouldPost = scoreChanged && (wicketFell || (Date.now() - scoreState.lastPostedAt >= SCORE_THROTTLE_MS));
+      const botEnabled = roomIds.length > 0 && await isBotEnabled(match.id);
 
-        if (shouldPost && await isBotEnabled(match.id)) {
-          // Update state BEFORE awaiting postBotMessage so that a concurrent poll
-          // (which can start before this one finishes) doesn't post the same score twice.
-          liveScoreBotState.set(match.id, { lastScore: score, lastPostedAt: Date.now(), lastWickets: currentWickets });
-
-          const botName = getBotName(match.id);
-          const ballData = await fetchLatestBallData(match.id);
-          const msg = ballData?.latest
-            ? formatESPNCommentaryItem(ballData.latest, score)
-            : null;
-          if (msg) {
-            const scoreRoomIds = await getCachedRoomIds();
-            for (const roomId of scoreRoomIds) {
-              await postBotMessage(roomId, match.id, msg, botName);
-            }
-            console.log(`[LiveScore] Score posted for ${match.id}${wicketFell ? ' (wicket)' : ''}: ${score}`);
-          }
-        } else if (scoreChanged) {
-          // Score changed but throttled — keep wickets current so next wicket fires immediately
-          liveScoreBotState.set(match.id, { ...scoreState, lastWickets: currentWickets });
-        }
-      }
-
-      // Post toss + XI announcement once — only when BOTH toss and lineups are available
-      if (liveToss && cachedEntry?.lineups && !tossPostedSet.has(match.id)) {
+      // ── Bot: toss announcement ───────────────────────────────────────────────
+      if (toss && lineups && state === 'in' && !tossPostedSet.has(match.id) && botEnabled) {
         tossPostedSet.add(match.id);
-        if (await isBotEnabled(match.id)) {
-          const tossRoomIds = await getCachedRoomIds();
-          const botName = getBotName(match.id);
-          const tossMsg = formatTossMessage(liveToss, cachedEntry?.lineups);
-          for (const roomId of tossRoomIds) {
-            await postBotMessage(roomId, match.id, tossMsg, botName);
-          }
-        }
+        const tossMsg = formatTossMessage(toss, lineups);
+        const botName = getBotName(match.id);
+        for (const roomId of roomIds) await postBotMessage(roomId, match.id, tossMsg, botName);
       }
 
-      // ── Rain / delay detection ──────────────────────────────────────────────
+      // ── Rain / delay detection ───────────────────────────────────────────────
       const RAIN_KEYWORDS = /rain|delay|interrupt|suspend|wet outfield|bad light|pitch inspection/i;
-      const isRainStatus = RAIN_KEYWORDS.test(status || '');
-      const rainState = rainDelayState.get(match.id) || { inDelay: false, lastPostedAt: 0 };
-      const nowMs = Date.now();
+      const isRainStatus  = RAIN_KEYWORDS.test(statusRaw || '');
+      const rainState     = rainDelayState.get(match.id) || { inDelay: false, lastPostedAt: 0 };
+      const nowMs         = Date.now();
 
       if (isRainStatus) {
-        // Re-post every 10 min while delay persists so late joiners see the update
-        const shouldPost = !rainState.inDelay ||
-          (nowMs - rainState.lastPostedAt > 10 * 60 * 1000);
-        if (shouldPost && await isBotEnabled(match.id)) {
-          const botName = getBotName(match.id);
-          const delayMsg = `🌧️ Play Interrupted!\n\n${match.team1} vs ${match.team2}\n📊 ${status}\n\nI'll resume ball-by-ball updates the moment play gets back underway! ⏸️`;
-          const rainRoomIds = await getCachedRoomIds();
-          for (const roomId of rainRoomIds) {
-            await postBotMessage(roomId, match.id, delayMsg, botName);
-          }
+        const shouldPost = !rainState.inDelay || (nowMs - rainState.lastPostedAt > 10 * 60 * 1000);
+        if (shouldPost && botEnabled) {
+          const delayMsg = `🌧️ Play Interrupted!\n\n${match.team1} vs ${match.team2}\n📊 ${statusRaw}\n\nI'll resume ball-by-ball updates the moment play gets back underway! ⏸️`;
+          const botName  = getBotName(match.id);
+          for (const roomId of roomIds) await postBotMessage(roomId, match.id, delayMsg, botName);
           rainDelayState.set(match.id, { inDelay: true, lastPostedAt: nowMs });
           console.log(`[LiveScore] Rain delay posted for match ${match.id}`);
         } else if (!rainState.inDelay) {
           rainDelayState.set(match.id, { inDelay: true, lastPostedAt: nowMs });
         }
       } else if (rainState.inDelay) {
-        // Delay has lifted — post "play resumed"
-        if (await isBotEnabled(match.id)) {
-          const botName = getBotName(match.id);
+        if (botEnabled) {
           const resumeMsg = `☀️ Play has resumed!\n\n${match.team1} vs ${match.team2} is back on! 🏏\n${score ? `📊 ${score}` : ''}\n\nBall-by-ball updates are live again! 🔥`;
-          const resumeRoomIds = await getCachedRoomIds();
-          for (const roomId of resumeRoomIds) {
-            await postBotMessage(roomId, match.id, resumeMsg, botName);
-          }
+          const botName   = getBotName(match.id);
+          for (const roomId of roomIds) await postBotMessage(roomId, match.id, resumeMsg, botName);
           console.log(`[LiveScore] Play resumed posted for match ${match.id}`);
         }
         rainDelayState.set(match.id, { inDelay: false, lastPostedAt: 0 });
       }
+
+      // ── Ball-by-ball commentary ──────────────────────────────────────────────
+      const rawComm  = data.commentary;
+      const commItems = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || data.plays || [];
+
+      if (!cachedEntry.seenIds) cachedEntry.seenIds = new Set();
+
+      if (cachedEntry.lastId === null) {
+        // First poll: log structure, seed existing items as seen without posting
+        console.log(`[Commentary] ESPN summary keys=${JSON.stringify(Object.keys(data))} items=${commItems.length} match=${match.id}`);
+        if (commItems[0]) console.log(`[Commentary] First item sample: ${JSON.stringify(commItems[0]).slice(0, 400)}`);
+        for (const item of commItems) { const k = itemKey(item); if (k) cachedEntry.seenIds.add(k); }
+        cachedEntry.lastId = 0;
+        console.log(`[Commentary] Initialized match ${match.id}: ${cachedEntry.seenIds.size} existing balls seeded`);
+        continue;
+      }
+
+      if (!botEnabled || commItems.length === 0) continue;
+
+      const newItems = commItems
+        .filter(item => { const k = itemKey(item); return k && !cachedEntry.seenIds.has(k); })
+        .sort((a, b) => {
+          const na = Number(a.id ?? a.sequenceNumber ?? 0);
+          const nb = Number(b.id ?? b.sequenceNumber ?? 0);
+          if (!isNaN(na) && !isNaN(nb) && na !== 0 && nb !== 0) return na - nb;
+          return (a.over?.overs ?? 0) - (b.over?.overs ?? 0);
+        });
+
+      if (newItems.length > 0) {
+        const botName = getBotName(match.id);
+        let posted = 0;
+        for (const item of newItems) {
+          const k = itemKey(item);
+          if (k) cachedEntry.seenIds.add(k);
+          const msg = formatESPNCommentaryItem(item, score);
+          if (!msg) continue;
+          for (const roomId of roomIds) await postBotMessage(roomId, match.id, msg, botName);
+          posted++;
+        }
+        if (posted > 0) console.log(`[Commentary] Posted ${posted} ball(s) for match ${match.id}`);
+      }
     }
   } catch (err) {
-    console.error('[LiveScore] Poll error:', err.message);
+    console.error('[Poll] Error:', err.message);
   }
 }
 
-setInterval(pollLiveScores, 5 * 1000);
-setTimeout(pollLiveScores, 10000); // 10s after startup
+setInterval(pollMatchData, 5 * 1000);
+setTimeout(pollMatchData, 10000); // 10s after startup
 
 app.get('/api/live-score', asyncRoute(async (req, res) => {
   res.json(Object.fromEntries(liveScoreCache));
@@ -3404,101 +3421,8 @@ function formatBallMessage(ball, matchScore) {
   return [line1, line2, line3, line4].filter(Boolean).join('\n');
 }
 
-async function pollCommentary() {
-  try {
-    if (commentaryCache.size === 0) return;
-
-    const completedIds = await getCachedCompletedIds();
-    const roomIds = await getCachedRoomIds();
-    if (roomIds.length === 0) return;
-
-    for (const [matchId, state] of commentaryCache.entries()) {
-      if (completedIds.has(matchId) || !state.espnEventId) continue;
-      if (!await isBotEnabled(matchId)) continue;
-
-      try {
-        const resp = await axios.get(
-          `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`,
-          { timeout: 10000 }
-        );
-
-        // commentary may be an array or an object with .items; plays is a fallback key
-        const rawComm = resp.data?.commentary;
-        const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items)
-          || resp.data?.plays
-          || [];
-
-        // Log response structure on very first poll to aid debugging
-        if (state.lastId === null) {
-          const topKeys = Object.keys(resp.data || {});
-          console.log(`[Commentary] ESPN playbyplay keys=${JSON.stringify(topKeys)} items=${items.length} match=${matchId}`);
-          if (items[0]) console.log(`[Commentary] First item sample: ${JSON.stringify(items[0]).slice(0, 400)}`);
-        }
-
-        const liveData = liveScoreCache.get(matchId);
-        const matchScoreStr = liveData?.score || null;
-
-        // Stable dedup key.
-        // ESPN items have item.id (string e.g. "120") and item.sequence (number e.g. 100002).
-        // Fall back to over.overs + shortText slice when both are missing.
-        function itemKey(item) {
-          const primary = item.id ?? item.sequence ?? item.sequenceNumber;
-          if (primary != null && String(primary) !== '') return String(primary);
-          const over = item.over?.overs ?? '';
-          const txt  = (item.shortText || item.text || '').slice(0, 30);
-          const key  = `${over}_${txt}`;
-          return key !== '_' ? key : null; // null = truly empty, skip
-        }
-
-        if (!state.seenIds) state.seenIds = new Set();
-
-        if (state.lastId === null) {
-          // First poll: seed all existing items as seen without posting
-          for (const item of items) { const k = itemKey(item); if (k) state.seenIds.add(k); }
-          state.lastId = 0;
-          console.log(`[Commentary] Initialized match ${matchId}: ${state.seenIds.size} existing balls seeded`);
-          continue;
-        }
-
-        if (items.length === 0) continue;
-
-        // New items only, sorted oldest-first for chronological chat order
-        const newItems = items
-          .filter(item => { const k = itemKey(item); return k && !state.seenIds.has(k); })
-          .sort((a, b) => {
-            const na = Number(a.id ?? a.sequenceNumber ?? 0);
-            const nb = Number(b.id ?? b.sequenceNumber ?? 0);
-            if (!isNaN(na) && !isNaN(nb) && na !== 0 && nb !== 0) return na - nb;
-            return (a.over?.overs ?? 0) - (b.over?.overs ?? 0);
-          });
-
-        if (newItems.length === 0) continue;
-
-        const botName = getBotName(matchId);
-        let posted = 0;
-        for (const item of newItems) {
-          const k = itemKey(item);
-          if (k) state.seenIds.add(k); // optimistic: mark seen before async post
-          const msg = formatESPNCommentaryItem(item, matchScoreStr);
-          if (!msg) continue;
-          for (const roomId of roomIds) {
-            await postBotMessage(roomId, matchId, msg, botName);
-          }
-          posted++;
-        }
-        if (posted > 0) console.log(`[Commentary] Posted ${posted} ball(s) for match ${matchId}`);
-
-      } catch (e) {
-        console.error(`[Commentary] Error for match ${matchId}:`, e.message);
-      }
-    }
-  } catch (e) {
-    console.error('[Commentary] Poll error:', e.message);
-  }
-}
-
-setInterval(pollCommentary, 5 * 1000);
-setTimeout(pollCommentary, 15000);
+// pollCommentary removed — commentary is now handled inside pollMatchData
+// using the /summary endpoint which returns both scores and ball-by-ball items.
 
 // ─── Reactions API ─────────────────────────────────────────────────────────
 
@@ -3556,7 +3480,8 @@ app.use((err, req, res, next) => {
 });
 
 initDb()
-  .then(() => {
+  .then(async () => {
+    await loadMatchESPNIds();
     server.listen(PORT, () => {
       console.log(`IPL Predictor API with Chat running on http://localhost:${PORT}`);
     });
