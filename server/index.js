@@ -2134,10 +2134,13 @@ async function fetchESPNScorecard(espnEventId) {
   const url = `${ESPN_IPL_BASE}/summary?event=${espnEventId}`;
   console.log(`[ESPN] GET ${url} (scorecard)`);
   const resp = await axios.get(url, { timeout: 8000 });
-  console.log(`[ESPN] ${resp.status} ${url} (scorecard) — matchcards: ${(resp.data?.matchcards || []).length}`);
   const matchcards = resp.data?.matchcards || [];
   const header = resp.data?.header?.competitions?.[0];
-  const status = header?.status?.type?.description || '';
+  const statusSummary = header?.status?.summary || '';
+  const statusDetail  = header?.status?.type?.detail || header?.status?.type?.description || '';
+  const status = statusSummary || statusDetail;
+  const competitors = header?.competitors || [];
+  console.log(`[ESPN] ${resp.status} ${url} (scorecard) — matchcards: ${matchcards.length}, status: "${status}"`);
 
   const innings = {};
   for (const mc of matchcards) {
@@ -2146,31 +2149,76 @@ async function fetchESPNScorecard(espnEventId) {
     if (mc.headline === 'Batting') innings[k].batting = mc;
     if (mc.headline === 'Bowling') innings[k].bowling = mc;
   }
-  return { innings, status };
+  return { innings, status, competitors };
 }
 
-/** Format batting + bowling innings block as text */
-function formatScorecardText(innings, matchTitle) {
+/** Format batting + bowling innings block as text (tabular format) */
+function formatScorecardText(innings, matchTitle, competitors = []) {
+  const BAT_HDR = `${'Batter'.padEnd(20)} ${'Dismissal'.padEnd(14)} ${'R'.padStart(4)} ${'B'.padStart(4)} ${'4s'.padStart(4)} ${'6s'.padStart(4)} ${'SR'.padStart(7)}`;
+  const BAT_SEP = '─'.repeat(BAT_HDR.length);
+  const BWL_HDR = `${'Bowler'.padEnd(20)} ${'O'.padStart(5)} ${'R'.padStart(4)} ${'W'.padStart(4)} ${'Econ'.padStart(6)}`;
+  const BWL_SEP = '─'.repeat(BWL_HDR.length);
+
   const lines = [`📋 Scorecard — ${matchTitle}`];
+
+  // Build a set of team names already in matchcard innings
+  const coveredTeams = new Set(
+    Object.values(innings).map(i => i.teamName).filter(Boolean)
+  );
+
+  // If a competitor's team has no innings entry (ESPN hasn't populated yet),
+  // add a placeholder innings so at least their total score shows.
+  for (const comp of competitors) {
+    const name = comp.team?.displayName || comp.displayName || '';
+    if (name && !coveredTeams.has(name) && comp.score) {
+      const placeholderKey = `0_${name}`; // sort before real innings
+      innings[placeholderKey] = {
+        teamName: name,
+        placeholder: true,
+        score: comp.score,
+      };
+    }
+  }
+
   for (const [, inns] of Object.entries(innings).sort()) {
+    lines.push('');
+    if (inns.placeholder) {
+      lines.push(`━━ ${inns.teamName} — ${inns.score} ━━`);
+      lines.push(`(Detailed scorecard loading…)`);
+      continue;
+    }
+
     const mc = inns.batting;
     if (!mc) continue;
-    lines.push('');
+
     lines.push(`━━ ${mc.teamName} — ${mc.runs ?? '?'} ${mc.total ?? ''} ━━`);
-    if (mc.extras) lines.push(`Extras: ${mc.extras}`);
     lines.push('');
+    lines.push(BAT_HDR);
+    lines.push(BAT_SEP);
+
     for (const p of mc.playerDetails.filter(p => p.runs !== '')) {
-      const dis = p.dismissal || 'not out';
+      const dis = (p.dismissal || 'not out').slice(0, 14);
       const sr = p.ballsFaced > 0
         ? ((p.runs / p.ballsFaced) * 100).toFixed(1)
         : '-';
-      lines.push(`${p.playerName.padEnd(19)} ${dis.padEnd(14)} ${String(p.runs).padStart(3)}(${p.ballsFaced}) 4s:${p.fours} 6s:${p.sixes} SR:${sr}`);
+      lines.push(
+        `${p.playerName.padEnd(20)} ${dis.padEnd(14)} ` +
+        `${String(p.runs).padStart(4)} ${String(p.ballsFaced).padStart(4)} ` +
+        `${String(p.fours).padStart(4)} ${String(p.sixes).padStart(4)} ${String(sr).padStart(7)}`
+      );
     }
+
+    if (mc.extras) lines.push(`Extras: ${mc.extras}`);
+
     if (inns.bowling) {
       lines.push('');
-      lines.push('Bowling:');
+      lines.push(BWL_HDR);
+      lines.push(BWL_SEP);
       for (const p of inns.bowling.playerDetails) {
-        lines.push(`${p.playerName.padEnd(19)} ${String(p.overs).padStart(4)}ov  ${p.wickets}w  ${String(p.conceded).padStart(3)}r  econ:${p.economyRate}`);
+        lines.push(
+          `${p.playerName.padEnd(20)} ${String(p.overs).padStart(5)} ` +
+          `${String(p.conceded).padStart(4)} ${String(p.wickets).padStart(4)} ${String(p.economyRate).padStart(6)}`
+        );
       }
     }
   }
@@ -3285,12 +3333,12 @@ ${context}`
         : `Scorecard isn't available yet — match hasn't started! 🏏`;
     } else {
       try {
-        const { innings, status } = await fetchESPNScorecard(espnId);
+        const { innings, status, competitors } = await fetchESPNScorecard(espnId);
         if (!Object.keys(innings).length) {
           reply = `No scorecard data yet. Check back once the first ball is bowled! 🏏`;
         } else {
           const title = `${t1} vs ${t2}${status ? ' — ' + status : ''}`;
-          reply = formatScorecardText(innings, title);
+          reply = formatScorecardText(innings, title, competitors);
         }
       } catch (e) {
         reply = `Couldn't fetch scorecard right now: ${e.message}`;

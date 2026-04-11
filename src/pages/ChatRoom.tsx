@@ -298,7 +298,11 @@ const BotMessage = ({
                 : "bg-muted/50 border border-border/40"
             }`}
           >
-            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed break-words">
+            <p className={`whitespace-pre-wrap break-words ${
+              msg.message.startsWith('📋 Scorecard')
+                ? 'text-xs font-mono leading-snug'
+                : 'text-sm leading-relaxed'
+            } text-foreground`}>
               {msg.message}
             </p>
           </div>
