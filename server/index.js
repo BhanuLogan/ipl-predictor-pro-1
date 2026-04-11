@@ -1750,17 +1750,21 @@ function adaptESPNEvent(evt) {
   };
 }
 
-/** Fetch all IPL events from ESPN Cricinfo (free, no key). Returns normalized match objects. */
-async function fetchESPNAll() {
-  const resp = await axios.get(`${ESPN_IPL_BASE}/events?limit=100`, { timeout: 10000 });
+/** Fetch all IPL events from ESPN Cricinfo (free, no key). Returns normalized match objects.
+ *  datesParam: optional ESPN dates string, e.g. "20260410" or "20260410-20260411".
+ *  Without it ESPN returns only current-day events, so pass dates for historical lookups. */
+async function fetchESPNAll(datesParam = null) {
+  const url = datesParam
+    ? `${ESPN_IPL_BASE}/events?limit=100&dates=${datesParam}`
+    : `${ESPN_IPL_BASE}/events?limit=100`;
+  const resp = await axios.get(url, { timeout: 10000 });
   const events = resp.data?.events || [];
   if (!events.length) {
-    console.log('[ESPN] /events returned 0 events. Keys:', Object.keys(resp.data || {}));
+    console.log(`[ESPN] /events returned 0 events (dates=${datesParam || 'default'}). Keys:`, Object.keys(resp.data || {}));
     return [];
   }
-  // Debug first event structure on startup
   const first = events[0];
-  console.log(`[ESPN] /events returned ${events.length} event(s). First: id=${first?.id} comps=${(first?.competitions||[]).length} competitors=${((first?.competitions||[])[0]?.competitors||[]).length}`);
+  console.log(`[ESPN] /events returned ${events.length} event(s) (dates=${datesParam || 'default'}). First: id=${first?.id}`);
   return events.map(adaptESPNEvent).filter(Boolean);
 }
 
@@ -2095,8 +2099,16 @@ async function checkRecentMatches(isManual = false) {
     const notFoundOnESPN = [];
     const stillInProgress = [];
 
-    // Fetch from ESPN Cricinfo API (free, no key)
-    const allMatches = await fetchESPNAll();
+    // Build a date range covering all pending match dates → today.
+    // Without this ESPN returns only today's events and misses yesterday's finished matches.
+    const todayStr = now.toISOString().split('T')[0];
+    const pendingDates = toCheck.map(m => m.date).sort();
+    const earliestDate = pendingDates[0];
+    const datesParam = earliestDate < todayStr
+      ? `${earliestDate.replace(/-/g, '')}-${todayStr.replace(/-/g, '')}`
+      : todayStr.replace(/-/g, '');
+
+    const allMatches = await fetchESPNAll(datesParam);
     if (allMatches.length === 0) {
       console.log("⚠️  AutomatedResultService: No matches returned from ESPN.");
     }
