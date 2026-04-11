@@ -1851,21 +1851,54 @@ function formatTossMessage(toss, lineups) {
 }
 
 /** Fetch toss info + playing XIs for a specific ESPN event via the summary endpoint */
+/** Extract human-readable result text ("Team won by X") from a completed match.
+ *  Checks status detail, notes array, and situation.lastPlay as fallbacks. */
+function extractResultTextESPN(notes, statusDetail, situation) {
+  const WIN_RE = /won by|tie[d]?|abandoned|no result/i;
+  if (statusDetail && WIN_RE.test(statusDetail)) return statusDetail;
+  if (Array.isArray(notes)) {
+    const rn = notes.find(n => n.type === 'result' || (n.text && WIN_RE.test(n.text)));
+    if (rn?.text) return rn.text.trim();
+  }
+  const lastPlayText = situation?.lastPlay?.text || situation?.text || '';
+  if (lastPlayText && WIN_RE.test(lastPlayText)) return lastPlayText.trim();
+  return null;
+}
+
 async function fetchESPNSummary(espnEventId) {
   try {
-    const resp = await axios.get(
-      `${ESPN_IPL_BASE}/summary?event=${espnEventId}`,
-      { timeout: 8000 }
-    );
+    const url = `${ESPN_IPL_BASE}/summary?event=${espnEventId}`;
+    console.log(`[ESPN] GET ${url}`);
+    const resp = await axios.get(url, { timeout: 8000 });
+    console.log(`[ESPN] ${resp.status} ${url} — keys: ${Object.keys(resp.data || {}).join(', ')}`);
     const data = resp.data || {};
     const comp = data.header?.competitions?.[0] || {};
+
+    // Venue
     const venueObj = comp.venue || {};
     const venueName = venueObj.fullName || null;
     const venueCity = venueObj.address?.city || null;
     const venue = venueName
       ? (venueCity && !venueName.includes(venueCity) ? `${venueName}, ${venueCity}` : venueName)
       : null;
-    // Debug: log notes so impact-player matching can be verified in server logs
+
+    // Competition-level state / result (used by checkRecentMatches)
+    const competitors = comp.competitors || [];
+    const c1 = competitors[0] || {};
+    const c2 = competitors[1] || {};
+    const t1Name = c1.team?.displayName || c1.displayName || '';
+    const t2Name = c2.team?.displayName || c2.displayName || '';
+    const t1Abbr = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
+    const t2Abbr = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
+    const state      = comp.status?.type?.state || 'pre';
+    const statusRaw  = comp.status?.type?.detail || comp.status?.type?.description || '';
+    const resultText = extractResultTextESPN(data.notes, statusRaw, comp.situation);
+    const winnerName = state === 'post'
+      ? (c1.winner ? t1Name : c2.winner ? t2Name : null)
+      : null;
+    console.log(`[ESPN] Summary event=${espnEventId}: state=${state}, result="${resultText || statusRaw}", winner=${winnerName || 'none'}`);
+
+    // Debug: log notes
     if (data.notes?.length) {
       console.log(`[ESPN] Notes for event ${espnEventId}:`, JSON.stringify(data.notes.map(n => ({ type: n.type, text: (n.text || '').slice(0, 120) }))));
     }
@@ -1875,8 +1908,15 @@ async function fetchESPNSummary(espnEventId) {
       headToHeadGames: data.headToHeadGames || null,
       standings: data.standings?.children?.[0]?.standings?.entries || null,
       venue,
+      // Result info
+      state,
+      status: resultText || statusRaw,
+      winnerName,
+      team1: { name: t1Name, short: t1Abbr, score: c1.score || '' },
+      team2: { name: t2Name, short: t2Abbr, score: c2.score || '' },
     };
   } catch (e) {
+    console.error(`[ESPN] fetchESPNSummary error for event ${espnEventId}:`, e.message);
     return null;
   }
 }
@@ -2099,60 +2139,42 @@ async function checkRecentMatches(isManual = false) {
     const notFoundOnESPN = [];
     const stillInProgress = [];
 
-    // Build a date range covering all pending match dates → today.
-    // Without this ESPN returns only today's events and misses yesterday's finished matches.
-    const todayStr = now.toISOString().split('T')[0];
-    const pendingDates = toCheck.map(m => m.date).sort();
-    const earliestDate = pendingDates[0];
-    const datesParam = earliestDate < todayStr
-      ? `${earliestDate.replace(/-/g, '')}-${todayStr.replace(/-/g, '')}`
-      : todayStr.replace(/-/g, '');
-
-    const allMatches = await fetchESPNAll(datesParam);
-    if (allMatches.length === 0) {
-      console.log("⚠️  AutomatedResultService: No matches returned from ESPN.");
-    }
-
     for (const match of toCheck) {
-      const matchDateStr = match.date;
-
-      const apiMatch = allMatches.find(am => {
-        const t1 = am.team1.short;
-        const t2 = am.team2.short;
-        const amDate = am.startDateISO ? am.startDateISO.split('T')[0] : null;
-        const teamsMatch =
-          (t1 === match.team1 && t2 === match.team2) ||
-          (t1 === match.team2 && t2 === match.team1);
-        return (amDate === matchDateStr || !amDate) && teamsMatch;
-      });
-
-      if (!apiMatch) {
-        console.log(`❓ AutomatedResultService: Could not find ${match.id} (${match.team1} vs ${match.team2}) on ESPN.`);
+      // Use espn_event_id directly via the summary endpoint
+      const espnId = matchESPNIdMap.get(match.id);
+      if (!espnId) {
+        console.log(`❓ AutomatedResultService: No ESPN ID for ${match.id} (${match.team1} vs ${match.team2}), skipping`);
         notFoundOnESPN.push(`${match.team1} vs ${match.team2}`);
         continue;
       }
 
-      const status = apiMatch.status || "";
-      const state = apiMatch.state || "pre";
+      console.log(`🔍 AutomatedResultService: Fetching summary for ${match.id} (event ${espnId})`);
+      const summary = await fetchESPNSummary(espnId);
+      if (!summary) {
+        console.log(`❓ AutomatedResultService: Summary unavailable for ${match.id} (event ${espnId})`);
+        notFoundOnESPN.push(`${match.team1} vs ${match.team2}`);
+        continue;
+      }
+
+      const status = summary.status || "";
+      const state  = summary.state  || "pre";
 
       const stateDone =
         state === 'post' ||
-        status.includes("won by") ||
-        status.includes("Match abandoned");
+        /won by|match abandoned/i.test(status);
 
       if (stateDone) {
         const winner = parseWinnerFromStatus(status, match.team1, match.team2) ||
-          (apiMatch.winnerName ? (TEAM_NAME_MAP[apiMatch.winnerName] || null) : null);
+          (summary.winnerName ? (TEAM_NAME_MAP[summary.winnerName] || null) : null);
         if (winner) {
-          const scoreSummary = extractScoreSummaryESPN(apiMatch);
-          const summary = await fetchESPNSummary(apiMatch.espnEventId);
-          const toss = summary?.toss || null;
+          const scoreSummary = summary.status || null;
+          const toss = summary.toss || null;
           const matchDetails = {
-            espnEventId: apiMatch.espnEventId,
-            team1: apiMatch.team1,
-            team2: apiMatch.team2,
-            state: apiMatch.state,
-            status: apiMatch.status,
+            espnEventId: espnId,
+            team1: summary.team1,
+            team2: summary.team2,
+            state,
+            status,
           };
           console.log(`🏆 AutomatedResultService: AUTO-DECLARING WINNER for ${match.id}: ${winner}${toss ? ` | ${toss}` : ''}`);
           await query(
