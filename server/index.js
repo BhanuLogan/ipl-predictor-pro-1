@@ -1511,8 +1511,9 @@ function adaptESPNEvent(evt) {
   // Team name may be under competitor.team.displayName (cricket) or competitor.displayName
   const t1Name = c1.team?.displayName || c1.displayName || '';
   const t2Name = c2.team?.displayName || c2.displayName || '';
-  const t1Abbr = c1.team?.abbreviation || teamAbbr(t1Name);
-  const t2Abbr = c2.team?.abbreviation || teamAbbr(t2Name);
+  // Always resolve via TEAM_NAME_MAP first — ESPN abbreviations vary (e.g. "PBK" vs "PBKS", "LKN" vs "LSG")
+  const t1Abbr = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
+  const t2Abbr = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
   const t1Winner = c1.winner ?? false;
   const t2Winner = c2.winner ?? false;
   return {
@@ -1530,7 +1531,7 @@ function adaptESPNEvent(evt) {
 
 /** Fetch all IPL events from ESPN Cricinfo (free, no key). Returns normalized match objects. */
 async function fetchESPNAll() {
-  const resp = await axios.get(`${ESPN_IPL_BASE}/events`, { timeout: 10000 });
+  const resp = await axios.get(`${ESPN_IPL_BASE}/events?limit=100`, { timeout: 10000 });
   const events = resp.data?.events || [];
   if (!events.length) {
     console.log('[ESPN] /events returned 0 events. Keys:', Object.keys(resp.data || {}));
@@ -1870,6 +1871,8 @@ async function checkRecentMatches(isManual = false) {
 
     console.log(`🔍 AutomatedResultService: Checking ${toCheck.length} pending matches via ESPN...`);
     let updatedCount = 0;
+    const notFoundOnESPN = [];
+    const stillInProgress = [];
 
     // Fetch from ESPN Cricinfo API (free, no key)
     const allMatches = await fetchESPNAll();
@@ -1892,6 +1895,7 @@ async function checkRecentMatches(isManual = false) {
 
       if (!apiMatch) {
         console.log(`❓ AutomatedResultService: Could not find ${match.id} (${match.team1} vs ${match.team2}) on ESPN.`);
+        notFoundOnESPN.push(`${match.team1} vs ${match.team2}`);
         continue;
       }
 
@@ -1955,10 +1959,11 @@ async function checkRecentMatches(isManual = false) {
         }
       } else {
         console.log(`⏳ AutomatedResultService: Match ${match.id} still in progress (Status: ${status}).`);
+        stillInProgress.push(`${match.team1} vs ${match.team2}`);
       }
     }
 
-    return { updated: updatedCount, checked: toCheck.length };
+    return { updated: updatedCount, checked: toCheck.length, notFound: notFoundOnESPN, inProgress: stillInProgress };
 
   } catch (error) {
     console.error("❌ AutomatedResultService Error:", error.message);

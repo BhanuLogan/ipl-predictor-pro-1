@@ -129,7 +129,11 @@ const Admin = () => {
       if (res.error) {
         alert("Sync Failed: " + res.error);
       } else {
-        alert(`Sync Complete!\nChecked: ${res.checked} matches\nUpdated: ${res.updated} new results`);
+        const lines = [`Sync Complete!`, `Checked: ${res.checked} | Updated: ${res.updated}`];
+        if (res.inProgress?.length) lines.push(`Still in progress: ${res.inProgress.join(', ')}`);
+        if (res.notFound?.length) lines.push(`Not found on ESPN: ${res.notFound.join(', ')}`);
+        if (res.checked === 0) lines.push(`(All past matches already have results)`);
+        alert(lines.join('\n'));
         await loadData();
       }
     } catch (err: any) {
