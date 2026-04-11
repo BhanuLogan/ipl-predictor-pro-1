@@ -292,15 +292,6 @@ async function initDb() {
     );
   `);
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS room_member_bans (
-      room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      removed_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (room_id, user_id)
-    );
-  `);
-
   const existing = await queryOne(
     "SELECT id FROM users WHERE username = $1",
     [ADMIN_USERNAME]
@@ -321,14 +312,11 @@ async function initDb() {
     WHERE name = 'STAGS' AND created_by IS NULL
   `);
 
-  // Add all existing non-admin users to STAGS — skip anyone who was previously removed
+  // Add all existing non-admin users to STAGS (idempotent)
   await query(`
     INSERT INTO room_members (room_id, user_id)
     SELECT r.id, u.id FROM rooms r, users u
     WHERE r.name = 'STAGS' AND NOT u.is_admin
-      AND NOT EXISTS (
-        SELECT 1 FROM room_member_bans b WHERE b.room_id = r.id AND b.user_id = u.id
-      )
     ON CONFLICT DO NOTHING
   `);
 }
@@ -1155,11 +1143,6 @@ app.post("/api/rooms/join", authMiddleware, asyncRoute(async (req, res) => {
     [inviteCode.trim()]
   );
   if (!room) return res.status(404).json({ error: "Invalid invite code" });
-  const banned = await queryOne(
-    "SELECT 1 FROM room_member_bans WHERE room_id = $1 AND user_id = $2",
-    [room.id, req.user.id]
-  );
-  if (banned) return res.status(403).json({ error: "You have been removed from this room" });
   await query(
     `INSERT INTO room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [room.id, req.user.id]
@@ -1177,12 +1160,6 @@ app.post("/api/rooms/join-request", authMiddleware, asyncRoute(async (req, res) 
     [inviteCode.trim()]
   );
   if (!room) return res.status(404).json({ error: "Invalid invite code" });
-
-  const bannedReq = await queryOne(
-    "SELECT 1 FROM room_member_bans WHERE room_id = $1 AND user_id = $2",
-    [room.id, req.user.id]
-  );
-  if (bannedReq) return res.status(403).json({ error: "You have been removed from this room" });
 
   const alreadyMember = await queryOne(
     "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2",
@@ -1388,10 +1365,6 @@ app.delete("/api/rooms/:id/members/:userId", authMiddleware, asyncRoute(async (r
     return res.status(400).json({ error: "Cannot remove the room creator" });
   }
 
-  await query(
-    "INSERT INTO room_member_bans (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-    [roomId, targetUserId]
-  );
   await query("DELETE FROM room_members WHERE room_id = $1 AND user_id = $2", [roomId, targetUserId]);
   invalidateRoomsCache();
   res.json({ ok: true });
