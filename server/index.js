@@ -2140,7 +2140,8 @@ async function fetchESPNScorecard(espnEventId) {
   const statusDetail  = header?.status?.type?.detail || header?.status?.type?.description || '';
   const status = statusSummary || statusDetail;
   const competitors = header?.competitors || [];
-  console.log(`[ESPN] ${resp.status} ${url} (scorecard) — matchcards: ${matchcards.length}, status: "${status}"`);
+  const matchState = header?.status?.type?.state || 'pre';
+  console.log(`[ESPN] ${resp.status} ${url} (scorecard) — matchcards: ${matchcards.length}, state: ${matchState}, status: "${status}"`);
 
   const innings = {};
   for (const mc of matchcards) {
@@ -2149,6 +2150,34 @@ async function fetchESPNScorecard(espnEventId) {
     if (mc.headline === 'Batting') innings[k].batting = mc;
     if (mc.headline === 'Bowling') innings[k].bowling = mc;
   }
+
+  // For completed matches, cross-check matchcard runs against the header's competitor
+  // scores. The header updates immediately on match end; matchcards can lag behind and
+  // still show the mid-innings state. Any innings whose run total doesn't match the
+  // competitor's final score is stale — delete it so the placeholder fallback fires.
+  if (matchState === 'post' && competitors.length) {
+    // Build abbr → final runs map from competitors (ground truth)
+    const compRunsByAbbr = {};
+    for (const comp of competitors) {
+      const name = comp.team?.displayName || comp.displayName || '';
+      const abbr = TEAM_NAME_MAP[name] || teamAbbr(name) || name;
+      const runs = (comp.score || '').split('/')[0].trim();
+      if (abbr && runs) compRunsByAbbr[abbr] = runs;
+    }
+    for (const [k, inns] of Object.entries(innings)) {
+      if (!inns.batting) continue;
+      // matchcard teamName may be abbreviated ("CSK") or full ("Chennai Super Kings")
+      const mcTeam = inns.teamName || '';
+      const mcAbbr = TEAM_NAME_MAP[mcTeam] || mcTeam;
+      const expected = compRunsByAbbr[mcAbbr];
+      const actual   = String(inns.batting.runs ?? '');
+      if (expected && actual !== expected) {
+        console.log(`[Scorecard] Stale innings removed (key=${k}, team=${mcTeam}): matchcard runs=${actual}, competitor final=${expected}`);
+        delete innings[k];
+      }
+    }
+  }
+
   return { innings, status, competitors };
 }
 
@@ -2161,17 +2190,21 @@ function formatScorecardText(innings, matchTitle, competitors = []) {
 
   const lines = [`📋 Scorecard — ${matchTitle}`];
 
-  // Build a set of team names already in matchcard innings
-  const coveredTeams = new Set(
-    Object.values(innings).map(i => i.teamName).filter(Boolean)
+  // Build a set of abbreviations already covered by real matchcard innings
+  // (teamName in matchcards is usually an abbreviation like "CSK")
+  const coveredAbbrs = new Set(
+    Object.values(innings)
+      .map(i => { const n = i.teamName || ''; return TEAM_NAME_MAP[n] || n; })
+      .filter(Boolean)
   );
 
-  // If a competitor's team has no innings entry (ESPN hasn't populated yet),
-  // add a placeholder innings so at least their total score shows.
+  // If a competitor's team has no real innings entry (ESPN matchcards lag behind on
+  // match end), add a placeholder so at least their final total is visible.
   for (const comp of competitors) {
     const name = comp.team?.displayName || comp.displayName || '';
-    if (name && !coveredTeams.has(name) && comp.score) {
-      const placeholderKey = `0_${name}`; // sort before real innings
+    const abbr = TEAM_NAME_MAP[name] || teamAbbr(name) || name;
+    if (abbr && !coveredAbbrs.has(abbr) && comp.score) {
+      const placeholderKey = `0_${name}`; // sorts before numeric inningsNumber keys
       innings[placeholderKey] = {
         teamName: name,
         placeholder: true,
