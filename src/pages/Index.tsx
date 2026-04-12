@@ -217,14 +217,32 @@ const Index = () => {
           </div>
           <div className="flex items-center gap-2">
             {'Notification' in window && (
-              <button
-                onClick={handlePushToggle}
-                disabled={pushLoading}
-                title={pushSubscribed ? 'Disable notifications' : 'Enable notifications'}
-                className="flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-              >
-                {pushSubscribed ? <Bell size={15} className="text-primary" /> : <BellOff size={15} />}
-              </button>
+              <>
+                <button
+                  onClick={handlePushToggle}
+                  disabled={pushLoading}
+                  title={pushSubscribed ? 'Disable notifications' : 'Enable notifications'}
+                  className="flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  {pushSubscribed ? <Bell size={15} className="text-primary" /> : <BellOff size={15} />}
+                </button>
+                {pushSubscribed && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api.testPush();
+                        toast.success('Test notification sent');
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : 'Failed');
+                      }
+                    }}
+                    className="rounded-lg border border-border bg-background px-2 py-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    title="Send a test notification to this device"
+                  >
+                    Test
+                  </button>
+                )}
+              </>
             )}
             <button
               onClick={() => navigate("/rooms")}

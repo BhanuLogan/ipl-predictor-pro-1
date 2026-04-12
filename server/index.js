@@ -4161,6 +4161,19 @@ app.post('/api/reactions', authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ok: true, reactions });
 }));
 
+// Test push — sends a push to the currently logged-in user
+app.post('/api/push/test', authMiddleware, asyncRoute(async (req, res) => {
+  const subs = await query('SELECT id FROM push_subscriptions WHERE user_id = $1', [req.user.id]);
+  if (subs.length === 0) return res.status(400).json({ error: 'No subscriptions found for your account' });
+  await sendPushToUser(req.user.id, {
+    title: '🏏 Test notification',
+    body: 'Push notifications are working!',
+    icon: '/favicon.ico',
+    data: { url: '/' },
+  });
+  res.json({ ok: true, subscriptions: subs.length });
+}));
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "alive", time: new Date() });
 });
