@@ -2781,8 +2781,21 @@ async function pollMatchData() {
       }
 
       // ── Ball-by-ball commentary ──────────────────────────────────────────────
-      const rawComm  = data.commentary;
-      const commItems = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || data.plays || [];
+      // The /summary endpoint does NOT include commentary — fetch /playbyplay separately.
+      // Only call when bot is enabled and match is live to avoid unnecessary API traffic.
+      let commItems = [];
+      if (botEnabled && state === 'in') {
+        try {
+          const pbpUrl = `${ESPN_IPL_BASE}/playbyplay?event=${espnId}`;
+          console.log(`[ESPN] GET ${pbpUrl} (commentary)`);
+          const pbpResp = await axios.get(pbpUrl, { timeout: 8000 });
+          const rawComm = pbpResp.data?.commentary;
+          commItems = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || pbpResp.data?.plays || [];
+          console.log(`[ESPN] ${pbpResp.status} ${pbpUrl} — ${commItems.length} commentary items`);
+        } catch (e) {
+          console.error(`[Poll] Commentary fetch error for ${match.id}:`, e.message);
+        }
+      }
 
       if (!cachedEntry.seenIds) cachedEntry.seenIds = new Set();
 
