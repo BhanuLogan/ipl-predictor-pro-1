@@ -1,8 +1,10 @@
 self.addEventListener('push', (event) => {
+  console.log('[SW] Push received', event.data?.text());
   event.waitUntil(handlePush(event.data?.json() ?? {}));
 });
 
 async function handlePush(data) {
+  console.log('[SW] handlePush', JSON.stringify(data));
   const { title = 'IPL Predictor', body = '', icon = '/favicon.ico', tag, data: notifData = {} } = data;
 
   const options = {
