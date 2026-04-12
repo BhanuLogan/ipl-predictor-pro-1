@@ -2035,69 +2035,53 @@ async function fetchESPNSummary(espnEventId) {
 
 // ─── ESPN Data Helpers (used by bot commands) ──────────────────────────────
 
-/** Resolve ESPN event ID for a match: live cache → results DB → events list */
+/** Resolve ESPN event ID for a match: live cache → matchESPNIdMap → results DB */
 async function getESPNEventId(matchId, match) {
+  // 1. Live commentary cache (populated during active polling)
   const cached = commentaryCache.get(matchId);
   if (cached?.espnEventId) return cached.espnEventId;
 
+  // 2. matchESPNIdMap loaded from DB at startup
+  const fromMap = matchESPNIdMap.get(matchId);
+  if (fromMap) return fromMap;
+
+  // 3. results DB (for completed matches that stored espnEventId in details)
   const row = await queryOne('SELECT details FROM results WHERE match_id = $1', [matchId]);
   if (row?.details) {
-    const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
-    if (d?.espnEventId) return d.espnEventId;
+    try {
+      const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+      if (d?.espnEventId) return d.espnEventId;
+    } catch {}
   }
 
-  // Step 2b: look for ESPN ID in any stored result between same teams
-  if (match?.team1 && match?.team2) {
-    const sameTeamIds = matchesCache
-      .filter(m => (m.team1 === match.team1 && m.team2 === match.team2) ||
-                   (m.team1 === match.team2 && m.team2 === match.team1))
-      .map(m => m.id);
-    if (sameTeamIds.length) {
-      const rows = await query(
-        'SELECT details FROM results WHERE match_id = ANY($1) AND details IS NOT NULL',
-        [sameTeamIds]
-      );
-      for (const row of rows) {
-        try {
-          const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
-          if (d?.espnEventId) return d.espnEventId;
-        } catch {}
-      }
-    }
-  }
-
-  try {
-    const events = await fetchESPNAll();
-    const found = events.find(am => {
-      const t1 = am.team1.short, t2 = am.team2.short;
-      return (t1 === match.team1 && t2 === match.team2) ||
-        (t1 === match.team2 && t2 === match.team1);
-    });
-    return found?.espnEventId || null;
-  } catch (e) {
-    return null;
-  }
+  return null;
 }
 
 /** Fetch IPL points table from ESPN standings field. Resolves an event ID then calls fetchESPNSummary. */
 async function fetchESPNPointsTable(preferredEventId = null) {
   let eventId = preferredEventId;
 
+  // 1. Live commentary cache
   if (!eventId) {
     for (const [, state] of commentaryCache.entries()) {
       if (state.espnEventId) { eventId = state.espnEventId; break; }
     }
   }
+  // 2. matchESPNIdMap from DB (any known ESPN ID will have standings)
+  if (!eventId) {
+    for (const [, espnId] of matchESPNIdMap.entries()) {
+      eventId = espnId; break;
+    }
+  }
+  // 3. Most recent completed result that stored an ESPN ID
   if (!eventId) {
     const row = await queryOne('SELECT details FROM results ORDER BY created_at DESC LIMIT 1');
     if (row?.details) {
-      const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
-      eventId = d?.espnEventId;
+      try {
+        const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+        eventId = d?.espnEventId;
+      } catch {}
     }
-  }
-  if (!eventId) {
-    const events = await fetchESPNAll();
-    eventId = events[0]?.espnEventId;
   }
   if (!eventId) return null;
 
@@ -3009,22 +2993,60 @@ function getHelpText(botName) {
 
 
 async function fetchLatestBallData(matchId) {
-  const state = commentaryCache.get(matchId);
-  if (!state?.espnEventId) return null;
+  const cached = commentaryCache.get(matchId);
+  if (!cached?.espnEventId) return null;
   try {
-    const url = `${ESPN_IPL_BASE}/playbyplay?event=${state.espnEventId}`;
-    console.log(`[ESPN] GET ${url}`);
+    const url = `${ESPN_IPL_BASE}/summary?event=${cached.espnEventId}`;
+    console.log(`[ESPN] GET ${url} (fetchLatestBallData)`);
     const resp = await axios.get(url, { timeout: 8000 });
-    const rawComm = resp.data?.commentary;
-    const items = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || resp.data?.plays || [];
-    console.log(`[ESPN] ${resp.status} ${url} — ${items.length} items`);
-    const latest = items[0] || null;
-    const liveData = liveScoreCache.get(matchId);
-    const miniscore = liveData?.score
-      ? { batTeam: { teamSName: liveData.team1, score: liveData.score } }
-      : null;
-    return { latest, miniscore, commentary: items };
+    console.log(`[ESPN] ${resp.status} ${url}`);
+    const data = resp.data || {};
+    const comp = data.header?.competitions?.[0] || {};
+    const situation = comp.situation || {};
+
+    // Most recent ball from commentaries (sorted newest-first by id)
+    const commObj = comp.commentaries || {};
+    const commItems = Object.values(commObj).filter(i => i.over);
+    commItems.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+    const latest = commItems[0] || null;
+
+    // Build miniscore from competitors linescores
+    const competitors = comp.competitors || [];
+    const battingComp = competitors.find(c => c.linescores?.[0]?.isBatting) || competitors[0];
+    const lscore = battingComp?.linescores?.[0];
+    const runs    = lscore?.runs ?? null;
+    const wickets = lscore?.wickets ?? 0;
+    const overs   = lscore?.overs ?? null;
+    const target  = (lscore?.target > 0) ? lscore.target : null;
+    const teamAbbr = battingComp?.team?.abbreviation || battingComp?.team?.displayName || '';
+
+    // CRR: prefer situation field; fall back to runs / overs
+    let crr = situation.currentRunRate != null ? Number(situation.currentRunRate).toFixed(2) : null;
+    if (!crr && runs != null && overs && Number(overs) > 0) {
+      crr = (runs / Number(overs)).toFixed(2);
+    }
+    // RRR: prefer situation; fall back to calculation if target known
+    let rrr = situation.requiredRunRate != null ? Number(situation.requiredRunRate).toFixed(2) : null;
+    if (!rrr && target && runs != null && overs != null) {
+      const ballsBowled = Math.round(Number(overs) * 6);
+      const ballsLeft = 120 - ballsBowled;
+      if (ballsLeft > 0) {
+        rrr = (((target - runs) / ballsLeft) * 6).toFixed(2);
+      }
+    }
+    const remBalls = situation.remainingBalls ?? null;
+
+    const miniscore = runs != null ? {
+      batTeam: { teamSName: teamAbbr, score: `${runs}/${wickets}`, wickets, overs: overs ?? '?' },
+      currentRunRate: crr,
+      requiredRunRate: rrr,
+      target,
+      remBalls,
+    } : null;
+
+    return { latest, miniscore, commentary: commItems };
   } catch (e) {
+    console.error('[fetchLatestBallData] Error:', e.message);
     return null;
   }
 }
@@ -3059,17 +3081,16 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
   );
   const isCompleted = !!completedResult;
 
-  // "First ball bowled" = any commentary has been received for this match
-  const commentaryState = commentaryCache.get(matchId);
-  const hasFirstBall = commentaryState?.lastId != null && commentaryState.lastId > 0;
+  // Match has started if the live score cache has a score entry for it
+  const hasFirstBall = !!liveData?.score;
 
   const matchStart = matchInfo
     ? new Date(`${matchInfo.date}T${matchInfo.time || '19:30'}:00+05:30`)
     : null;
 
-  // isNotStarted: match not completed AND first ball not yet bowled
+  // isNotStarted: match not completed AND no live score yet
   const isNotStarted = !isCompleted && !hasFirstBall;
-  // isDelayed: scheduled time has passed but first ball still not bowled
+  // isDelayed: scheduled time has passed but still no live score
   const isDelayed = isNotStarted && matchStart && new Date() >= matchStart;
 
   const preStartReply = isNotStarted
@@ -3166,16 +3187,19 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
     } else {
       const data = await fetchLatestBallData(matchId);
       const ball = data?.latest;
-      if (!ball?.batsmanStriker) {
+      const batter = ball?.batsman;
+      if (!batter?.athlete?.name) {
         reply = liveData?.score
           ? `🏏 Batting info not available right now. Score: ${liveData.score}`
           : `No live match data yet, ${askerUsername}!`;
       } else {
-        const s = ball.batsmanStriker;
-        const ns = ball.batsmanNonStriker;
+        const batterName = espnPlayerName(batter.athlete);
         let msg = `🏏 At the Crease\n\n`;
-        msg += `⚡ *Striker:* ${s.batName} — ${s.batRuns ?? 0}* off ${s.batBalls ?? 0} (${s.batFours ?? 0}×4, ${s.batSixes ?? 0}×6)`;
-        if (ns) msg += `\n🔄 *Non-striker:* ${ns.batName} — ${ns.batRuns ?? 0}* off ${ns.batBalls ?? 0}`;
+        msg += `⚡ *Striker:* ${batterName} — ${batter.totalRuns ?? 0}* off ${batter.faced ?? 0}`;
+        const nsBatter = ball.otherBatsman;
+        if (nsBatter?.athlete?.name) {
+          msg += `\n🔄 *Non-striker:* ${espnPlayerName(nsBatter.athlete)} — ${nsBatter.totalRuns ?? 0}* off ${nsBatter.faced ?? 0}`;
+        }
         reply = msg;
       }
     }
@@ -3210,11 +3234,13 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
     } else {
       const data = await fetchLatestBallData(matchId);
       const ball = data?.latest;
-      if (!ball?.bowlerStriker) {
+      const bowler = ball?.bowler;
+      if (!bowler?.athlete?.name) {
         reply = `Bowling info not available right now, ${askerUsername}!`;
       } else {
-        const b = ball.bowlerStriker;
-        reply = `⚾ Current Bowler\n\n${b.bowlName} — ${b.bowlOvs ?? '?'} ov, ${b.bowlRuns ?? 0} runs, ${b.bowlWkts ?? 0} wkts, Econ: ${b.bowlEcon ?? '?'}`;
+        const bowlerName = espnPlayerName(bowler.athlete);
+        const curOver = ball.over?.overs ?? '?';
+        reply = `⚾ Current Bowler\n\n${bowlerName} — ${curOver} ov, ${bowler.conceded ?? 0} runs, ${bowler.wickets ?? 0} wkts`;
       }
     }
   }
