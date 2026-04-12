@@ -2781,21 +2781,10 @@ async function pollMatchData() {
       }
 
       // ── Ball-by-ball commentary ──────────────────────────────────────────────
-      // The /summary endpoint does NOT include commentary — fetch /playbyplay separately.
-      // Only call when bot is enabled and match is live to avoid unnecessary API traffic.
-      let commItems = [];
-      if (botEnabled && state === 'in') {
-        try {
-          const pbpUrl = `${ESPN_IPL_BASE}/playbyplay?event=${espnId}`;
-          console.log(`[ESPN] GET ${pbpUrl} (commentary)`);
-          const pbpResp = await axios.get(pbpUrl, { timeout: 8000 });
-          const rawComm = pbpResp.data?.commentary;
-          commItems = (Array.isArray(rawComm) ? rawComm : rawComm?.items) || pbpResp.data?.plays || [];
-          console.log(`[ESPN] ${pbpResp.status} ${pbpUrl} — ${commItems.length} commentary items`);
-        } catch (e) {
-          console.error(`[Poll] Commentary fetch error for ${match.id}:`, e.message);
-        }
-      }
+      // commentaries lives at header.competitions[0].commentaries in the summary
+      // response — an object keyed by numeric string ball IDs e.g. {"13030":{...}}
+      const commObj   = data.header?.competitions?.[0]?.commentaries || {};
+      const commItems = Object.values(commObj);
 
       if (!cachedEntry.seenIds) cachedEntry.seenIds = new Set();
 
@@ -3713,14 +3702,16 @@ function formatESPNCommentaryItem(item, matchScore) {
   const overOvers = item.over?.overs;
   const overStr   = overOvers != null ? `Over ${overOvers}` : null;
 
-  const typeDesc = (item.playType?.description || '').toLowerCase();
+  const typeDesc     = (item.playType?.description || '').toLowerCase();
+  const shortTextLow = (item.shortText || '').toLowerCase();
   const scoreVal = Number(item.scoreValue ?? 0);
 
   const isWicket = item.dismissal?.dismissal === true || typeDesc === 'out';
-  const isSix    = scoreVal === 6;                // "run" + scoreValue=6
+  const isSix    = scoreVal === 6;
   const isFour   = typeDesc === 'four' || scoreVal === 4;
-  const isWide   = typeDesc === 'wide';
-  const isNoBall = typeDesc === 'no ball' || typeDesc === 'noball';
+  // summary API has no playType — fall back to shortText for wide / no-ball
+  const isWide   = typeDesc === 'wide'   || shortTextLow.includes('wide');
+  const isNoBall = typeDesc === 'no ball' || typeDesc === 'noball' || shortTextLow.includes('no ball');
   const isDot    = typeDesc === 'no run' ||
     (!isWicket && !isSix && !isFour && !isWide && !isNoBall && scoreVal === 0);
 
