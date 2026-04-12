@@ -421,11 +421,13 @@ async function sendPushToUser(userId, payload) {
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         JSON.stringify(payload)
       );
+      console.log(`[Push] Sent to user ${userId}: "${payload.title}"`);
     } catch (e) {
       if (e.statusCode === 410 || e.statusCode === 404) {
+        console.log(`[Push] Subscription expired for user ${userId}, removing`);
         await query('DELETE FROM push_subscriptions WHERE endpoint = $1', [sub.endpoint]);
       } else {
-        console.error('[Push] Failed for user', userId, ':', e.message);
+        console.error('[Push] Failed for user', userId, ':', e.statusCode, e.message);
       }
     }
   }

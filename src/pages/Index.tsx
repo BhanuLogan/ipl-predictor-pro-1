@@ -8,6 +8,7 @@ import { getPollOpenMatches, type MatchResult } from "@/lib/data";
 import { useMatches } from "@/lib/matches";
 import { Users, Bell, BellOff } from "lucide-react";
 import { registerServiceWorker, subscribeToPush, unsubscribeFromPush, isPushSubscribed } from "@/lib/push";
+import { toast } from "@/components/ui/sonner";
 import OpenPolls from "@/components/dashboard/OpenPolls";
 import CompletedMatches from "@/components/dashboard/CompletedMatches";
 import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
@@ -121,12 +122,22 @@ const Index = () => {
       if (pushSubscribed) {
         await unsubscribeFromPush();
         setPushSubscribed(false);
+        toast.success('Notifications disabled');
       } else {
+        if (Notification.permission === 'denied') {
+          toast.error('Notifications blocked by browser. Allow them in site settings and retry.');
+          return;
+        }
         const ok = await subscribeToPush();
-        setPushSubscribed(ok);
+        if (ok) {
+          setPushSubscribed(true);
+          toast.success('Notifications enabled');
+        } else {
+          toast.error('Could not enable notifications. Check browser permission.');
+        }
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      toast.error(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setPushLoading(false);
     }
