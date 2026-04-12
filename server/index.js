@@ -3772,7 +3772,13 @@ function formatESPNCommentaryItem(item, matchScore) {
   // Prefer the live score cache value; fall back to homeScore/awayScore on the item
   let line3 = '';
   if (matchScore) {
-    line3 = `📊 ${matchScore}`;
+    // Replace the overs count in the score string with the ball's exact position.
+    // ESPN's competitors[i].score shows completed overs (e.g. "2/20 ov") while
+    // the ball itself knows it's at over 2.1 — so we patch it in.
+    const fixedScore = overOvers != null
+      ? matchScore.replace(/\(([\d.]+)\/([\d]+) ov/, `(${overOvers}/$2 ov`)
+      : matchScore;
+    line3 = `📊 ${fixedScore}`;
   } else if (item.homeScore || item.awayScore) {
     const parts = [item.homeScore, item.awayScore].filter(Boolean);
     line3 = `📊 ${parts.join(' · ')}`;
