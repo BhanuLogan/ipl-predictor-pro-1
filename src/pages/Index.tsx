@@ -137,7 +137,15 @@ const Index = () => {
         }
       }
     } catch (e) {
-      toast.error(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      if (msg === 'BRAVE_PUSH_ERROR') {
+        toast.error(
+          'Brave blocks push notifications by default. Go to brave://settings/privacy → enable "Use Google services for push messaging", then retry.',
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(`Failed: ${msg}`);
+      }
     } finally {
       setPushLoading(false);
     }

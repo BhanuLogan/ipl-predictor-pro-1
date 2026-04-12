@@ -34,10 +34,21 @@ export async function subscribeToPush(): Promise<boolean> {
   const reg = await navigator.serviceWorker.ready;
   const { publicKey } = await api.getPushVapidKey();
 
-  const subscription = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(publicKey),
-  });
+  let subscription: PushSubscription;
+  try {
+    subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.toLowerCase().includes('push service error') || msg.toLowerCase().includes('registration failed')) {
+      throw new Error(
+        'BRAVE_PUSH_ERROR'
+      );
+    }
+    throw e;
+  }
 
   const json = subscription.toJSON() as {
     endpoint: string;
