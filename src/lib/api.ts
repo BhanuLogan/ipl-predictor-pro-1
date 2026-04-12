@@ -404,10 +404,6 @@ export const api = {
   },
 
   // Push notifications
-  async testPush(): Promise<{ ok: boolean; subscriptions: number }> {
-    return apiFetch('/api/push/test', { method: 'POST' });
-  },
-
   async getPushVapidKey(): Promise<{ publicKey: string }> {
     return apiFetch('/api/push/vapid-public-key');
   },

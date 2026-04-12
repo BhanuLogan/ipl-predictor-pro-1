@@ -712,7 +712,7 @@ io.on("connection", (socket) => {
             icon: '/favicon.ico',
             tag: `chat_${roomId}_${matchId}`,
             data: {
-              url: `/chat/${roomId}/${matchId}`,
+              url: `/rooms/${roomId}/chat/${matchId}`,
               roomName,
               sender: socket.user.username,
             },
@@ -2757,7 +2757,7 @@ async function checkRecentMatches(isManual = false) {
             pushTitle = `🏆 ${winner} Won!`;
             pushBody = scoreSummary || `${match.team1} vs ${match.team2}`;
           }
-          broadcastPush({ title: pushTitle, body: pushBody, icon: '/favicon.ico', tag: `result_${match.id}`, data: { url: '/' } })
+          broadcastPush({ title: pushTitle, body: pushBody, icon: '/favicon.ico', tag: `result_${match.id}`, data: { url: `/poll/${match.id}` } })
             .catch(e => console.error('[Push] Broadcast failed:', e.message));
 
           // Post win announcement to all rooms (once per match)
@@ -4159,19 +4159,6 @@ app.post('/api/reactions', authMiddleware, asyncRoute(async (req, res) => {
 
   io.to(`chat_${msg.room_id}_${msg.match_id}`).emit('reaction_update', { messageId, reactions });
   res.json({ ok: true, reactions });
-}));
-
-// Test push — sends a push to the currently logged-in user
-app.post('/api/push/test', authMiddleware, asyncRoute(async (req, res) => {
-  const subs = await query('SELECT id FROM push_subscriptions WHERE user_id = $1', [req.user.id]);
-  if (subs.length === 0) return res.status(400).json({ error: 'No subscriptions found for your account' });
-  await sendPushToUser(req.user.id, {
-    title: '🏏 Test notification',
-    body: 'Push notifications are working!',
-    icon: '/favicon.ico',
-    data: { url: '/' },
-  });
-  res.json({ ok: true, subscriptions: subs.length });
 }));
 
 app.get("/api/health", (req, res) => {

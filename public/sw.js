@@ -1,10 +1,8 @@
 self.addEventListener('push', (event) => {
-  console.log('[SW] Push received', event.data?.text());
   event.waitUntil(handlePush(event.data?.json() ?? {}));
 });
 
 async function handlePush(data) {
-  console.log('[SW] handlePush', JSON.stringify(data));
   const { title = 'IPL Predictor', body = '', icon = '/favicon.ico', tag, data: notifData = {} } = data;
 
   const options = {
@@ -60,7 +58,11 @@ self.addEventListener('notificationclick', (event) => {
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
         for (const client of clientList) {
-          if ('focus' in client) return client.focus();
+          if ('focus' in client) {
+            client.focus();
+            if ('navigate' in client) client.navigate(url);
+            return;
+          }
         }
         if (clients.openWindow) return clients.openWindow(url);
       })
