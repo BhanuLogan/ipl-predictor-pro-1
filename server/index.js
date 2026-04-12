@@ -2768,7 +2768,8 @@ async function pollMatchData() {
       // commentaries lives at header.competitions[0].commentaries in the summary
       // response — an object keyed by numeric string ball IDs e.g. {"13030":{...}}
       const commObj   = data.header?.competitions?.[0]?.commentaries || {};
-      const commItems = Object.values(commObj);
+      // Only include real ball deliveries (over.overs > 0); overs=0 items are between-innings placeholders
+      const commItems = Object.values(commObj).filter(i => i.over && Number(i.over.overs) > 0);
 
       if (!cachedEntry.seenIds) cachedEntry.seenIds = new Set();
 
@@ -3005,8 +3006,9 @@ async function fetchLatestBallData(matchId) {
     const situation = comp.situation || {};
 
     // Most recent ball from commentaries (sorted newest-first by id)
+    // Filter: only real deliveries (over.overs > 0); overs=0 items are between-innings placeholders
     const commObj = comp.commentaries || {};
-    const commItems = Object.values(commObj).filter(i => i.over);
+    const commItems = Object.values(commObj).filter(i => i.over && Number(i.over.overs) > 0);
     commItems.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
     const latest = commItems[0] || null;
 
