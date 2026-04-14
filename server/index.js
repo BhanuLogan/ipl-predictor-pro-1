@@ -1197,6 +1197,8 @@ async function getLeaderboardInternal() {
 }
 
 app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) => {
+  const { roomId } = req.query;
+
   // 1. Get the latest match with a result
   const lastResult = await queryOne(`
     SELECT r.match_id, r.winner, r.score_summary, r.created_at
@@ -1213,15 +1215,18 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
   const match = matchesCache.find(m => m.id === matchId);
   if (!match) return res.json({ noData: true });
 
-  // 2. Get votes for this match
-  const votes = await query(`
-    SELECT v.user_id, u.username, v.prediction
-    FROM votes v
-    JOIN users u ON v.user_id = u.id
-    WHERE v.match_id = $1
-  `, [matchId]);
-
-  const winners = votes.filter(v => v.prediction === lastResult.winner).map(v => v.username);
+  // 2. Get votes for this match, filtered by room if provided
+  const votesQuery = roomId
+    ? `SELECT v.user_id, u.username, v.prediction
+       FROM votes v
+       JOIN users u ON v.user_id = u.id
+       WHERE v.match_id = $1 AND v.room_id = $2`
+    : `SELECT v.user_id, u.username, v.prediction
+       FROM votes v
+       JOIN users u ON v.user_id = u.id
+       WHERE v.match_id = $1`;
+  const votesParams = roomId ? [matchId, roomId] : [matchId];
+  const votes = await query(votesQuery, votesParams);
 
   // 3. User specific status
   const userVote = votes.find(v => v.user_id === req.user.id);
@@ -1234,12 +1239,13 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
     ? (isCorrect ? 'won' : 'lost')
     : 'no_vote';
 
-  // 4. Rank Change Calculation for ALL users in this match
-  const currentBoard = await getLeaderboardInternal();
+  // 4. Rank Change Calculation — use room leaderboard if roomId provided
+  const currentBoard = roomId
+    ? await getRoomLeaderboard(parseInt(roomId))
+    : await getLeaderboardInternal();
 
   // Previous points calculation for all users
   const prevBoard = currentBoard.map(user => {
-    // Only subtract if they voted in THIS match
     const vote = votes.find(v => v.user_id === user.user_id);
     let pointsGained = 0;
     let correctGained = 0;
@@ -1280,7 +1286,7 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
     ? 1
     : (userVote && userVote.prediction === lastResult.winner ? 2 : 0);
 
-  // User outcomes for everyone who participated
+  // User outcomes — only users in this room who participated
   const userOutcomes = votes.map(v => {
     const cRank = getRank(currentBoard, v.user_id);
     const pRank = getRank(prevBoard, v.user_id);

@@ -142,8 +142,9 @@ export interface PollSummary {
 }
 
 export const api = {
-  async getLastPollSummary(): Promise<PollSummary> {
-    return apiFetch("/api/last-poll-summary");
+  async getLastPollSummary(roomId?: number): Promise<PollSummary> {
+    const url = roomId ? `/api/last-poll-summary?roomId=${roomId}` : "/api/last-poll-summary";
+    return apiFetch(url);
   },
   // Auth — username + password only
   async register(username: string, password: string) {

@@ -85,7 +85,7 @@ const Index = () => {
     // Check for last poll summary - only on first load after login
     const isJustLoggedIn = sessionStorage.getItem("justLoggedIn") === "true";
     if (isJustLoggedIn) {
-      api.getLastPollSummary().then((res) => {
+      api.getLastPollSummary(activeRoom?.id).then((res) => {
         if (res && !res.noData) {
           setSummary(res);
           setShowSummary(true);

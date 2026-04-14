@@ -58,22 +58,22 @@ const Header = () => {
             </Link>
           ))}
           {user && (
-            <div className="flex items-center gap-3 ml-2">
+            <div className="flex items-center gap-2 ml-2">
               <button
                 onClick={() => setShowProfile(true)}
-                className="group flex items-center justify-center rounded-full border border-border bg-gradient-card p-1 transition-colors hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="group relative flex items-center justify-center rounded-full border border-border bg-gradient-card p-1 transition-colors hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
                 title="Profile settings"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20 font-display text-sm font-bold text-primary overflow-hidden">
                   <img src={getAvatarUrl(user.profile_pic, user.username)} alt="avatar" className="w-full h-full object-cover" />
                 </div>
-              </button>
-              <button
-                onClick={() => { logout(); window.location.href = "/login"; }}
-                className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0"
-                title="Logout"
-              >
-                <LogOut size={16} />
+                <button
+                  onClick={(e) => { e.stopPropagation(); logout(); window.location.href = "/login"; }}
+                  className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive/90 text-white shadow-sm transition-transform hover:scale-110"
+                  title="Logout"
+                >
+                  <LogOut size={9} />
+                </button>
               </button>
             </div>
           )}
