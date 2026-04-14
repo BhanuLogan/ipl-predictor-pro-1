@@ -249,6 +249,7 @@ const Index = () => {
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Active Room</p>
               <h3 className="font-display text-2xl text-foreground leading-none">{activeRoom.name}</h3>
             </div>
+          </div>
           <div className="flex items-center gap-2 relative">
             {'Notification' in window && (
               <div className="relative">
