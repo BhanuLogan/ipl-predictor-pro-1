@@ -412,6 +412,10 @@ export const api = {
     });
   },
 
+  async remindNonVoters(): Promise<{ ok: boolean; sentCount: number }> {
+    return apiFetch('/api/admin/push/remind-voters', { method: 'POST' });
+  },
+
   async testPush(): Promise<{ ok: boolean; subscriptions: number }> {
     return apiFetch('/api/push/test', { method: 'POST' });
   },

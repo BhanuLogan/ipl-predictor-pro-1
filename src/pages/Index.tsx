@@ -39,6 +39,7 @@ const Index = () => {
   const [upcomingPage, setUpcomingPage] = useState(1);
   const [summary, setSummary] = useState<PollSummary | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!activeRoom) return;
@@ -101,6 +102,12 @@ const Index = () => {
     if (isJustLoggedIn) {
       handleShowSummary();
       sessionStorage.removeItem("justLoggedIn");
+      // Show push prompt if not subscribed
+      isPushSubscribed().then(subscribed => {
+        if (!subscribed) {
+          setShowPushPrompt(true);
+        }
+      });
     }
 
     const id = setInterval(loadData, 30000);
@@ -230,33 +237,30 @@ const Index = () => {
               <h3 className="font-display text-2xl text-foreground leading-none">{activeRoom.name}</h3>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 relative">
             {'Notification' in window && (
               <>
+                {showPushPrompt && !pushSubscribed && (
+                  <div className="absolute -top-10 right-0 z-50 animate-bounce">
+                    <div className="relative rounded-lg bg-primary px-3 py-1.5 text-[10px] font-bold text-primary-foreground shadow-lg shadow-primary/20">
+                      Enable notifications 🔔
+                      <div className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-primary" />
+                    </div>
+                  </div>
+                )}
                 <button
-                  onClick={handlePushToggle}
+                  onClick={() => {
+                    handlePushToggle();
+                    setShowPushPrompt(false);
+                  }}
                   disabled={pushLoading}
                   title={pushSubscribed ? 'Disable notifications' : 'Enable notifications'}
-                  className="flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  className={`flex items-center justify-center rounded-lg border border-border bg-background p-1.5 transition-all disabled:opacity-50 ${
+                    showPushPrompt && !pushSubscribed ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 >
                   {pushSubscribed ? <Bell size={15} className="text-primary" /> : <BellOff size={15} />}
                 </button>
-                {pushSubscribed && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.testPush();
-                        toast.success('Test notification sent');
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : 'Failed');
-                      }
-                    }}
-                    className="rounded-lg border border-border bg-background px-2 py-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-                    title="Send a test notification to this device"
-                  >
-                    Test
-                  </button>
-                )}
               </>
             )}
             <button

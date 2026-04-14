@@ -4305,6 +4305,45 @@ app.post('/api/admin/push/broadcast', authMiddleware, adminMiddleware, asyncRout
   res.json({ ok: true });
 }));
 
+app.post('/api/admin/push/remind-voters', authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const results = await query('SELECT match_id, winner FROM results');
+  const resultsMap = {};
+  results.forEach(r => { resultsMap[r.match_id] = r; });
+  
+  const overridesRows = await query('SELECT match_id, manual_locked, lock_delay FROM match_overrides');
+  const overridesMap = {};
+  overridesRows.forEach(o => { overridesMap[o.match_id] = o; });
+
+  const openMatches = getPollOpenMatches(matchesCache, resultsMap, overridesMap);
+  if (openMatches.length === 0) return res.json({ ok: true, sentCount: 0, message: 'No open polls found' });
+
+  const openMatchIds = openMatches.map(m => m.id);
+
+  // Find users who have NOT voted in AT LEAST ONE of these open matches, and have push subscriptions
+  const usersToRemind = await query(`
+    SELECT DISTINCT ps.user_id
+    FROM push_subscriptions ps
+    WHERE ps.user_id NOT IN (
+      SELECT DISTINCT user_id
+      FROM votes
+      WHERE match_id = ANY($1)
+    )
+  `, [openMatchIds]);
+
+  if (usersToRemind.length === 0) return res.json({ ok: true, sentCount: 0, message: 'Everyone has already voted' });
+
+  for (const user of usersToRemind) {
+    await sendPushToUser(user.user_id, {
+      title: '🏏 Don\'t miss your vote!',
+      body: `Today's IPL polls are LIVE! Place your prediction now and climb the leaderboard! 🏆`,
+      icon: '/ipl-icon.png',
+      data: { url: '/' },
+    });
+  }
+
+  res.json({ ok: true, sentCount: usersToRemind.length });
+}));
+
 app.post('/api/push/test', authMiddleware, asyncRoute(async (req, res) => {
   const subs = await query('SELECT id FROM push_subscriptions WHERE user_id = $1', [req.user.id]);
   if (subs.length === 0) return res.status(400).json({ error: 'No subscriptions found for your account' });

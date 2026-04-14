@@ -244,6 +244,20 @@ const Admin = () => {
     }
   };
 
+  const handleSendReminder = async () => {
+    if (!confirm("Send a vote reminder to all users who haven't voted for today's matches?")) return;
+    
+    setPushLoading(true);
+    try {
+      const res = await api.remindNonVoters();
+      alert(`✅ Reminder sent to ${res.sentCount} users!`);
+    } catch (err: any) {
+      alert("❌ Failed to send: " + err.message);
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
   if (!user) return null;
 
   // Categorize matches: current/active polls (open, no result) and completed (has result)
@@ -582,6 +596,20 @@ const Admin = () => {
                     <Send size={16} />
                     {pushLoading ? "Sending..." : "SEND TO ALL SUBSCRIBERS"}
                   </button>
+
+                  <div className="pt-2 border-t border-primary/20">
+                    <button
+                      onClick={handleSendReminder}
+                      disabled={pushLoading}
+                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-primary/50 bg-transparent py-2 text-xs font-bold text-primary transition-all hover:bg-primary/10 disabled:opacity-50"
+                    >
+                      <Bell size={14} />
+                      {pushLoading ? "Processing..." : "🔔 SEND VOTE REMINDER (TO NON-VOTERS)"}
+                    </button>
+                    <p className="mt-2 text-center text-[9px] text-muted-foreground">
+                      Targeted reminder for users who haven't voted in today's open matches.
+                    </p>
+                  </div>
                 </div>
               </div>
 
