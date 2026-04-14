@@ -25,10 +25,11 @@ const PRESETS = [
 interface Props {
   user: User;
   onClose: () => void;
+  onLogout: () => void;
   onSave: (data: { profile_pic?: string | null; username?: string; password?: string }) => Promise<void>;
 }
 
-export default function ProfileModal({ user, onClose, onSave }: Props) {
+export default function ProfileModal({ user, onClose, onLogout, onSave }: Props) {
   const [tab, setTab] = useState<"account" | "avatar">("avatar");
 
   // State
@@ -231,19 +232,28 @@ export default function ProfileModal({ user, onClose, onSave }: Props) {
         {error && <p className="mb-4 text-center text-sm font-semibold text-destructive animate-fade-in">{error}</p>}
 
         {/* Footer Actions */}
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors"
+            >
+              CANCEL
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-50 transition-all glow-gold"
+            >
+              {loading ? "SAVING..." : "SAVE CHANGES"}
+            </button>
+          </div>
+          
           <button
-            onClick={onClose}
-            className="flex-1 rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors"
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 py-3 text-sm font-bold text-destructive hover:bg-destructive hover:text-white transition-all uppercase tracking-widest mt-2"
           >
-            CANCEL
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={loading}
-            className="flex-1 rounded-xl bg-primary py-3 font-display text-lg tracking-wider text-primary-foreground hover:brightness-110 disabled:opacity-50 transition-all glow-gold"
-          >
-            {loading ? "SAVING..." : "SAVE CHANGES"}
+            <Lock size={16} /> LOGOUT
           </button>
         </div>
         </div>

@@ -67,13 +67,6 @@ const Header = () => {
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20 font-display text-sm font-bold text-primary overflow-hidden">
                   <img src={getAvatarUrl(user.profile_pic, user.username)} alt="avatar" className="w-full h-full object-cover" />
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); logout(); window.location.href = "/login"; }}
-                  className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive/90 text-white shadow-sm transition-transform hover:scale-110"
-                  title="Logout"
-                >
-                  <LogOut size={9} />
-                </button>
               </button>
             </div>
           )}
@@ -84,6 +77,7 @@ const Header = () => {
         <ProfileModal
           user={user}
           onClose={() => setShowProfile(false)}
+          onLogout={() => { logout(); window.location.href = "/login"; }}
           onSave={async (data) => {
             const api = (await import("@/lib/api")).api;
             await api.updateProfile(data);

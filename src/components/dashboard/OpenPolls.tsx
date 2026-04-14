@@ -16,19 +16,30 @@ interface Props {
   overrides: Record<string, any>;
   roomId?: number;
   liveScores?: Record<string, { score: string | null; status: string | null; updatedAt: string }>;
+  onShowSummary?: () => void;
 }
 
-const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, totalMatchCount, results, overrides, roomId, liveScores }: Props) => {
+const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote, completedCount, totalMatchCount, results, overrides, roomId, liveScores, onShowSummary }: Props) => {
   if (openPolls.length > 0) {
     return (
       <div className="mb-8">
-        <div className="mb-4 flex items-center gap-2">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive" />
-          <h2 className="font-display text-3xl text-gradient-gold">
-            {openPolls.some(m => isVotingLocked(m, overrides[m.id]))
-              ? "LIVE MATCH IN PROGRESS"
-              : `LIVE POLL${openPolls.length > 1 ? "S" : ""} — VOTE NOW!`}
-          </h2>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive" />
+            <h2 className="font-display text-3xl text-gradient-gold">
+              {openPolls.some(m => isVotingLocked(m, overrides[m.id]))
+                ? "LIVE MATCH IN PROGRESS"
+                : `LIVE POLL${openPolls.length > 1 ? "S" : ""} — VOTE NOW!`}
+            </h2>
+          </div>
+          {onShowSummary && (
+            <button
+              onClick={onShowSummary}
+              className="flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-bold text-primary transition-all hover:bg-primary/10 active:scale-95 shadow-sm"
+            >
+              <Coffee size={14} /> VIEW LAST RESULT
+            </button>
+          )}
         </div>
         <div className="space-y-4">
           {openPolls.map(match => {

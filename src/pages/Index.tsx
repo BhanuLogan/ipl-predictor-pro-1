@@ -40,39 +40,19 @@ const Index = () => {
   const [summary, setSummary] = useState<PollSummary | null>(null);
   const [showSummary, setShowSummary] = useState(false);
 
-  const loadData = useCallback(async () => {
-    if (!activeRoom) return;
+  const handleShowSummary = useCallback(async () => {
     try {
-      const [votes, counts, r, ovs, ann, liveScoreData] = await Promise.all([
-        api.getVotes(activeRoom.id),
-        api.getVoteCounts(activeRoom.id),
-        api.getResults(),
-        api.getMatchOverrides(),
-        api.getAnnouncement(),
-        api.getLiveScores(),
-      ]);
-      if (user) {
-        const mine: Record<string, string> = {};
-        for (const [matchId, matchVotes] of Object.entries(votes)) {
-          if (matchVotes[user.username]) {
-            mine[matchId] = matchVotes[user.username];
-          }
-        }
-        setMyVotes(mine);
+      const res = await api.getLastPollSummary(activeRoom?.id);
+      if (res && !res.noData) {
+        setSummary(res);
+        setShowSummary(true);
+      } else {
+        toast.info("No recent poll summary available.");
       }
-      setAllVotes(votes);
-      setVoteCounts(counts);
-      setResults(r);
-
-      const ovMap: Record<string, MatchOverride> = {};
-      ovs.forEach(o => { ovMap[o.match_id] = o; });
-      setOverrides(ovMap);
-      setAnnouncement(ann.text);
-      setLiveScores(liveScoreData);
-    } catch {
-      // API not available
+    } catch (e) {
+      toast.error("Failed to fetch poll summary.");
     }
-  }, [user, activeRoom]);
+  }, [activeRoom]);
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
@@ -85,20 +65,13 @@ const Index = () => {
     // Check for last poll summary - only on first load after login
     const isJustLoggedIn = sessionStorage.getItem("justLoggedIn") === "true";
     if (isJustLoggedIn) {
-      api.getLastPollSummary(activeRoom?.id).then((res) => {
-        if (res && !res.noData) {
-          setSummary(res);
-          setShowSummary(true);
-        }
-        sessionStorage.removeItem("justLoggedIn");
-      }).catch(() => {
-        sessionStorage.removeItem("justLoggedIn");
-      });
+      handleShowSummary();
+      sessionStorage.removeItem("justLoggedIn");
     }
 
     const id = setInterval(loadData, 30000);
     return () => clearInterval(id);
-  }, [user, navigate, loadData, activeRoom, roomLoading]);
+  }, [user, navigate, loadData, activeRoom, roomLoading, handleShowSummary]);
 
   // Real-time live score updates via Socket.IO
   useEffect(() => {
@@ -274,6 +247,7 @@ const Index = () => {
           overrides={overrides}
           roomId={activeRoom.id}
           liveScores={liveScores}
+          onShowSummary={handleShowSummary}
         />
 
         {/* Completed Matches – horizontal scrolling cards */}
