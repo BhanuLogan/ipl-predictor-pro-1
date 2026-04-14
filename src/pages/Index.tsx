@@ -249,15 +249,14 @@ const Index = () => {
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Active Room</p>
               <h3 className="font-display text-2xl text-foreground leading-none">{activeRoom.name}</h3>
             </div>
-          </div>
           <div className="flex items-center gap-2 relative">
             {'Notification' in window && (
-              <>
+              <div className="relative">
                 {showPushPrompt && !pushSubscribed && (
-                  <div className="absolute -top-10 right-0 z-50 animate-bounce">
-                    <div className="relative rounded-lg bg-primary px-3 py-1.5 text-[10px] font-bold text-primary-foreground shadow-lg shadow-primary/20">
+                  <div className="absolute -top-10 left-0 z-50 animate-bounce">
+                    <div className="relative rounded-lg bg-primary px-3 py-1.5 text-[10px] font-bold text-primary-foreground shadow-lg shadow-primary/20 whitespace-nowrap">
                       Enable notifications 🔔
-                      <div className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-primary" />
+                      <div className="absolute -bottom-1 left-3 h-2 w-2 rotate-45 bg-primary" />
                     </div>
                   </div>
                 )}
@@ -274,7 +273,7 @@ const Index = () => {
                 >
                   {pushSubscribed ? <Bell size={15} className="text-primary" /> : <BellOff size={15} />}
                 </button>
-              </>
+              </div>
             )}
             <button
               onClick={() => navigate("/rooms")}
