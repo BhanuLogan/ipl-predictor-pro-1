@@ -709,7 +709,7 @@ io.on("connection", (socket) => {
           sendPushToUser(member.user_id, {
             title,
             body: preview,
-            icon: '/favicon.ico',
+            icon: '/ipl-icon.png',
             tag: `chat_${roomId}_${matchId}`,
             data: {
               url: `/rooms/${roomId}/chat/${matchId}`,
@@ -2924,7 +2924,7 @@ setInterval(async () => {
         sendPushToUser(sub.user_id, {
           title: `🗳️ Cast your vote! ${match.team1} vs ${match.team2}`,
           body: `Toss is done! Match starts in ~${minsLeft} min. Don't miss voting!`,
-          icon: '/favicon.ico',
+          icon: '/ipl-icon.png',
           tag: `toss_reminder_${matchId}`,
           data: { url: '/' },
         }).catch(() => {});
@@ -3112,7 +3112,7 @@ async function pollMatchData() {
           broadcastPush({
             title: `🪙 Toss: ${match.team1} vs ${match.team2}`,
             body: toss,
-            icon: '/favicon.ico',
+            icon: '/ipl-icon.png',
             tag: `toss_${match.id}`,
             data: { url: '/' },
           }).catch(e => console.error('[Push] Toss notification error:', e.message));
@@ -4291,7 +4291,7 @@ app.post('/api/push/test', authMiddleware, asyncRoute(async (req, res) => {
   await sendPushToUser(req.user.id, {
     title: '🏏 Test notification',
     body: 'Push notifications are working!',
-    icon: '/favicon.ico',
+    icon: '/ipl-icon.png',
     data: { url: '/' },
   });
   res.json({ ok: true, subscriptions: subs.length });

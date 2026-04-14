@@ -17,7 +17,7 @@ const Login = () => {
     setLoading(true);
     try {
       await login(username.trim(), password);
-      sessionStorage.setItem("forceShowBanner", "true");
+      sessionStorage.setItem("justLoggedIn", "true");
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Login failed");

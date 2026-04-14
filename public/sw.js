@@ -3,12 +3,12 @@ self.addEventListener('push', (event) => {
 });
 
 async function handlePush(data) {
-  const { title = 'IPL Predictor', body = '', icon = '/favicon.ico', tag, data: notifData = {} } = data;
+  const { title = 'IPL Predictor', body = '', icon = '/ipl-icon.png', tag, data: notifData = {} } = data;
 
   const options = {
     body,
     icon,
-    badge: '/favicon.ico',
+    badge: '/ipl-icon.png',
     data: notifData,
     vibrate: [200, 100, 200],
   };
