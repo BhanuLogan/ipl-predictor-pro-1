@@ -40,6 +40,40 @@ const Index = () => {
   const [summary, setSummary] = useState<PollSummary | null>(null);
   const [showSummary, setShowSummary] = useState(false);
 
+  const loadData = useCallback(async () => {
+    if (!activeRoom) return;
+    try {
+      const [votes, counts, r, ovs, ann, liveScoreData] = await Promise.all([
+        api.getVotes(activeRoom.id),
+        api.getVoteCounts(activeRoom.id),
+        api.getResults(),
+        api.getMatchOverrides(),
+        api.getAnnouncement(),
+        api.getLiveScores(),
+      ]);
+      if (user) {
+        const mine: Record<string, string> = {};
+        for (const [matchId, matchVotes] of Object.entries(votes)) {
+          if (matchVotes[user.username]) {
+            mine[matchId] = matchVotes[user.username];
+          }
+        }
+        setMyVotes(mine);
+      }
+      setAllVotes(votes);
+      setVoteCounts(counts);
+      setResults(r);
+
+      const ovMap: Record<string, MatchOverride> = {};
+      ovs.forEach(o => { ovMap[o.match_id] = o; });
+      setOverrides(ovMap);
+      setAnnouncement(ann.text);
+      setLiveScores(liveScoreData);
+    } catch {
+      // API not available
+    }
+  }, [user, activeRoom]);
+
   const handleShowSummary = useCallback(async () => {
     try {
       const res = await api.getLastPollSummary(activeRoom?.id);
