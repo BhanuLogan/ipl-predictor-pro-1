@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { IPL_TEAMS, formatMatchDate, isVotingLocked, getPollOpenMatches, type MatchResult, type Match } from "@/lib/data";
 import { useMatches } from "@/lib/matches";
-import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X } from "lucide-react";
+import { Check, CloudRain, Trash2, Users, Plus, Lock, Unlock, Timer, Settings2, Megaphone, Send, X, Bell } from "lucide-react";
 import { type MatchOverride } from "@/lib/api";
 
 const Admin = () => {
