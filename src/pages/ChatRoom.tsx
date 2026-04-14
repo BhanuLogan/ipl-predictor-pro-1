@@ -349,7 +349,7 @@ const SeenAvatars = ({ seenBy, currentUserId }: { seenBy: SeenEntry[]; currentUs
 };
 
 // ── Render message text with @mentions highlighted ───────────────────────────
-function renderWithMentions(text: string, currentUsername?: string) {
+function renderWithMentions(text: string, currentUsername?: string, isSenderBubble = false) {
   const parts = text.split(/(@\w+)/g);
   return parts.map((part, i) => {
     if (/^@\w+$/.test(part)) {
@@ -361,6 +361,8 @@ function renderWithMentions(text: string, currentUsername?: string) {
           className={`font-bold rounded px-0.5 ${
             isMe
               ? "text-amber-300 bg-amber-400/15"
+              : isSenderBubble
+              ? "text-primary-foreground/90 bg-primary-foreground/20"
               : "text-primary"
           }`}
         >
@@ -802,7 +804,7 @@ const ChatRoom: React.FC = () => {
                       )}
                       <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words flex-1 min-w-[50px]">
-                          {renderWithMentions(msg.message, user?.username)}
+                          {renderWithMentions(msg.message, user?.username, isMe)}
                         </p>
                         <span className={`text-[9px] whitespace-nowrap opacity-60 ml-auto pb-0.5 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
                           {format(new Date(msg.created_at), "h:mm a")}
