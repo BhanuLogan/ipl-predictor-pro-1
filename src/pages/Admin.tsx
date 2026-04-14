@@ -35,6 +35,9 @@ const Admin = () => {
   const [announcementText, setAnnouncementText] = useState("");
   const [currentAnnouncement, setCurrentAnnouncement] = useState("");
   const [announcementLoading, setAnnouncementLoading] = useState(false);
+  const [pushTitle, setPushTitle] = useState("");
+  const [pushBody, setPushBody] = useState("");
+  const [pushLoading, setPushLoading] = useState(false);
 
   const loadData = async (roomId?: number) => {
     try {
@@ -221,6 +224,23 @@ const Admin = () => {
       alert("Failed to clear: " + err.message);
     } finally {
       setAnnouncementLoading(false);
+    }
+  };
+  
+  const handleSendPush = async () => {
+    if (!pushTitle.trim() || !pushBody.trim()) return;
+    if (!confirm("Send this push notification to ALL users?")) return;
+    
+    setPushLoading(true);
+    try {
+      await api.broadcastPushNotification(pushTitle.trim(), pushBody.trim());
+      alert("✅ Global notification sent successfully!");
+      setPushTitle("");
+      setPushBody("");
+    } catch (err: any) {
+      alert("❌ Failed to send: " + err.message);
+    } finally {
+      setPushLoading(false);
     }
   };
 
@@ -528,6 +548,39 @@ const Admin = () => {
                   >
                     <Send size={16} />
                     {announcementLoading ? "..." : "Broadcast"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Global Push Notification */}
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                <div className="mb-3 flex items-center gap-2 text-primary">
+                  <Bell size={16} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Global Push Notification</span>
+                </div>
+                
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={pushTitle}
+                    onChange={(e) => setPushTitle(e.target.value)}
+                    placeholder="Notification Title (e.g. 🏏 Match Starting!)"
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-semibold"
+                  />
+                  <textarea
+                    value={pushBody}
+                    onChange={(e) => setPushBody(e.target.value)}
+                    placeholder="Notification Message... (keep it brief for best display)"
+                    rows={2}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+                  />
+                  <button
+                    onClick={handleSendPush}
+                    disabled={pushLoading || !pushTitle.trim() || !pushBody.trim()}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50 glow-gold"
+                  >
+                    <Send size={16} />
+                    {pushLoading ? "Sending..." : "SEND TO ALL SUBSCRIBERS"}
                   </button>
                 </div>
               </div>

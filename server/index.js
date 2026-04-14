@@ -4291,6 +4291,20 @@ app.post('/api/reactions', authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ok: true, reactions });
 }));
 
+app.post('/api/admin/push/broadcast', authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { title, body } = req.body;
+  if (!title || !body) return res.status(400).json({ error: 'Title and body are required' });
+
+  await broadcastPush({
+    title,
+    body,
+    icon: '/ipl-icon.png',
+    data: { url: '/' },
+  });
+
+  res.json({ ok: true });
+}));
+
 app.post('/api/push/test', authMiddleware, asyncRoute(async (req, res) => {
   const subs = await query('SELECT id FROM push_subscriptions WHERE user_id = $1', [req.user.id]);
   if (subs.length === 0) return res.status(400).json({ error: 'No subscriptions found for your account' });

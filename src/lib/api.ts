@@ -405,6 +405,13 @@ export const api = {
   },
 
   // Push notifications
+  async broadcastPushNotification(title: string, body: string): Promise<{ ok: boolean }> {
+    return apiFetch('/api/admin/push/broadcast', {
+      method: 'POST',
+      body: JSON.stringify({ title, body }),
+    });
+  },
+
   async testPush(): Promise<{ ok: boolean; subscriptions: number }> {
     return apiFetch('/api/push/test', { method: 'POST' });
   },
