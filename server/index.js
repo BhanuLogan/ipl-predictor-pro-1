@@ -1428,6 +1428,7 @@ app.post("/api/rooms/join-request", authMiddleware, asyncRoute(async (req, res) 
       [room.id, req.user.id]
     );
     io.emit("join_request_new", { roomId: room.id, roomName: room.name, username: req.user.username });
+    notifyRoomAdminsOfJoinRequest(room.id, room.name, req.user.username);
     return res.json({ ok: true, message: "Join request re-submitted. A room admin will review it." });
   }
 
@@ -1436,8 +1437,30 @@ app.post("/api/rooms/join-request", authMiddleware, asyncRoute(async (req, res) 
     [room.id, req.user.id]
   );
   io.emit("join_request_new", { roomId: room.id, roomName: room.name, username: req.user.username });
+  notifyRoomAdminsOfJoinRequest(room.id, room.name, req.user.username);
   res.json({ ok: true, message: "Join request sent! A room admin will review it." });
 }));
+
+async function notifyRoomAdminsOfJoinRequest(roomId, roomName, requesterUsername) {
+  if (!VAPID_PUBLIC_KEY) return;
+  try {
+    const admins = await query(
+      "SELECT user_id FROM room_members WHERE room_id = $1 AND is_room_admin = TRUE",
+      [roomId]
+    );
+    for (const admin of admins) {
+      sendPushToUser(admin.user_id, {
+        title: `🔔 New join request — ${roomName}`,
+        body: `${requesterUsername} wants to join your room.`,
+        icon: '/favicon.ico',
+        tag: `join_request_${roomId}`,
+        data: { url: '/rooms' },
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[Push] notifyRoomAdmins error:', e.message);
+  }
+}
 
 // My rooms
 app.get("/api/rooms/mine", authMiddleware, asyncRoute(async (req, res) => {
@@ -1651,7 +1674,7 @@ app.post("/api/rooms/:id/join-requests/:requestId/approve", authMiddleware, asyn
   const requestId = parseInt(req.params.requestId);
   if (isNaN(roomId) || isNaN(requestId)) return res.status(400).json({ error: "Invalid id" });
 
-  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  const room = await queryOne("SELECT id, name, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
   const approveMembership = await queryOne(
     "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
@@ -1675,6 +1698,18 @@ app.post("/api/rooms/:id/join-requests/:requestId/approve", authMiddleware, asyn
   await query("UPDATE room_join_requests SET status = 'approved' WHERE id = $1", [requestId]);
   io.emit("join_request_approved", { userId: joinReq.user_id, roomId });
   invalidateRoomsCache();
+
+  // Notify the approved user
+  if (VAPID_PUBLIC_KEY) {
+    sendPushToUser(joinReq.user_id, {
+      title: `✅ Request approved — ${room.name}`,
+      body: `Your request to join "${room.name}" was approved! You're in.`,
+      icon: '/favicon.ico',
+      tag: `join_approved_${roomId}`,
+      data: { url: '/rooms' },
+    }).catch(() => {});
+  }
+
   res.json({ ok: true });
 }));
 
@@ -1684,7 +1719,7 @@ app.post("/api/rooms/:id/join-requests/:requestId/reject", authMiddleware, async
   const requestId = parseInt(req.params.requestId);
   if (isNaN(roomId) || isNaN(requestId)) return res.status(400).json({ error: "Invalid id" });
 
-  const room = await queryOne("SELECT id, created_by FROM rooms WHERE id = $1", [roomId]);
+  const room = await queryOne("SELECT id, name, created_by FROM rooms WHERE id = $1", [roomId]);
   if (!room) return res.status(404).json({ error: "Room not found" });
   const rejectMembership = await queryOne(
     "SELECT is_room_admin FROM room_members WHERE room_id = $1 AND user_id = $2",
@@ -1695,13 +1730,25 @@ app.post("/api/rooms/:id/join-requests/:requestId/reject", authMiddleware, async
   }
 
   const joinReq = await queryOne(
-    "SELECT id, status FROM room_join_requests WHERE id = $1 AND room_id = $2",
+    "SELECT id, user_id, status FROM room_join_requests WHERE id = $1 AND room_id = $2",
     [requestId, roomId]
   );
   if (!joinReq) return res.status(404).json({ error: "Join request not found" });
   if (joinReq.status !== 'pending') return res.status(400).json({ error: "Request is no longer pending" });
 
   await query("UPDATE room_join_requests SET status = 'rejected' WHERE id = $1", [requestId]);
+
+  // Notify the rejected user
+  if (VAPID_PUBLIC_KEY) {
+    sendPushToUser(joinReq.user_id, {
+      title: `❌ Request declined — ${room.name}`,
+      body: `Your request to join "${room.name}" was not approved.`,
+      icon: '/favicon.ico',
+      tag: `join_rejected_${roomId}`,
+      data: { url: '/rooms' },
+    }).catch(() => {});
+  }
+
   res.json({ ok: true });
 }));
 
