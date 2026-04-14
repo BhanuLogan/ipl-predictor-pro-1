@@ -38,6 +38,9 @@ const Admin = () => {
   const [pushTitle, setPushTitle] = useState("");
   const [pushBody, setPushBody] = useState("");
   const [pushLoading, setPushLoading] = useState(false);
+  const [pushTarget, setPushTarget] = useState<"all" | "selected">("all");
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [userSearch, setUserSearch] = useState("");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [allUsersLoading, setAllUsersLoading] = useState(false);
   const loadData = async (roomId?: number) => {
@@ -248,14 +251,31 @@ const Admin = () => {
   
   const handleSendPush = async () => {
     if (!pushTitle.trim() || !pushBody.trim()) return;
-    if (!confirm("Send this push notification to ALL users?")) return;
+    if (pushTarget === "selected" && selectedUserIds.length === 0) {
+      alert("Please select at least one user.");
+      return;
+    }
+
+    const confirmMsg = pushTarget === "all"
+      ? "Send this push notification to ALL users?"
+      : `Send this push notification to ${selectedUserIds.length} selected user(s)?`;
+
+    if (!confirm(confirmMsg)) return;
     
     setPushLoading(true);
     try {
-      await api.broadcastPushNotification(pushTitle.trim(), pushBody.trim());
-      alert("✅ Global notification sent successfully!");
+      if (pushTarget === "all") {
+        await api.broadcastPushNotification(pushTitle.trim(), pushBody.trim());
+      } else {
+        await api.sendPushToUsers(selectedUserIds, pushTitle.trim(), pushBody.trim());
+      }
+      alert(`✅ ${pushTarget === "all" ? "Global" : "Targeted"} notification sent successfully!`);
       setPushTitle("");
       setPushBody("");
+      if (pushTarget === "selected") {
+        setSelectedUserIds([]);
+        setUserSearch("");
+      }
     } catch (err: any) {
       alert("❌ Failed to send: " + err.message);
     } finally {
@@ -585,14 +605,81 @@ const Admin = () => {
                 </div>
               </div>
 
-              {/* Global Push Notification */}
+              {/* Push Notification Section */}
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-                <div className="mb-3 flex items-center gap-2 text-primary">
-                  <Bell size={16} />
-                  <span className="text-xs font-semibold uppercase tracking-wider">Global Push Notification</span>
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-primary">
+                    <Bell size={16} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Push Notifications</span>
+                  </div>
+                  <div className="flex bg-muted/50 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setPushTarget("all")}
+                      className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${
+                        pushTarget === "all" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      All Users
+                    </button>
+                    <button
+                      onClick={() => setPushTarget("selected")}
+                      className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${
+                        pushTarget === "selected" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Selected ({selectedUserIds.length})
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="space-y-3">
+                  {pushTarget === "selected" && (
+                    <div className="space-y-2 mb-4 animate-in slide-in-from-top-2 duration-200">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={userSearch}
+                          onChange={(e) => setUserSearch(e.target.value)}
+                          placeholder="Search users..."
+                          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                        />
+                        {userSearch && (
+                          <button 
+                            onClick={() => setUserSearch("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-32 overflow-y-auto border border-border/50 rounded-xl bg-background/30 p-1.5 space-y-1 scrollbar-thin">
+                        {allUsers
+                          .filter(u => u.username.toLowerCase().includes(userSearch.toLowerCase()))
+                          .map(u => {
+                            const isSelected = selectedUserIds.includes(u.id);
+                            return (
+                              <button
+                                key={u.id}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedUserIds(prev => prev.filter(id => id !== u.id));
+                                  } else {
+                                    setSelectedUserIds(prev => [...prev, u.id]);
+                                  }
+                                }}
+                                className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                                  isSelected ? "bg-primary/10 text-primary font-bold" : "hover:bg-muted/50 text-muted-foreground"
+                                }`}
+                              >
+                                <span>{u.username}</span>
+                                {isSelected && <Check size={12} />}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+
                   <input
                     type="text"
                     value={pushTitle}
@@ -609,11 +696,11 @@ const Admin = () => {
                   />
                   <button
                     onClick={handleSendPush}
-                    disabled={pushLoading || !pushTitle.trim() || !pushBody.trim()}
+                    disabled={pushLoading || !pushTitle.trim() || !pushBody.trim() || (pushTarget === "selected" && selectedUserIds.length === 0)}
                     className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground transition-all hover:brightness-110 disabled:opacity-50 glow-gold"
                   >
                     <Send size={16} />
-                    {pushLoading ? "Sending..." : "SEND TO ALL SUBSCRIBERS"}
+                    {pushLoading ? "Sending..." : pushTarget === "all" ? "SEND TO ALL SUBSCRIBERS" : `SEND TO ${selectedUserIds.length} USERS`}
                   </button>
 
                   <div className="pt-2 border-t border-primary/20">

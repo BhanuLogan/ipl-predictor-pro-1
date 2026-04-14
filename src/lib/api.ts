@@ -429,6 +429,13 @@ export const api = {
     return apiFetch('/api/admin/push/remind-voters', { method: 'POST' });
   },
 
+  async sendPushToUsers(userIds: number[], title: string, body: string): Promise<{ ok: boolean }> {
+    return apiFetch('/api/admin/push/send', {
+      method: 'POST',
+      body: JSON.stringify({ userIds, title, body }),
+    });
+  },
+
   async testPush(): Promise<{ ok: boolean; subscriptions: number }> {
     return apiFetch('/api/push/test', { method: 'POST' });
   },

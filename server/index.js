@@ -4399,6 +4399,27 @@ app.post('/api/admin/push/broadcast', authMiddleware, adminMiddleware, asyncRout
   res.json({ ok: true });
 }));
 
+app.post('/api/admin/push/send', authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const { userIds, title, body } = req.body;
+  if (!Array.isArray(userIds) || !title || !body) {
+    return res.status(400).json({ error: 'userIds (array), title, and body are required' });
+  }
+  
+  const payload = {
+    title,
+    body,
+    icon: '/ipl-icon.png',
+    tag: 'admin_notification',
+    data: { url: '/' },
+  };
+
+  for (const userId of userIds) {
+    sendPushToUser(userId, payload).catch(e => console.error(`[Push] Failed for ${userId}:`, e.message));
+  }
+  
+  res.json({ ok: true });
+}));
+
 app.post('/api/admin/push/remind-voters', authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
   const results = await query('SELECT match_id, winner FROM results');
   const resultsMap = {};
