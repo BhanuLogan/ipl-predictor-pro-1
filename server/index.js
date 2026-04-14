@@ -31,6 +31,45 @@ async function isVotingLocked(matchId) {
   return now >= lockTime;
 }
 
+function getPollOpenMatches(matches, results, overrides) {
+  const open = [];
+  const openIds = new Set();
+  const add = (m) => {
+    if (!openIds.has(m.id)) {
+      open.push(m);
+      openIds.add(m.id);
+    }
+  };
+
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    if (results[m.id]) continue;
+    if (i === 0 || results[matches[i - 1]?.id]) {
+      add(m);
+      const next = matches[i + 1];
+      if (next && !results[next.id] && next.date === m.date) {
+        add(next);
+      }
+      break;
+    }
+  }
+
+  if (overrides) {
+    Object.keys(overrides).forEach(id => {
+      const match = matches.find(m => m.id === id);
+      if (match && !results[match.id]) {
+        add(match);
+      }
+    });
+  }
+
+  return open.sort((a, b) => {
+    const idxA = matches.findIndex(m => m.id === a.id);
+    const idxB = matches.findIndex(m => m.id === b.id);
+    return idxA - idxB;
+  });
+}
+
 dotenv.config();
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({
@@ -165,9 +204,19 @@ async function initDb() {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       is_admin BOOLEAN DEFAULT FALSE,
+      is_test_user BOOLEAN DEFAULT FALSE,
       profile_pic TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+  `);
+
+  // Migration: Add is_test_user to existing users table
+  await query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'is_test_user') THEN
+        ALTER TABLE users ADD COLUMN is_test_user BOOLEAN DEFAULT FALSE;
+      END IF;
+    END $$;
   `);
 
   // Add FKs if they weren't added (for existing rooms table)
@@ -1141,6 +1190,39 @@ function computeUserTimingStats(voteRows) {
   return out;
 }
 
+async function getRoomLeaderboard(roomId) {
+  const board = await query(`
+    SELECT
+      u.id AS user_id,
+      u.username,
+      u.profile_pic,
+      rm.is_room_admin,
+      COALESCE(SUM(
+        CASE
+          WHEN r.winner IS NULL THEN 0
+          WHEN r.winner IN ('nr', 'draw') THEN 1
+          WHEN v.prediction = r.winner THEN 2
+          ELSE 0
+        END
+      ), 0)::int AS points,
+      COALESCE(SUM(
+        CASE WHEN r.winner IN ('nr', 'draw') THEN 1 ELSE 0 END
+      ), 0)::int AS nr,
+      COALESCE(SUM(
+        CASE WHEN r.winner IS NOT NULL AND r.winner NOT IN ('nr', 'draw') AND v.prediction = r.winner THEN 1 ELSE 0 END
+      ), 0)::int AS correct,
+      COALESCE(COUNT(r.match_id), 0)::int AS voted,
+      (SELECT COUNT(*)::int FROM results) AS matches
+    FROM room_members rm
+    JOIN users u ON u.id = rm.user_id
+    LEFT JOIN votes v ON v.user_id = u.id AND v.room_id = rm.room_id
+    LEFT JOIN results r ON r.match_id = v.match_id
+    WHERE rm.room_id = $1 AND u.is_test_user = FALSE
+    GROUP BY u.id, u.username, u.profile_pic, rm.is_room_admin
+  `, [roomId]);
+  return board;
+}
+
 async function getLeaderboardInternal() {
   const board = await query(`
     SELECT
@@ -1166,6 +1248,7 @@ async function getLeaderboardInternal() {
     FROM users u
     LEFT JOIN votes v ON v.user_id = u.id
     LEFT JOIN results r ON r.match_id = v.match_id
+    WHERE u.is_test_user = FALSE
     GROUP BY u.id, u.username, u.profile_pic
   `);
 
@@ -1319,8 +1402,19 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
 }));
 
 app.get("/api/users", asyncRoute(async (req, res) => {
-  const users = await query("SELECT id, username FROM users ORDER BY username ASC");
+  const users = await query("SELECT id, username, is_test_user FROM users ORDER BY username ASC");
   res.json(users);
+}));
+
+// Admin: toggle test user status
+app.put("/api/admin/users/:userId/test-user", authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  const userId = parseInt(req.params.userId);
+  const { is_test_user } = req.body;
+  if (isNaN(userId)) return res.status(400).json({ error: "Invalid user id" });
+  if (typeof is_test_user !== "boolean") return res.status(400).json({ error: "is_test_user must be boolean" });
+
+  await query("UPDATE users SET is_test_user = $1 WHERE id = $2", [is_test_user, userId]);
+  res.json({ ok: true });
 }));
 
 /** Logged-in users: another user's vote history (for leaderboard profile tap). */

@@ -102,16 +102,29 @@ const Index = () => {
     if (isJustLoggedIn) {
       handleShowSummary();
       sessionStorage.removeItem("justLoggedIn");
-      // Show push prompt if not subscribed
+    }
+
+    // Persistent push prompt logic
+    const checkPush = () => {
       isPushSubscribed().then(subscribed => {
         if (!subscribed) {
           setShowPushPrompt(true);
+        } else {
+          setShowPushPrompt(false);
         }
       });
-    }
+    };
+
+    checkPush();
+    window.addEventListener("focus", checkPush);
+    document.addEventListener("visibilitychange", checkPush);
 
     const id = setInterval(loadData, 30000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", checkPush);
+      document.removeEventListener("visibilitychange", checkPush);
+    };
   }, [user, navigate, loadData, activeRoom, roomLoading, handleShowSummary]);
 
   // Real-time live score updates via Socket.IO

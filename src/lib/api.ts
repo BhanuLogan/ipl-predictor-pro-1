@@ -39,6 +39,7 @@ export interface User {
   id: number;
   username: string;
   is_admin: boolean;
+  is_test_user?: boolean;
   profile_pic?: string;
 }
 
@@ -186,6 +187,10 @@ export const api = {
     return user;
   },
 
+  async getUsers(): Promise<User[]> {
+    return apiFetch("/api/users");
+  },
+
   // Admin
   async unlockAdmin(password: string) {
     const data = await apiFetch("/api/admin/unlock", {
@@ -272,6 +277,14 @@ export const api = {
     if (res.token) setToken(res.token);
     if (res.user) localStorage.setItem("ipl_user", JSON.stringify(res.user));
     return res;
+  },
+
+  // Admin: toggle test user status
+  async adminSetTestUser(userId: number, is_test_user: boolean) {
+    return apiFetch(`/api/admin/users/${userId}/test-user`, {
+      method: "PUT",
+      body: JSON.stringify({ is_test_user }),
+    });
   },
 
   // Admin: reset all data

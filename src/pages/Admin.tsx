@@ -38,7 +38,8 @@ const Admin = () => {
   const [pushTitle, setPushTitle] = useState("");
   const [pushBody, setPushBody] = useState("");
   const [pushLoading, setPushLoading] = useState(false);
-
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [allUsersLoading, setAllUsersLoading] = useState(false);
   const loadData = async (roomId?: number) => {
     try {
       const actualRoomId = roomId ?? selectedRoomId;
@@ -58,17 +59,22 @@ const Admin = () => {
       const botMap: Record<string, boolean> = {};
       bots.forEach((b: { match_id: string; bot_enabled: boolean }) => { botMap[b.match_id] = b.bot_enabled; });
       setBotSettings(botMap);
+      setRooms(rms);
+      
+      if (!actualRoomId && rms.length > 0) {
+        setSelectedRoomId(rms[0].id);
+        const v2 = await api.getVotes(rms[0].id);
+        setVotes(v2);
+      }
+      
       setCurrentAnnouncement(ann.text);
       if (user?.is_admin) {
-        setRooms(rms);
-        if (!actualRoomId && rms.length > 0) {
-          setSelectedRoomId(rms[0].id);
-          // Re-fetch votes for the first room
-          const v2 = await api.getVotes(rms[0].id);
-          setVotes(v2);
-        }
+        const u = await api.getUsers();
+        setAllUsers(u);
       }
-    } catch {}
+    } catch (err: any) {
+      console.error("Failed to load admin data:", err.message);
+    }
   };
 
   useEffect(() => {
@@ -224,6 +230,19 @@ const Admin = () => {
       alert("Failed to clear: " + err.message);
     } finally {
       setAnnouncementLoading(false);
+    }
+  };
+
+  const handleToggleTestUser = async (userId: number, is_test: boolean) => {
+    setAllUsersLoading(true);
+    try {
+      await api.adminSetTestUser(userId, !is_test);
+      const u = await api.getUsers();
+      setAllUsers(u);
+    } catch (err: any) {
+      alert("Failed to update test user status: " + err.message);
+    } finally {
+      setAllUsersLoading(false);
     }
   };
   
@@ -642,6 +661,32 @@ const Admin = () => {
                   </button>
                 </div>
                 {changePwStatus && <p className="mt-2 text-xs text-foreground">{changePwStatus}</p>}
+              </div>
+
+              {/* All Users / Test User Management */}
+              <div className="rounded-xl border border-border bg-gradient-card p-4">
+                <div className="mb-3 flex items-center gap-2 text-muted-foreground">
+                  <span className="text-xs font-semibold uppercase tracking-wider italic">User Settings (Test Accounts)</span>
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-2">
+                  {allUsers.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between rounded-lg bg-muted/30 p-2 hover:bg-muted/50 transition-colors">
+                      <span className="text-sm font-medium">{u.username}</span>
+                      <button
+                        onClick={() => handleToggleTestUser(u.id, u.is_test_user)}
+                        disabled={allUsersLoading}
+                        className={`rounded-md px-3 py-1 text-[10px] font-bold uppercase tracking-tight transition-all ${
+                          u.is_test_user
+                            ? "bg-amber-500/20 text-amber-600 border border-amber-500/30"
+                            : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
+                        }`}
+                      >
+                        {u.is_test_user ? "Test Account" : "Normal User"}
+                      </button>
+                    </div>
+                  ))}
+                  {allUsers.length === 0 && <p className="text-xs text-muted-foreground italic">No users found.</p>}
+                </div>
               </div>
 
               {/* Room Selector for Admin */}
