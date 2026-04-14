@@ -150,20 +150,22 @@ const MatchPoll = ({ match, voteCounts, totalVotes, myPick, result, scoreSummary
         <span>{match.venue}</span>
       </div>
 
-      {/* Live Score Banner — shown when match is in progress */}
-      {isOpen && locked && !isCompleted && liveScore && (liveScore.score || liveScore.status || liveScore.toss) && (
-        <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3">
+      {/* Live / Toss Info Banner — shown when match is in progress OR toss is announced */}
+      {isOpen && !isCompleted && liveScore && ((locked && (liveScore.score || liveScore.status)) || liveScore.toss) && (
+        <div className={`mb-5 rounded-xl border px-4 py-3 ${locked ? "border-destructive/25 bg-destructive/5" : "border-primary/25 bg-primary/5"}`}>
           <div className="flex items-center gap-1.5 mb-1.5">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-destructive">Live Score</p>
+            <span className={`inline-block h-1.5 w-1.5 rounded-full animate-pulse ${locked ? "bg-destructive" : "bg-primary"}`} />
+            <p className={`text-[10px] font-semibold uppercase tracking-wider ${locked ? "text-destructive" : "text-primary"}`}>
+              {locked ? "Live Score" : "Toss Result"}
+            </p>
           </div>
           {liveScore.toss && (
             <p className="text-[11px] text-muted-foreground mb-1 leading-snug">🪙 {liveScore.toss}</p>
           )}
-          {liveScore.score && (
+          {locked && liveScore.score && (
             <p className="text-sm font-semibold text-foreground leading-snug">{liveScore.score}</p>
           )}
-          {liveScore.status && (
+          {locked && liveScore.status && (
             <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{liveScore.status}</p>
           )}
         </div>
