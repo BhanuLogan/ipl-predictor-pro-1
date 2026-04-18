@@ -1,13 +1,15 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Vote, Shield, Users, Menu, X } from "lucide-react";
+import { Vote, Shield, Users, Menu, X, Sun, Moon } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import ProfileModal from "./ProfileModal";
 import { getAvatarUrl } from "@/lib/utils";
+import { useTheme } from "@/lib/theme";
 
 const Header = () => {
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [showProfile, setShowProfile] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
@@ -64,6 +66,15 @@ const Header = () => {
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
+            {/* Theme toggle */}
+            <button
+              onClick={toggleTheme}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/50"
+            >
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+
             {user && (
               <button
                 onClick={() => setShowProfile(true)}
@@ -105,13 +116,23 @@ const Header = () => {
                 <span className="text-2xl">🏏</span>
                 <span className="font-display text-xl text-gradient-gold">IPL POLLS</span>
               </div>
-              <button
-                onClick={() => setMobileOpen(false)}
-                className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                aria-label="Close menu"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-1">
+                {/* Theme toggle in drawer */}
+                <button
+                  onClick={toggleTheme}
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+                </button>
+                <button
+                  onClick={() => setMobileOpen(false)}
+                  className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  aria-label="Close menu"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             <nav className="flex flex-col p-3 gap-1 flex-1 overflow-y-auto custom-scrollbar">

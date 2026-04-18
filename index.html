@@ -28,6 +28,14 @@
     <meta property="og:description" content="Predict IPL match winners, earn points, and climb the leaderboard!" />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/ipl-icon.png" />
+
+    <!-- Anti-flash: apply theme class before React renders -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('ipl-theme') || 'dark';
+        if (t === 'dark') document.documentElement.classList.add('dark');
+      })();
+    </script>
   </head>
 
   <body>
