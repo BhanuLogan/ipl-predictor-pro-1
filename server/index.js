@@ -3001,7 +3001,7 @@ setInterval(async () => {
   }
 }, 60 * 1000);
 
-// ─── Post-toss Vote Reminder: 2 reminders × 10 min after toss is done ────────
+// ─── Post-toss Vote Reminder: fires immediately on toss, then once more 10 min later ──
 // Only targets room members who haven't voted yet (not all push subscribers).
 const tossReminderState = new Map(); // matchId -> { count: number, lastSentMs: number }
 setInterval(async () => {
@@ -3023,9 +3023,9 @@ setInterval(async () => {
       if (state.count >= 2) continue;
 
       const TEN_MIN = 10 * 60 * 1000;
-      // First reminder: 10 min after toss detected; second: 10 min after first
-      const elapsed = state.count === 0 ? (now - detectedAt) : (now - state.lastSentMs);
-      if (elapsed < TEN_MIN) continue;
+      // First reminder: fires immediately when toss is detected (no wait)
+      // Second reminder: 10 min after the first
+      if (state.count > 0 && (now - state.lastSentMs) < TEN_MIN) continue;
 
       const voted = await query('SELECT DISTINCT user_id FROM votes WHERE match_id = $1', [matchId]);
       const votedIds = new Set(voted.map(r => r.user_id));
