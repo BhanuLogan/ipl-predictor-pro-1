@@ -1,15 +1,13 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Trophy, Vote, Shield, Users, Menu, X } from "lucide-react";
+import { Vote, Shield, Users, Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useRoom } from "@/lib/room";
 import ProfileModal from "./ProfileModal";
 import { getAvatarUrl } from "@/lib/utils";
 
 const Header = () => {
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
-  const { activeRoom } = useRoom();
   const [showProfile, setShowProfile] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
@@ -22,13 +20,11 @@ const Header = () => {
     ? [
         { path: "/", label: "Polls", icon: Vote },
         { path: "/rooms", label: "Rooms", icon: Users },
-        { path: activeRoom ? `/rooms/${activeRoom.id}` : "/rooms", label: "Leaderboard", icon: Trophy },
         { path: "/admin", label: "Admin", icon: Shield },
       ]
     : [
         { path: "/", label: "Polls", icon: Vote },
         { path: "/rooms", label: "Rooms", icon: Users },
-        { path: activeRoom ? `/rooms/${activeRoom.id}` : "/rooms", label: "Leaderboard", icon: Trophy },
       ];
 
   return (
@@ -68,7 +64,6 @@ const Header = () => {
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
-            {/* Avatar — always visible */}
             {user && (
               <button
                 onClick={() => setShowProfile(true)}
@@ -100,14 +95,11 @@ const Header = () => {
       {/* Mobile drawer overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-[60] md:hidden">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
-          {/* Drawer */}
           <div className="absolute right-0 top-0 h-full w-72 max-w-[85vw] bg-card border-l border-border shadow-2xl flex flex-col animate-slide-in-right">
-            {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-2xl">🏏</span>
@@ -122,7 +114,6 @@ const Header = () => {
               </button>
             </div>
 
-            {/* Nav items */}
             <nav className="flex flex-col p-3 gap-1 flex-1 overflow-y-auto custom-scrollbar">
               {navItems.map(({ path, label, icon: Icon }) => (
                 <Link
@@ -141,7 +132,6 @@ const Header = () => {
               ))}
             </nav>
 
-            {/* User info footer */}
             {user && (
               <div className="p-4 border-t border-border shrink-0">
                 <button
@@ -166,7 +156,6 @@ const Header = () => {
         </div>
       )}
 
-      {/* Profile Modal */}
       {showProfile && user && (
         <ProfileModal
           user={user}
