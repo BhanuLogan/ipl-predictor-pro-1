@@ -6,7 +6,7 @@ import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { getPollOpenMatches, type MatchResult } from "@/lib/data";
 import { useMatches } from "@/lib/matches";
-import { Users, Bell, BellOff } from "lucide-react";
+import { Users, Bell, BellOff, Trophy } from "lucide-react";
 import { registerServiceWorker, subscribeToPush, unsubscribeFromPush, isPushSubscribed } from "@/lib/push";
 import { toast } from "@/components/ui/sonner";
 import OpenPolls from "@/components/dashboard/OpenPolls";
@@ -276,6 +276,13 @@ const Index = () => {
                 </button>
               </div>
             )}
+            <button
+              onClick={() => navigate(`/rooms/${activeRoom.id}`)}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              title="View podium & points table"
+            >
+              <Trophy size={13} /> Leaderboard
+            </button>
             <button
               onClick={() => navigate("/rooms")}
               className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
