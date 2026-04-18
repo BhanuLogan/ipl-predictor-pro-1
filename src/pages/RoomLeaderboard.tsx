@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { useAuth } from "@/lib/auth";
 import { api, type LeaderboardEntry, type Room } from "@/lib/api";
 import UserPredictionsDialog from "@/components/UserPredictionsDialog";
-import { ArrowLeft, Copy, Check } from "lucide-react";
+import { ArrowLeft, Copy, Check, Shield } from "lucide-react";
 
 import { getAvatarUrl, assignRanks } from "@/lib/utils";
 import Footer from "@/components/Footer";
@@ -283,7 +283,7 @@ const RoomLeaderboard = () => {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-foreground truncate flex items-center gap-1.5">
                         {entry.username}
-                        {entry.is_room_admin && <span title="Room Admin" className="text-amber-400 text-sm">👑</span>}
+                        {entry.is_room_admin && <Shield size={13} title="Room Admin" className="text-amber-400 shrink-0" />}
                         {entry.username === user.username && <span className="text-xs text-primary">(You)</span>}
                       </p>
                       <p className="text-xs text-muted-foreground">{entry.voted} voted · {entry.correct} correct · {entry.nr} NR · {entry.matches} total</p>
@@ -346,7 +346,7 @@ const RoomLeaderboard = () => {
                         </button>
                         <span className={`font-semibold flex items-center gap-1.5 ${entry.username === user.username ? "text-primary" : "text-foreground"}`}>
                           {entry.username}
-                          {entry.is_room_admin && <span title="Room Admin" className="text-amber-400 text-sm">👑</span>}
+                          {entry.is_room_admin && <Shield size={13} title="Room Admin" className="text-amber-400 shrink-0" />}
                         </span>
                       </div>
                     </td>
