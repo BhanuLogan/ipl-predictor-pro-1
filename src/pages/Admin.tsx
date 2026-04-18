@@ -527,7 +527,7 @@ const Admin = () => {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container mx-auto max-w-2xl px-4 py-8">
+      <main className="container mx-auto max-w-4xl px-4 py-6 md:py-8">
         <div className="mb-8 text-center">
           <h2 className="font-display text-5xl text-gradient-gold sm:text-6xl">
             ADMIN PANEL

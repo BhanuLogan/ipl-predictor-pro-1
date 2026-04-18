@@ -26,7 +26,7 @@ const OpenPolls = React.memo(({ openPolls, voteCounts, myVotes, allVotes, onVote
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-destructive" />
-            <h2 className="font-display text-3xl text-gradient-gold">
+            <h2 className="font-display text-xl sm:text-3xl text-gradient-gold leading-tight">
               {openPolls.some(m => isVotingLocked(m, overrides[m.id]))
                 ? "LIVE MATCH IN PROGRESS"
                 : `LIVE POLL${openPolls.length > 1 ? "S" : ""} — VOTE NOW!`}
