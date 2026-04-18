@@ -3001,7 +3001,8 @@ setInterval(async () => {
   }
 }, 60 * 1000);
 
-// ─── Post-toss Vote Reminder: 3 reminders × 10 min after toss is done ────────
+// ─── Post-toss Vote Reminder: 2 reminders × 10 min after toss is done ────────
+// Only targets room members who haven't voted yet (not all push subscribers).
 const tossReminderState = new Map(); // matchId -> { count: number, lastSentMs: number }
 setInterval(async () => {
   if (!VAPID_PUBLIC_KEY) return;
@@ -3019,29 +3020,37 @@ setInterval(async () => {
       if (now >= startTime.getTime()) continue;
 
       const state = tossReminderState.get(matchId) || { count: 0, lastSentMs: 0 };
-      if (state.count >= 3) continue;
+      if (state.count >= 2) continue;
 
       const TEN_MIN = 10 * 60 * 1000;
-      // First reminder fires immediately after toss; subsequent ones every 10 min
+      // First reminder: 10 min after toss detected; second: 10 min after first
       const elapsed = state.count === 0 ? (now - detectedAt) : (now - state.lastSentMs);
       if (elapsed < TEN_MIN) continue;
 
       const voted = await query('SELECT DISTINCT user_id FROM votes WHERE match_id = $1', [matchId]);
       const votedIds = new Set(voted.map(r => r.user_id));
-      const allSubs = await query('SELECT DISTINCT user_id FROM push_subscriptions');
-      const unvoted = allSubs.filter(s => !votedIds.has(s.user_id));
+      // Only send to room members who have push subscriptions and haven't voted
+      const roomMemberSubs = await query(
+        `SELECT DISTINCT ps.user_id
+         FROM push_subscriptions ps
+         JOIN room_members rm ON rm.user_id = ps.user_id`
+      );
+      const unvoted = roomMemberSubs.filter(s => !votedIds.has(s.user_id));
 
       if (unvoted.length === 0) {
-        state.count = 3; // everyone voted, no more reminders needed
+        state.count = 2; // everyone voted, no more reminders needed
         tossReminderState.set(matchId, state);
         continue;
       }
 
       const minsLeft = Math.max(0, Math.round((startTime.getTime() - now) / 60000));
+      const isLastReminder = state.count === 1;
       for (const sub of unvoted) {
         sendPushToUser(sub.user_id, {
           title: `🗳️ Cast your vote! ${match.team1} vs ${match.team2}`,
-          body: `Toss is done! Match starts in ~${minsLeft} min. Don't miss voting!`,
+          body: isLastReminder
+            ? `⚠️ Last chance! Match starts in ~${minsLeft} min. Vote before it locks!`
+            : `Toss is done! Match starts in ~${minsLeft} min. Don't miss voting!`,
           icon: '/ipl-icon.png',
           tag: `toss_reminder_${matchId}`,
           data: { url: '/' },
@@ -3051,7 +3060,7 @@ setInterval(async () => {
       state.count++;
       state.lastSentMs = now;
       tossReminderState.set(matchId, state);
-      console.log(`[Push] Post-toss vote reminder #${state.count}/3 for ${matchId} → ${unvoted.length} user(s), ~${minsLeft} min to start`);
+      console.log(`[Push] Post-toss vote reminder #${state.count}/2 for ${matchId} → ${unvoted.length} room member(s), ~${minsLeft} min to start`);
     }
   } catch (e) {
     console.error('[Push] Post-toss reminder error:', e.message);
