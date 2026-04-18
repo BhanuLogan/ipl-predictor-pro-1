@@ -1001,6 +1001,18 @@ app.post("/api/vote", authMiddleware, securityMiddleware, asyncRoute(async (req,
     return res.status(400).json({ error: "matchId, prediction, and roomId required" });
   }
 
+  // reject if match is already completed
+  const matchCompleted = await queryOne("SELECT 1 FROM results WHERE match_id = $1", [matchId]);
+  if (matchCompleted) {
+    return res.status(400).json({ error: "Voting is closed — this match has already been completed" });
+  }
+
+  // reject if voting window is locked
+  const isLocked = await isVotingLocked(matchId);
+  if (isLocked) {
+    return res.status(400).json({ error: "Voting is locked for this match" });
+  }
+
   // verify membership
   const membership = await queryOne("SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2", [roomId, req.user.id]);
   if (!membership && !req.user.is_admin) {
@@ -1022,6 +1034,12 @@ app.post("/api/vote/bulk", authMiddleware, securityMiddleware, asyncRoute(async 
   const { matchId, prediction } = req.body;
   if (!matchId || !prediction) {
     return res.status(400).json({ error: "matchId and prediction required" });
+  }
+
+  // reject if match is already completed
+  const bulkMatchCompleted = await queryOne("SELECT 1 FROM results WHERE match_id = $1", [matchId]);
+  if (bulkMatchCompleted) {
+    return res.status(400).json({ error: "Voting is closed — this match has already been completed" });
   }
 
   const isLocked = await isVotingLocked(matchId);
