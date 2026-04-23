@@ -11,13 +11,7 @@ export function getAvatarUrl(profilePic: string | undefined | null, username: st
   return `https://api.dicebear.com/9.x/notionists/svg?seed=${username}&backgroundColor=f5f5f5`;
 }
 
-/** Rank assignment (tie = same rank, next is gap-ranked) */
+/** Rank assignment (ordinal ranking: 1, 2, 3...) */
 export function assignRanks(entries: LeaderboardEntry[]): (LeaderboardEntry & { rank: number })[] {
-  return entries.map((entry, i, arr) => {
-    const rank = i === 0 ? 1 : arr[i - 1].points === entry.points
-      ? (arr[i - 1] as any)._rank
-      : i + 1;
-    (entry as any)._rank = rank;
-    return { ...entry, rank };
-  });
+  return entries.map((entry, i) => ({ ...entry, rank: i + 1 }));
 }
