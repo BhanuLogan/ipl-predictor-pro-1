@@ -117,7 +117,7 @@ async function queryOne(sql, params = []) {
 let _completedIdsCache = { set: null, ts: 0 };
 let _roomIdsCache = { ids: null, ts: 0 };
 const COMPLETED_IDS_TTL = 30 * 1000;
-const ROOM_IDS_TTL     = 60 * 1000;
+const ROOM_IDS_TTL = 60 * 1000;
 
 async function getCachedCompletedIds() {
   const now = Date.now();
@@ -141,7 +141,7 @@ async function getCachedRoomIds() {
 
 // Invalidate caches when results/rooms change (called after writes)
 function invalidateResultsCache() { _completedIdsCache.ts = 0; }
-function invalidateRoomsCache()   { _roomIdsCache.ts = 0; }
+function invalidateRoomsCache() { _roomIdsCache.ts = 0; }
 
 async function loadMatchesCache() {
   try {
@@ -780,7 +780,7 @@ io.on("connection", (socket) => {
               roomName,
               sender: socket.user.username,
             },
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
 
@@ -1257,11 +1257,11 @@ function computeUserTimingStats(voteRows) {
 /** Compute cricket-style NRR2 for each user based on their predictions and match scores */
 async function computeNRR2Stats(userIds, roomId = null) {
   if (!userIds || userIds.length === 0) return {};
-  
+
   const scores = await query(`SELECT * FROM match_scores`);
   const scoreMap = new Map(scores.map(s => [s.match_id, s]));
 
-  const voteSql = roomId 
+  const voteSql = roomId
     ? `SELECT user_id, match_id, prediction FROM votes WHERE user_id = ANY($1::int[]) AND room_id = $2`
     : `SELECT user_id, match_id, prediction FROM votes WHERE user_id = ANY($1::int[])`;
   const voteParams = roomId ? [userIds, roomId] : [userIds];
@@ -1697,7 +1697,7 @@ async function notifyRoomAdminsOfJoinRequest(roomId, roomName, requesterUsername
         icon: '/favicon.ico',
         tag: `join_request_${roomId}`,
         data: { url: '/rooms' },
-      }).catch(() => {});
+      }).catch(() => { });
     }
   } catch (e) {
     console.error('[Push] notifyRoomAdmins error:', e.message);
@@ -1957,7 +1957,7 @@ app.post("/api/rooms/:id/join-requests/:requestId/approve", authMiddleware, asyn
       icon: '/favicon.ico',
       tag: `join_approved_${roomId}`,
       data: { url: '/rooms' },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   res.json({ ok: true });
@@ -1996,7 +1996,7 @@ app.post("/api/rooms/:id/join-requests/:requestId/reject", authMiddleware, async
       icon: '/favicon.ico',
       tag: `join_rejected_${roomId}`,
       data: { url: '/rooms' },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   res.json({ ok: true });
@@ -2180,16 +2180,16 @@ const TEAM_NAME_MAP = {
 
 /** Static home venue fallback (used when ESPN summary venue is unavailable) */
 const TEAM_HOME_VENUE = {
-  MI:   'Wankhede Stadium, Mumbai',
-  CSK:  'MA Chidambaram Stadium, Chennai',
-  RCB:  'M. Chinnaswamy Stadium, Bengaluru',
-  KKR:  'Eden Gardens, Kolkata',
-  DC:   'Arun Jaitley Stadium, Delhi',
+  MI: 'Wankhede Stadium, Mumbai',
+  CSK: 'MA Chidambaram Stadium, Chennai',
+  RCB: 'M. Chinnaswamy Stadium, Bengaluru',
+  KKR: 'Eden Gardens, Kolkata',
+  DC: 'Arun Jaitley Stadium, Delhi',
   PBKS: 'Mullanpur Stadium, Chandigarh',
-  RR:   'Sawai Mansingh Stadium, Jaipur',
-  SRH:  'Rajiv Gandhi International Stadium, Hyderabad',
-  GT:   'Narendra Modi Stadium, Ahmedabad',
-  LSG:  'BRSABV Ekana Cricket Stadium, Lucknow',
+  RR: 'Sawai Mansingh Stadium, Jaipur',
+  SRH: 'Rajiv Gandhi International Stadium, Hyderabad',
+  GT: 'Narendra Modi Stadium, Ahmedabad',
+  LSG: 'BRSABV Ekana Cricket Stadium, Lucknow',
 };
 
 /**
@@ -2393,12 +2393,12 @@ function extractLineupsESPN(rosters, notes) {
       const tags = [];
       if (p.captain) tags.push('c');
       const pos = p.athlete.position || {};
-      const posId   = String(pos.id   || '').toUpperCase();
+      const posId = String(pos.id || '').toUpperCase();
       const posAbbr = String(pos.abbreviation || '').toUpperCase();
       const posName = String(pos.displayName || pos.name || '').toLowerCase();
       const isKeeper = posId === 'WK' || posAbbr === 'WK' ||
-                       posId.includes('WK') || posAbbr.includes('WK') ||
-                       posName.includes('wicket') || posName.includes('keeper');
+        posId.includes('WK') || posAbbr.includes('WK') ||
+        posName.includes('wicket') || posName.includes('keeper');
       if (isKeeper) tags.push('wk');
       return tags.length ? `${name} (${tags.join(' & ')})` : name;
     });
@@ -2504,9 +2504,9 @@ async function fetchESPNSummary(espnEventId) {
     const t2Name = c2.team?.displayName || c2.displayName || '';
     const t1Abbr = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
     const t2Abbr = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
-    const state         = comp.status?.type?.state || 'pre';
+    const state = comp.status?.type?.state || 'pre';
     const statusSummary = comp.status?.summary || '';             // e.g. "CSK won by 23 runs"
-    const statusDetail  = comp.status?.type?.detail || comp.status?.type?.description || '';
+    const statusDetail = comp.status?.type?.detail || comp.status?.type?.description || '';
     // Prefer status.summary (direct win text) over detail/notes fallbacks
     const resultText = statusSummary || extractResultTextESPN(data.notes, statusDetail, comp.situation);
     const winnerName = state === 'post'
@@ -2522,16 +2522,16 @@ async function fetchESPNSummary(espnEventId) {
     const extractTeamDataLS = (competitor) => {
       const res = { runs: 0, wickets: 0, overs: 0, balls: 0 };
       if (!competitor || !competitor.linescores) return res;
-      
+
       // The definitive source is the linescore where isBatting is true
-      const activeLS = competitor.linescores.find(ls => ls.isBatting === true) 
-                    || competitor.linescores.find(ls => ls.runs > 0)
-                    || competitor.linescores[0];
-      
+      const activeLS = competitor.linescores.find(ls => ls.isBatting === true)
+        || competitor.linescores.find(ls => ls.runs > 0)
+        || competitor.linescores[0];
+
       if (activeLS) {
-          res.runs = activeLS.runs || 0;
-          res.wickets = activeLS.wickets ?? 0;
-          res.overs = activeLS.overs || 0;
+        res.runs = activeLS.runs || 0;
+        res.wickets = activeLS.wickets ?? 0;
+        res.overs = activeLS.overs || 0;
       }
       return res;
     };
@@ -2551,19 +2551,19 @@ async function fetchESPNSummary(espnEventId) {
       state,
       status: resultText || statusDetail,
       winnerName,
-      team1: { 
-        name: t1Name, 
-        short: t1Abbr, 
-        score: String(c1.score || ''), 
+      team1: {
+        name: t1Name,
+        short: t1Abbr,
+        score: String(c1.score || ''),
         wickets: td1.wickets,
         runs: td1.runs,
         overs: td1.overs,
         balls: b1
       },
-      team2: { 
-        name: t2Name, 
-        short: t2Abbr, 
-        score: String(c2.score || ''), 
+      team2: {
+        name: t2Name,
+        short: t2Abbr,
+        score: String(c2.score || ''),
         wickets: td2.wickets,
         runs: td2.runs,
         overs: td2.overs,
@@ -2594,7 +2594,7 @@ async function getESPNEventId(matchId, match) {
     try {
       const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
       if (d?.espnEventId) return d.espnEventId;
-    } catch {}
+    } catch { }
   }
 
   return null;
@@ -2623,7 +2623,7 @@ async function fetchESPNPointsTable(preferredEventId = null) {
       try {
         const d = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
         eventId = d?.espnEventId;
-      } catch {}
+      } catch { }
     }
   }
   if (!eventId) return null;
@@ -2636,12 +2636,12 @@ async function fetchESPNPointsTable(preferredEventId = null) {
   return entries.map(e => ({
     rank: stat(e, 'rank'),
     team: e.team.abbreviation,
-    m:    stat(e, 'matchesPlayed'),
-    w:    stat(e, 'matchesWon'),
-    l:    stat(e, 'matchesLost'),
-    nr:   stat(e, 'noresult'),
-    pts:  stat(e, 'matchPoints'),
-    nrr:  stat(e, 'netrr'),
+    m: stat(e, 'matchesPlayed'),
+    w: stat(e, 'matchesWon'),
+    l: stat(e, 'matchesLost'),
+    nr: stat(e, 'noresult'),
+    pts: stat(e, 'matchPoints'),
+    nrr: stat(e, 'netrr'),
   }));
 }
 
@@ -2671,7 +2671,7 @@ async function fetchESPNScorecard(espnEventId) {
   const matchcards = resp.data?.matchcards || [];
   const header = resp.data?.header?.competitions?.[0];
   const statusSummary = header?.status?.summary || '';
-  const statusDetail  = header?.status?.type?.detail || header?.status?.type?.description || '';
+  const statusDetail = header?.status?.type?.detail || header?.status?.type?.description || '';
   const status = statusSummary || statusDetail;
   const competitors = header?.competitors || [];
   const matchState = header?.status?.type?.state || 'pre';
@@ -2704,7 +2704,7 @@ async function fetchESPNScorecard(espnEventId) {
       const mcTeam = inns.teamName || '';
       const mcAbbr = TEAM_NAME_MAP[mcTeam] || mcTeam;
       const expected = compRunsByAbbr[mcAbbr];
-      const actual   = String(inns.batting.runs ?? '');
+      const actual = String(inns.batting.runs ?? '');
       if (expected && actual !== expected) {
         console.log(`[Scorecard] Stale innings removed (key=${k}, team=${mcTeam}): matchcard runs=${actual}, competitor final=${expected}`);
         delete innings[k];
@@ -2760,8 +2760,8 @@ function buildScorecardFromRosters(rosters, competitors) {
 
     for (const player of roster.roster || []) {
       const name = player.athlete?.battingName || player.athlete?.displayName || '';
-      const isWK  = player.position?.abbreviation === 'WK' ||
-                    player.athlete?.position?.abbreviation === 'WK';
+      const isWK = player.position?.abbreviation === 'WK' ||
+        player.athlete?.position?.abbreviation === 'WK';
       const isCap = !!player.captain;
 
       for (const ls of player.linescores || []) {
@@ -2774,27 +2774,27 @@ function buildScorecardFromRosters(rosters, competitors) {
           const dis = s.dismissalCard || 'not out';
           periods[period].batters.push({
             teamName: tName, teamAbbr: tAbbr, name, isWK, isCap,
-            position:  s.battingPosition ?? 99,
-            runs:      s.runs  ?? 0,
-            balls:     s.ballsFaced ?? 0,
-            fours:     s.fours ?? 0,
-            sixes:     s.sixes ?? 0,
-            sr:        typeof s.strikeRate === 'number' ? s.strikeRate.toFixed(1) : '-',
+            position: s.battingPosition ?? 99,
+            runs: s.runs ?? 0,
+            balls: s.ballsFaced ?? 0,
+            fours: s.fours ?? 0,
+            sixes: s.sixes ?? 0,
+            sr: typeof s.strikeRate === 'number' ? s.strikeRate.toFixed(1) : '-',
             dismissal: DISMISSAL_CARD[dis] || dis,
           });
         }
 
         if ((s.balls ?? 0) > 0) {
-          const b  = s.balls;
+          const b = s.balls;
           const ov = `${Math.floor(b / 6)}.${b % 6}`;
           periods[period].bowlers.push({
             name,
-            overs:      ov,
+            overs: ov,
             ballsCount: b,           // raw count for computing innings total overs
-            runs:       s.conceded ?? 0,
-            wickets:    s.wickets  ?? 0,
-            maidens:    s.maidens  ?? 0,
-            econ:       typeof s.economyRate === 'number' ? s.economyRate.toFixed(2) : '-',
+            runs: s.conceded ?? 0,
+            wickets: s.wickets ?? 0,
+            maidens: s.maidens ?? 0,
+            econ: typeof s.economyRate === 'number' ? s.economyRate.toFixed(2) : '-',
           });
         }
       }
@@ -2847,8 +2847,8 @@ function formatRosterScorecard(innings, matchTitle) {
 
     for (const p of inns.batters) {
       const suffix = [p.isCap ? '(c)' : '', p.isWK ? '(wk)' : ''].filter(Boolean).join('');
-      const label  = (p.name + (suffix ? ' ' + suffix : '')).slice(0, 22).padEnd(22);
-      const dis    = (p.dismissal || 'not out').slice(0, 11).padEnd(11);
+      const label = (p.name + (suffix ? ' ' + suffix : '')).slice(0, 22).padEnd(22);
+      const dis = (p.dismissal || 'not out').slice(0, 11).padEnd(11);
       lines.push(
         `${label} ${dis} ` +
         `${String(p.runs).padStart(4)} ${String(p.balls).padStart(4)} ` +
@@ -2959,8 +2959,8 @@ function formatH2HFromESPN(h2hGames, t1, t2) {
   for (const game of [...h2hGames].reverse()) { // oldest first
     const dateStr = game.date
       ? new Date(game.date).toLocaleDateString('en-IN', {
-          day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
-        })
+        day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+      })
       : '?';
     const resultSummary = game.status?.summary || game.name || '';
     const winnerComp = Array.isArray(game.competitors)
@@ -2996,7 +2996,7 @@ const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
 /** Helper to parse "180/5" or "180" into {runs, wickets} */
 function parseRunsWickets(teamSummary) {
   if (!teamSummary) return { runs: 0, wickets: 0 };
-  
+
   // 1. Priority: Explicit runs and wickets from linescores
   if (teamSummary.runs !== undefined) {
     return { runs: teamSummary.runs, wickets: teamSummary.wickets || 0 };
@@ -3005,15 +3005,15 @@ function parseRunsWickets(teamSummary) {
   const scoreStr = String(teamSummary.score || "");
   const cleaned = scoreStr.split('(')[0].trim(); // remove (20 ov) parts
   const parts = cleaned.split('/');
-  
+
   const runs = parseInt(parts[0]) || 0;
   let wickets = parseInt(parts[1]) || (scoreStr.toLowerCase().includes('all out') ? 10 : 0);
-  
+
   // Use explicit wickets from API if provided
   if (teamSummary.wickets !== undefined && teamSummary.wickets !== null) {
     wickets = parseInt(teamSummary.wickets);
   }
-  
+
   return { runs, wickets };
 }
 
@@ -3067,6 +3067,22 @@ const SCORE_OVERRIDES = {
   }
 };
 
+/** Master Overrides for match scores (Guarantees precision for early matches) */
+const SCORE_OVERRIDES = {
+  'm01': {
+    t1: { short: 'RCB', runs: 203, overs: 15.4, wickets: 4 },
+    t2: { short: 'SRH', runs: 201, overs: 20.0, wickets: 9 }
+  },
+  'm02': {
+    t1: { short: 'MI', runs: 224, overs: 19.1, wickets: 4 },
+    t2: { short: 'KKR', runs: 220, overs: 20.0, wickets: 4 }
+  },
+  'm03': {
+    t1: { short: 'RR', runs: 128, overs: 12.1, wickets: 2 },
+    t2: { short: 'CSK', runs: 127, overs: 20.0, wickets: 10 }
+  }
+};
+
 /** Backfill match_scores table for all matches with ESPN IDs */
 async function backfillMatchScores() {
   console.log('[Scores] Starting Master Backfill/Correction...');
@@ -3077,20 +3093,29 @@ async function backfillMatchScores() {
       WHERE espn_event_id IS NOT NULL
     `);
 
-    if (matchesToBackfill.length === 0) return;
+    if (matchesToBackfill.length === 0) {
+      console.log('[Scores] No matches with ESPN IDs found in DB.');
+      return;
+    }
 
+    console.log(`[Scores] Processing ${matchesToBackfill.length} matches...`);
     for (const matchRow of matchesToBackfill) {
       try {
         let summary;
         
+        // 1. Check for manual override first
         if (SCORE_OVERRIDES[matchRow.match_id]) {
           const ovr = SCORE_OVERRIDES[matchRow.match_id];
           summary = { team1: ovr.t1, team2: ovr.t2, status: 'Final' };
         } else {
+          // 2. Fetch from high-fidelity API
           summary = await fetchESPNSummary(matchRow.espn_event_id);
         }
 
-        if (!summary) continue;
+        if (!summary) {
+          console.log(`[Scores] Skip ${matchRow.match_id}: No data found`);
+          continue;
+        }
 
         const s1 = parseRunsWickets(summary.team1);
         const s2 = parseRunsWickets(summary.team2);
@@ -3100,6 +3125,7 @@ async function backfillMatchScores() {
         let t1Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
         let team2Data = { runs: s2.runs, wickets: s2.wickets, overs: ov2, short: summary.team2.short };
 
+        // Align ESPN team order with our database order
         if (summary.team1.short !== matchRow.t1_local && summary.team2.short === matchRow.t1_local) {
           team1Data = { runs: s2.runs, wickets: s2.wickets, overs: ov2, short: summary.team2.short };
           team2Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
@@ -3118,14 +3144,15 @@ async function backfillMatchScores() {
           team1Data.short, team1Data.runs, team1Data.overs, team1Data.wickets,
           team2Data.short, team2Data.runs, team2Data.overs, team2Data.wickets
         ]);
-        console.log(`[Scores] Verified ${matchRow.match_id}: ${team1Data.short} (${team1Data.overs} ov), ${team2Data.short} (${team2Data.overs} ov)`);
+        
+        console.log(`[Scores] ✅ Populated ${matchRow.match_id}: ${team1Data.short} (${team1Data.overs} ov), ${team2Data.short} (${team2Data.overs} ov)`);
       } catch (e) {
         console.error(`[Scores] Error on ${matchRow.match_id}:`, e.message);
       }
     }
-    console.log('[Scores] Master correction complete.');
+    console.log('[Scores] Master backfill complete.');
   } catch (err) {
-    console.error('[Scores] Backfill failed:', err.message);
+    console.error('[Scores] Global backfill failure:', err.message);
   }
 }
 
@@ -3181,7 +3208,7 @@ async function checkRecentMatches(isManual = false) {
       }
 
       const status = summary.status || "";
-      const state  = summary.state  || "pre";
+      const state = summary.state || "pre";
 
       const stateDone =
         state === 'post' ||
@@ -3217,13 +3244,13 @@ async function checkRecentMatches(isManual = false) {
           try {
             const rosters = summary.lineups || []; // summary contains lineups from fetchESPNSummary
             // Re-fetch with scorecard if needed, but summary usually has enough for NRR if we parse it
-               const s1 = parseRunsWickets(summary.team1);
-               const s2 = parseRunsWickets(summary.team2);
-               
-               const ov1 = parseOversNew(summary.team1, summary.status);
-               const ov2 = parseOversNew(summary.team2, summary.status);
-               
-               await query(`
+            const s1 = parseRunsWickets(summary.team1);
+            const s2 = parseRunsWickets(summary.team2);
+
+            const ov1 = parseOversNew(summary.team1, summary.status);
+            const ov2 = parseOversNew(summary.team2, summary.status);
+
+            await query(`
                  INSERT INTO match_scores (
                    match_id, team1, team1_runs, team1_overs, team1_wickets,
                    team2, team2_runs, team2_overs, team2_wickets
@@ -3232,10 +3259,10 @@ async function checkRecentMatches(isManual = false) {
                    team1_runs = EXCLUDED.team1_runs, team1_overs = EXCLUDED.team1_overs, team1_wickets = EXCLUDED.team1_wickets,
                    team2_runs = EXCLUDED.team2_runs, team2_overs = EXCLUDED.team2_overs, team2_wickets = EXCLUDED.team2_wickets
                `, [
-                 match.id, 
-                 summary.team1.short, s1.runs, ov1, s1.wickets,
-                 summary.team2.short, s2.runs, ov2, s2.wickets
-               ]);
+              match.id,
+              summary.team1.short, s1.runs, ov1, s1.wickets,
+              summary.team2.short, s2.runs, ov2, s2.wickets
+            ]);
           } catch (e) {
             console.error(`[Scores] Failed to populate match_scores for ${match.id}:`, e.message);
           }
@@ -3325,7 +3352,7 @@ setInterval(async () => {
             icon: '/favicon.ico',
             tag: `reminder_${match.id}`,
             data: { url: '/' },
-          }).catch(() => {});
+          }).catch(() => { });
         }
         console.log(`[Push] Vote reminder sent for match ${match.id} to ${unvoted.length} user(s)`);
         break;
@@ -3389,7 +3416,7 @@ setInterval(async () => {
           icon: '/ipl-icon.png',
           tag: `toss_reminder_${matchId}`,
           data: { url: '/' },
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       state.count++;
@@ -3435,8 +3462,8 @@ function itemKey(item) {
   const primary = item.id ?? item.sequence ?? item.sequenceNumber;
   if (primary != null && String(primary) !== '') return String(primary);
   const over = item.over?.overs ?? '';
-  const txt  = (item.shortText || item.text || '').slice(0, 30);
-  const key  = `${over}_${txt}`;
+  const txt = (item.shortText || item.text || '').slice(0, 30);
+  const key = `${over}_${txt}`;
   return key !== '_' ? key : null;
 }
 
@@ -3456,13 +3483,13 @@ async function pollMatchData() {
     const liveMatches = matchesCache.filter(m => {
       const startTime = new Date(`${m.date}T${m.time}:00+05:30`);
       const preWindow = new Date(startTime.getTime() - 90 * 60 * 1000);
-      const cutoff    = new Date(startTime.getTime() + 6 * 60 * 60 * 1000);
+      const cutoff = new Date(startTime.getTime() + 6 * 60 * 60 * 1000);
       return now >= preWindow && now <= cutoff && !completedIds.has(m.id);
     });
 
     if (liveMatches.length === 0) return;
 
-    const roomIds   = await getCachedRoomIds();
+    const roomIds = await getCachedRoomIds();
 
     for (const match of liveMatches) {
       const espnId = matchESPNIdMap.get(match.id);
@@ -3485,29 +3512,29 @@ async function pollMatchData() {
       }
 
       // ── Scores & state ──────────────────────────────────────────────────────
-      const comp        = data.header?.competitions?.[0] || {};
+      const comp = data.header?.competitions?.[0] || {};
       const competitors = comp.competitors || [];
       const c1 = competitors[0] || {};
       const c2 = competitors[1] || {};
-      const t1Name  = c1.team?.displayName || c1.displayName || '';
-      const t2Name  = c2.team?.displayName || c2.displayName || '';
-      const t1Abbr  = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
-      const t2Abbr  = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
+      const t1Name = c1.team?.displayName || c1.displayName || '';
+      const t2Name = c2.team?.displayName || c2.displayName || '';
+      const t1Abbr = TEAM_NAME_MAP[t1Name] || c1.team?.abbreviation || teamAbbr(t1Name);
+      const t2Abbr = TEAM_NAME_MAP[t2Name] || c2.team?.abbreviation || teamAbbr(t2Name);
 
       const scoreParts = [];
       if (c1.score) scoreParts.push(`${t1Abbr} ${c1.score}`);
       if (c2.score) scoreParts.push(`${t2Abbr} ${c2.score}`);
       const score = scoreParts.join(' · ') || null;
 
-      const state         = comp.status?.type?.state || 'pre';
+      const state = comp.status?.type?.state || 'pre';
       // status.summary has the human-readable result ("CSK won by 23 runs") for completed matches
       const statusSummary = comp.status?.summary || '';
-      const statusDetail  = comp.status?.type?.detail || comp.status?.type?.description || '';
-      const statusRaw     = statusSummary || statusDetail;
+      const statusDetail = comp.status?.type?.detail || comp.status?.type?.description || '';
+      const statusRaw = statusSummary || statusDetail;
 
       // Enrich in-progress status with live run-rate info from situation
       const situation = comp.situation || {};
-      const crr = situation.currentRunRate  != null ? Number(situation.currentRunRate).toFixed(2)  : null;
+      const crr = situation.currentRunRate != null ? Number(situation.currentRunRate).toFixed(2) : null;
       const rrr = situation.requiredRunRate != null ? Number(situation.requiredRunRate).toFixed(2) : null;
       let status = statusRaw;
       if (state === 'in' && (crr || rrr)) {
@@ -3527,7 +3554,7 @@ async function pollMatchData() {
       }
 
       // ── Toss & lineups ──────────────────────────────────────────────────────
-      const toss    = extractTossInfoESPN(data.notes);
+      const toss = extractTossInfoESPN(data.notes);
       const lineups = extractLineupsESPN(data.rosters, data.notes);
 
       if (!commentaryCache.has(match.id)) {
@@ -3535,7 +3562,7 @@ async function pollMatchData() {
         console.log(`[Commentary] Registered match ${match.id} → ESPN ID ${espnId}`);
       }
       const cachedEntry = commentaryCache.get(match.id);
-      if (toss)    cachedEntry.toss    = toss;
+      if (toss) cachedEntry.toss = toss;
       if (lineups) cachedEntry.lineups = lineups;
 
       // Record the first moment toss is available (drives post-toss vote reminders)
@@ -3549,9 +3576,9 @@ async function pollMatchData() {
         matchId: match.id,
         team1: match.team1,
         team2: match.team2,
-        score:  score  || null,
+        score: score || null,
         status: status || null,
-        toss:   toss || cachedEntry.toss || null,
+        toss: toss || cachedEntry.toss || null,
         updatedAt: new Date().toISOString(),
       };
       liveScoreCache.set(match.id, payload);
@@ -3583,15 +3610,15 @@ async function pollMatchData() {
 
       // ── Rain / delay detection ───────────────────────────────────────────────
       const RAIN_KEYWORDS = /rain|delay|interrupt|suspend|wet outfield|bad light|pitch inspection/i;
-      const isRainStatus  = RAIN_KEYWORDS.test(statusRaw || '');
-      const rainState     = rainDelayState.get(match.id) || { inDelay: false, lastPostedAt: 0 };
-      const nowMs         = Date.now();
+      const isRainStatus = RAIN_KEYWORDS.test(statusRaw || '');
+      const rainState = rainDelayState.get(match.id) || { inDelay: false, lastPostedAt: 0 };
+      const nowMs = Date.now();
 
       if (isRainStatus) {
         const shouldPost = !rainState.inDelay || (nowMs - rainState.lastPostedAt > 10 * 60 * 1000);
         if (shouldPost && botEnabled) {
           const delayMsg = `🌧️ Play Interrupted!\n\n${match.team1} vs ${match.team2}\n📊 ${statusRaw}\n\nI'll resume ball-by-ball updates the moment play gets back underway! ⏸️`;
-          const botName  = getBotName(match.id);
+          const botName = getBotName(match.id);
           for (const roomId of roomIds) await postBotMessage(roomId, match.id, delayMsg, botName);
           rainDelayState.set(match.id, { inDelay: true, lastPostedAt: nowMs });
           console.log(`[LiveScore] Rain delay posted for match ${match.id}`);
@@ -3601,7 +3628,7 @@ async function pollMatchData() {
       } else if (rainState.inDelay) {
         if (botEnabled) {
           const resumeMsg = `☀️ Play has resumed!\n\n${match.team1} vs ${match.team2} is back on! 🏏\n${score ? `📊 ${score}` : ''}\n\nBall-by-ball updates are live again! 🔥`;
-          const botName   = getBotName(match.id);
+          const botName = getBotName(match.id);
           for (const roomId of roomIds) await postBotMessage(roomId, match.id, resumeMsg, botName);
           console.log(`[LiveScore] Play resumed posted for match ${match.id}`);
         }
@@ -3611,7 +3638,7 @@ async function pollMatchData() {
       // ── Ball-by-ball commentary ──────────────────────────────────────────────
       // commentaries lives at header.competitions[0].commentaries in the summary
       // response — an object keyed by numeric string ball IDs e.g. {"13030":{...}}
-      const commObj   = data.header?.competitions?.[0]?.commentaries || {};
+      const commObj = data.header?.competitions?.[0]?.commentaries || {};
       // Only include real ball deliveries (over.overs > 0); overs=0 items are between-innings placeholders
       const commItems = Object.values(commObj).filter(i => i.over && Number(i.over.overs) > 0);
 
@@ -3860,10 +3887,10 @@ async function fetchLatestBallData(matchId) {
     const competitors = comp.competitors || [];
     const battingComp = competitors.find(c => c.linescores?.[0]?.isBatting) || competitors[0];
     const lscore = battingComp?.linescores?.[0];
-    const runs    = lscore?.runs ?? null;
+    const runs = lscore?.runs ?? null;
     const wickets = lscore?.wickets ?? 0;
-    const overs   = lscore?.overs ?? null;
-    const target  = (lscore?.target > 0) ? lscore.target : null;
+    const overs = lscore?.overs ?? null;
+    const target = (lscore?.target > 0) ? lscore.target : null;
     const teamAbbr = battingComp?.team?.abbreviation || battingComp?.team?.displayName || '';
 
     // CRR: prefer situation field; fall back to runs / overs
@@ -4268,7 +4295,7 @@ async function handleBotQuery(roomId, matchId, rawQuery, askerUsername) {
           // Gather context
           const data = await fetchLatestBallData(matchId);
           const balls = data?.commentary?.slice(0, 5).map(b => b.commText).join('\n') || 'No recent commentary.';
-          
+
           const currentScore = isCompleted ? completedResult.score_summary : (liveData?.score || 'Not started');
           const currentStatus = isCompleted ? `Match Over. Winner: ${completedResult.winner}` : (liveData?.status || 'Waiting');
 
@@ -4463,14 +4490,14 @@ ${context}`
       const matchStartDt = matchStart;
       const dateStr = matchStartDt
         ? matchStartDt.toLocaleDateString('en-IN', {
-            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-            timeZone: 'Asia/Kolkata',
-          })
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+          timeZone: 'Asia/Kolkata',
+        })
         : 'Date TBC';
       const timeStr = matchStartDt
         ? matchStartDt.toLocaleTimeString('en-IN', {
-            hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
-          })
+          hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+        })
         : '';
 
       // Toss line
@@ -4572,39 +4599,39 @@ function espnPlayerName(athlete) {
 function formatESPNCommentaryItem(item, matchScore) {
   // ── Line 1: Over • Event ─────────────────────────────────────────────────
   const overOvers = item.over?.overs;
-  const overStr   = overOvers != null ? `Over ${overOvers}` : null;
+  const overStr = overOvers != null ? `Over ${overOvers}` : null;
 
-  const typeDesc     = (item.playType?.description || '').toLowerCase();
+  const typeDesc = (item.playType?.description || '').toLowerCase();
   const shortTextLow = (item.shortText || '').toLowerCase();
   const scoreVal = Number(item.scoreValue ?? 0);
 
   const isWicket = item.dismissal?.dismissal === true || typeDesc === 'out';
-  const isSix    = scoreVal === 6;
-  const isFour   = typeDesc === 'four' || scoreVal === 4;
+  const isSix = scoreVal === 6;
+  const isFour = typeDesc === 'four' || scoreVal === 4;
   // summary API has no playType — fall back to shortText for wide / no-ball
-  const isWide   = typeDesc === 'wide'   || shortTextLow.includes('wide');
+  const isWide = typeDesc === 'wide' || shortTextLow.includes('wide');
   const isNoBall = typeDesc === 'no ball' || typeDesc === 'noball' || shortTextLow.includes('no ball');
-  const isDot    = typeDesc === 'no run' ||
+  const isDot = typeDesc === 'no run' ||
     (!isWicket && !isSix && !isFour && !isWide && !isNoBall && scoreVal === 0);
 
   let eventLabel;
-  if (isWicket)      eventLabel = '❌ WICKET!';
-  else if (isSix)    eventLabel = '🚀 SIX!';
-  else if (isFour)   eventLabel = '💥 FOUR!';
-  else if (isWide)   eventLabel = '↔️ Wide';
+  if (isWicket) eventLabel = '❌ WICKET!';
+  else if (isSix) eventLabel = '🚀 SIX!';
+  else if (isFour) eventLabel = '💥 FOUR!';
+  else if (isWide) eventLabel = '↔️ Wide';
   else if (isNoBall) eventLabel = '⚠️ No Ball';
-  else if (isDot)    eventLabel = '⬛ Dot';
-  else               eventLabel = `+${scoreVal}`;
+  else if (isDot) eventLabel = '⬛ Dot';
+  else eventLabel = `+${scoreVal}`;
 
   const line1 = [overStr, eventLabel].filter(Boolean).join('  •  ');
   if (!line1) return null;
 
   // ── Line 2: 🏏 V Kohli 34(22)   ⚾ J Bumrah 2/28 ─────────────────────────
-  const batter      = espnPlayerName(item.batsman?.athlete);
-  const batterRuns  = item.batsman?.totalRuns ?? 0;
+  const batter = espnPlayerName(item.batsman?.athlete);
+  const batterRuns = item.batsman?.totalRuns ?? 0;
   const batterBalls = item.batsman?.faced ?? 0;
 
-  const bowler     = espnPlayerName(item.bowler?.athlete);
+  const bowler = espnPlayerName(item.bowler?.athlete);
   const bowlerWkts = item.bowler?.wickets ?? 0;
   const bowlerRuns = item.bowler?.conceded ?? 0;
 
@@ -4633,7 +4660,7 @@ function formatESPNCommentaryItem(item, matchScore) {
 
   // ── Lines 4-5: "Archer to Padikkal, no run" + stripped HTML commentary ──
   const shortText = (item.shortText || '').trim();
-  const commText  = (item.text || '').replace(/<[^>]+>/g, '').trim();
+  const commText = (item.text || '').replace(/<[^>]+>/g, '').trim();
 
   const textParts = [];
   if (shortText) textParts.push(shortText);
@@ -4766,7 +4793,7 @@ app.post('/api/admin/push/send', authMiddleware, adminMiddleware, asyncRoute(asy
   if (!Array.isArray(userIds) || !title || !body) {
     return res.status(400).json({ error: 'userIds (array), title, and body are required' });
   }
-  
+
   const payload = {
     title,
     body,
@@ -4778,7 +4805,7 @@ app.post('/api/admin/push/send', authMiddleware, adminMiddleware, asyncRoute(asy
   for (const userId of userIds) {
     sendPushToUser(userId, payload).catch(e => console.error(`[Push] Failed for ${userId}:`, e.message));
   }
-  
+
   res.json({ ok: true });
 }));
 
@@ -4786,7 +4813,7 @@ app.post('/api/admin/push/remind-voters', authMiddleware, adminMiddleware, async
   const results = await query('SELECT match_id, winner FROM results');
   const resultsMap = {};
   results.forEach(r => { resultsMap[r.match_id] = r; });
-  
+
   const overridesRows = await query('SELECT match_id, manual_locked, lock_delay FROM match_overrides');
   const overridesMap = {};
   overridesRows.forEach(o => { overridesMap[o.match_id] = o; });
