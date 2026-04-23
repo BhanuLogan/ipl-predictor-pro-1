@@ -2497,8 +2497,8 @@ async function fetchESPNSummary(espnEventId) {
       state,
       status: resultText || statusDetail,
       winnerName,
-      team1: { name: t1Name, short: t1Abbr, score: c1.score || '' },
-      team2: { name: t2Name, short: t2Abbr, score: c2.score || '' },
+      team1: { name: t1Name, short: t1Abbr, score: c1.score || '', linescores: c1.linescores || [] },
+      team2: { name: t2Name, short: t2Abbr, score: c2.score || '', linescores: c2.linescores || [] },
     };
   } catch (e) {
     console.error(`[ESPN] fetchESPNSummary error for event ${espnEventId}:`, e.message);
@@ -2933,13 +2933,32 @@ function parseRunsWickets(scoreStr) {
   };
 }
 
-/** Helper to parse overs for a team from status like "MI 150/1 (15.4) PBKS 147 (20)" or "CSK 180 (20.0)" */
-function parseOversFromStatus(status, teamAbbr) {
-  if (!status || !teamAbbr) return 20.0;
-  // Look for "(X.Y)" or "(X)" following the team abbreviation
-  const regex = new RegExp(teamAbbr + '[^\\(]*\\(([\\d\\.]+)', 'i');
-  const match = status.match(regex);
-  if (match && match[1]) return parseFloat(match[1]);
+/** Helper to parse overs for a team from various sources in ESPN summary */
+function parseOversNew(teamSummary, status) {
+  // 1. Try linescores (best source)
+  if (teamSummary.linescores && teamSummary.linescores.length > 0) {
+    const ls = teamSummary.linescores[0];
+    if (ls.overs) return Math.min(20.0, ls.overs);
+  }
+
+  // 2. Try to parse from the score string itself if it has "(19.2 ov)"
+  const scoreStr = teamSummary.score || "";
+  const scoreMatch = scoreStr.match(/\(([\d\.]+)\s*ov\)/i);
+  if (scoreMatch && scoreMatch[1]) {
+    const val = parseFloat(scoreMatch[1]);
+    if (val > 0 && val <= 20) return val;
+  }
+
+  // 3. Fallback to status regex (more specific to avoid team name parentheticals)
+  if (status && teamSummary.short) {
+    const regex = new RegExp(teamSummary.short + '\\s+\\d+[^\\(]*\\(([\\d\\.]+)', 'i');
+    const match = status.match(regex);
+    if (match && match[1]) {
+      const val = parseFloat(match[1]);
+      if (val > 0 && val <= 20.0) return val;
+    }
+  }
+
   return 20.0;
 }
 
@@ -2968,9 +2987,9 @@ async function backfillMatchScores() {
         const s1 = parseRunsWickets(summary.team1.score);
         const s2 = parseRunsWickets(summary.team2.score);
         
-        // Use summary status/detail to find overs
-        const ov1 = parseOversFromStatus(summary.status, summary.team1.short);
-        const ov2 = parseOversFromStatus(summary.status, summary.team2.short);
+        // Use new robust over parsing
+        const ov1 = parseOversNew(summary.team1, summary.status);
+        const ov2 = parseOversNew(summary.team2, summary.status);
 
         await query(`
           INSERT INTO match_scores (
@@ -3088,8 +3107,8 @@ async function checkRecentMatches(isManual = false) {
                const s1 = parseRunsWickets(summary.team1.score);
                const s2 = parseRunsWickets(summary.team2.score);
                
-               const ov1 = parseOversFromStatus(summary.status, summary.team1.short);
-               const ov2 = parseOversFromStatus(summary.status, summary.team2.short);
+               const ov1 = parseOversNew(summary.team1, summary.status);
+               const ov2 = parseOversNew(summary.team2, summary.status);
                
                await query(`
                  INSERT INTO match_scores (
