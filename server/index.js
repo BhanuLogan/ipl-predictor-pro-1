@@ -4833,6 +4833,11 @@ app.post('/api/push/test', authMiddleware, asyncRoute(async (req, res) => {
   res.json({ ok: true, subscriptions: subs.length });
 }));
 
+app.get("/api/debug/m01", asyncRoute(async (req, res) => {
+  const row = await queryOne('SELECT * FROM match_scores WHERE match_id = $1', ['m01']);
+  res.json(row || { error: "Match m01 not found in match_scores table" });
+}));
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "alive", time: new Date() });
 });
