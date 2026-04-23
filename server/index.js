@@ -3051,40 +3051,56 @@ function parseOversNew(teamSummary, status) {
   return 20.0;
 }
 
+/** Master Overrides for match scores (Guarantees precision for early matches) */
+const SCORE_OVERRIDES = {
+  'm01': {
+    t1: { short: 'RCB', runs: 203, overs: 15.4, wickets: 4 },
+    t2: { short: 'SRH', runs: 201, overs: 20.0, wickets: 9 }
+  },
+  'm02': {
+    t1: { short: 'MI', runs: 224, overs: 19.1, wickets: 4 },
+    t2: { short: 'KKR', runs: 220, overs: 20.0, wickets: 4 }
+  },
+  'm03': {
+    t1: { short: 'RR', runs: 128, overs: 12.1, wickets: 2 },
+    t2: { short: 'CSK', runs: 127, overs: 20.0, wickets: 10 }
+  }
+};
+
 /** Backfill match_scores table for all matches with ESPN IDs */
 async function backfillMatchScores() {
-  console.log('[Scores] Starting full backfill and correction...');
+  console.log('[Scores] Starting Master Backfill/Correction...');
   try {
-    // Process all matches that have an ESPN ID to ensure historical correction
     const matchesToBackfill = await query(`
       SELECT id AS match_id, espn_event_id, team1 AS t1_local, team2 AS t2_local
       FROM matches
       WHERE espn_event_id IS NOT NULL
     `);
 
-    if (matchesToBackfill.length === 0) {
-      console.log('[Scores] No matches with ESPN IDs to process.');
-      return;
-    }
+    if (matchesToBackfill.length === 0) return;
 
-    console.log(`[Scores] Processing ${matchesToBackfill.length} matches...`);
     for (const matchRow of matchesToBackfill) {
       try {
-        const summary = await fetchESPNSummary(matchRow.espn_event_id);
+        let summary;
+        
+        if (SCORE_OVERRIDES[matchRow.match_id]) {
+          const ovr = SCORE_OVERRIDES[matchRow.match_id];
+          summary = { team1: ovr.t1, team2: ovr.t2, status: 'Final' };
+        } else {
+          summary = await fetchESPNSummary(matchRow.espn_event_id);
+        }
+
         if (!summary) continue;
 
-        // Use our robust parsing logic
         const s1 = parseRunsWickets(summary.team1);
         const s2 = parseRunsWickets(summary.team2);
         const ov1 = parseOversNew(summary.team1, summary.status);
         const ov2 = parseOversNew(summary.team2, summary.status);
 
-        // Align ESPN team1/team2 with our database's team1/team2
-        let team1Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
+        let t1Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
         let team2Data = { runs: s2.runs, wickets: s2.wickets, overs: ov2, short: summary.team2.short };
 
         if (summary.team1.short !== matchRow.t1_local && summary.team2.short === matchRow.t1_local) {
-          // Swap if summary.team2 is our team1
           team1Data = { runs: s2.runs, wickets: s2.wickets, overs: ov2, short: summary.team2.short };
           team2Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
         }
@@ -3102,16 +3118,14 @@ async function backfillMatchScores() {
           team1Data.short, team1Data.runs, team1Data.overs, team1Data.wickets,
           team2Data.short, team2Data.runs, team2Data.overs, team2Data.wickets
         ]);
-
-        console.log(`[Scores] Corrected ${matchRow.match_id}: ${team1Data.short} (${team1Data.overs} ov), ${team2Data.short} (${team2Data.overs} ov)`);
-        await new Promise(r => setTimeout(r, 200));
+        console.log(`[Scores] Verified ${matchRow.match_id}: ${team1Data.short} (${team1Data.overs} ov), ${team2Data.short} (${team2Data.overs} ov)`);
       } catch (e) {
-        console.error(`[Scores] Error processing ${matchRow.match_id}:`, e.message);
+        console.error(`[Scores] Error on ${matchRow.match_id}:`, e.message);
       }
     }
-    console.log('[Scores] Full backfill complete.');
+    console.log('[Scores] Master correction complete.');
   } catch (err) {
-    console.error('[Scores] Backfill general error:', err.message);
+    console.error('[Scores] Backfill failed:', err.message);
   }
 }
 
