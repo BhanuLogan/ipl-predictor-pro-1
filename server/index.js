@@ -3051,34 +3051,43 @@ function parseOversNew(teamSummary, status) {
   return 20.0;
 }
 
-/** Backfill match_scores table for all completed matches */
+/** Backfill match_scores table for all matches with ESPN IDs */
 async function backfillMatchScores() {
-  console.log('[Scores] Starting backfill (with overs correction)...');
+  console.log('[Scores] Starting full backfill and correction...');
   try {
-    const results = await query(`
-      SELECT r.match_id, m.espn_event_id, r.score_summary, r.details
-      FROM results r
-      JOIN matches m ON m.id = r.match_id
-      WHERE m.espn_event_id IS NOT NULL
+    // Process all matches that have an ESPN ID to ensure historical correction
+    const matchesToBackfill = await query(`
+      SELECT id AS match_id, espn_event_id, team1 AS t1_local, team2 AS t2_local
+      FROM matches
+      WHERE espn_event_id IS NOT NULL
     `);
 
-    if (results.length === 0) {
-      console.log('[Scores] No matches to backfill.');
+    if (matchesToBackfill.length === 0) {
+      console.log('[Scores] No matches with ESPN IDs to process.');
       return;
     }
 
-    console.log(`[Scores] Processing ${results.length} matches...`);
-    for (const res of results) {
+    console.log(`[Scores] Processing ${matchesToBackfill.length} matches...`);
+    for (const matchRow of matchesToBackfill) {
       try {
-        const summary = await fetchESPNSummary(res.espn_event_id);
+        const summary = await fetchESPNSummary(matchRow.espn_event_id);
         if (!summary) continue;
 
+        // Use our robust parsing logic
         const s1 = parseRunsWickets(summary.team1);
         const s2 = parseRunsWickets(summary.team2);
-        
-        // Use new robust over parsing
         const ov1 = parseOversNew(summary.team1, summary.status);
         const ov2 = parseOversNew(summary.team2, summary.status);
+
+        // Align ESPN team1/team2 with our database's team1/team2
+        let team1Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
+        let team2Data = { runs: s2.runs, wickets: s2.wickets, overs: ov2, short: summary.team2.short };
+
+        if (summary.team1.short !== matchRow.t1_local && summary.team2.short === matchRow.t1_local) {
+          // Swap if summary.team2 is our team1
+          team1Data = { runs: s2.runs, wickets: s2.wickets, overs: ov2, short: summary.team2.short };
+          team2Data = { runs: s1.runs, wickets: s1.wickets, overs: ov1, short: summary.team1.short };
+        }
 
         await query(`
           INSERT INTO match_scores (
@@ -3089,17 +3098,18 @@ async function backfillMatchScores() {
             team1_runs = EXCLUDED.team1_runs, team1_overs = EXCLUDED.team1_overs, team1_wickets = EXCLUDED.team1_wickets,
             team2_runs = EXCLUDED.team2_runs, team2_overs = EXCLUDED.team2_overs, team2_wickets = EXCLUDED.team2_wickets
         `, [
-          res.match_id,
-          summary.team1.short, s1.runs, ov1, s1.wickets,
-          summary.team2.short, s2.runs, ov2, s2.wickets
+          matchRow.match_id,
+          team1Data.short, team1Data.runs, team1Data.overs, team1Data.wickets,
+          team2Data.short, team2Data.runs, team2Data.overs, team2Data.wickets
         ]);
-        console.log(`[Scores] Backfilled/Updated ${res.match_id}: ${summary.team1.short} (${ov1} ov), ${summary.team2.short} (${ov2} ov)`);
-        await new Promise(r => setTimeout(r, 300));
+
+        console.log(`[Scores] Corrected ${matchRow.match_id}: ${team1Data.short} (${team1Data.overs} ov), ${team2Data.short} (${team2Data.overs} ov)`);
+        await new Promise(r => setTimeout(r, 200));
       } catch (e) {
-        console.error(`[Scores] Error processing ${res.match_id}:`, e.message);
+        console.error(`[Scores] Error processing ${matchRow.match_id}:`, e.message);
       }
     }
-    console.log('[Scores] Backfill/Correction complete.');
+    console.log('[Scores] Full backfill complete.');
   } catch (err) {
     console.error('[Scores] Backfill general error:', err.message);
   }
@@ -4822,8 +4832,16 @@ setInterval(() => {
     .catch((err) => console.log(`[Self-Ping] Failed to ping ${url}: ${err.message}`));
 }, PING_INTERVAL);
 
+app.post('/api/admin/refresh-scores', authMiddleware, adminMiddleware, asyncRoute(async (req, res) => {
+  console.log('[Admin] Score refresh triggered by', req.user.username);
+  // Run backfill in background so we don't time out the request
+  backfillMatchScores().catch(e => console.error('[Scores] Manual refresh failed:', e.message));
+  res.json({ ok: true, message: 'Score refresh started in background' });
+}));
+
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
+  console.error('[Error]', err.stack);
   res.status(500).json({ error: "Internal server error" });
 });
 
