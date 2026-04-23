@@ -312,7 +312,6 @@ const RoomLeaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-secondary" title="Number of correct predictions">Wins</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-destructive" title="Number of incorrect predictions">Losses</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Matches with No Result (Abandoned/Rain)">NR</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Average Vote Time: Average minutes before match start that votes were placed. (Higher/Earlier is better)">AVT</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Net Run Rate: The total run rate difference of teams you voted for vs their opposition.">NRR</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Total score: 2 points for Win, 1 for No Result">Pts</th>
                   {canManageAdmins && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground" />}
@@ -356,9 +355,6 @@ const RoomLeaderboard = () => {
                     <td className="px-4 py-4 text-center text-sm font-medium text-secondary">{entry.correct}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-destructive">{entry.voted - entry.correct - entry.nr}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium text-muted-foreground">{entry.nr}</td>
-                    <td className="px-4 py-4 text-center text-sm font-medium">
-                      {entry.nrr == null ? "—" : (entry.nrr / 100).toFixed(3)}
-                    </td>
                     <td className={`px-4 py-4 text-center text-sm font-bold ${entry.nrr2 && entry.nrr2 > 0 ? 'text-secondary' : entry.nrr2 && entry.nrr2 < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
                       {entry.nrr2 == null ? "—" : (entry.nrr2 > 0 ? "+" : "") + entry.nrr2.toFixed(3)}
                     </td>

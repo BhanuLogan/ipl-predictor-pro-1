@@ -1413,7 +1413,7 @@ async function getLeaderboardInternal() {
     return a.username.localeCompare(b.username);
   });
 
-  return enriched;
+  return enriched.map((row, i) => ({ ...row, rank: i + 1 }));
 }
 
 app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) => {
@@ -1502,7 +1502,7 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
 
   const getRank = (board, userId) => {
     const idx = board.findIndex(u => u.user_id === userId);
-    return idx === -1 ? board.length : idx + 1;
+    return idx === -1 ? board.length + 1 : idx + 1;
   };
 
   const currentRank = getRank(currentBoard, req.user.id);
@@ -1794,7 +1794,7 @@ async function getRoomLeaderboard(roomId) {
     return a.username.localeCompare(b.username);
   });
 
-  return enriched;
+  return enriched.map((row, i) => ({ ...row, rank: i + 1 }));
 }
 
 // Room leaderboard — register BEFORE /:id to avoid route conflict
