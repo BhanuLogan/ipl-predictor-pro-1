@@ -78,6 +78,16 @@ const Rooms = () => {
   const [joinRequests, setJoinRequests] = useState<Record<number, JoinRequest[]>>({});
   const [loadingRequests, setLoadingRequests] = useState<Record<number, boolean>>({});
   const [expandedRequests, setExpandedRequests] = useState<Record<number, boolean>>({});
+  const [exampleCode, setExampleCode] = useState("");
+
+  useEffect(() => {
+    if (modal === "join") {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let res = "";
+      for (let i = 0; i < 6; i++) res += chars[Math.floor(Math.random() * chars.length)];
+      setExampleCode(res);
+    }
+  }, [modal]);
 
   const loadRooms = async () => {
     try {
@@ -463,7 +473,7 @@ const Rooms = () => {
                 value={requestCode}
                 onChange={e => setRequestCode(e.target.value.toUpperCase())}
                 onKeyDown={e => e.key === "Enter" && handleRequestJoin()}
-                placeholder="e.g. STAGS1"
+                placeholder={`e.g. ${exampleCode}`}
                 maxLength={10}
                 className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 font-mono text-lg font-bold text-foreground uppercase tracking-[0.25em] placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:tracking-normal focus:border-primary/60 focus:outline-none transition-colors"
               />
