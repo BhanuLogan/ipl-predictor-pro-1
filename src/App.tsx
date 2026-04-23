@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth";
 import { RoomProvider } from "@/lib/room";
+import { ThemeProvider } from "@/lib/theme";
 import Index from "./pages/Index";
 import Admin from "./pages/Admin";
 import Login from "./pages/Login";
@@ -19,6 +20,7 @@ import ChatRoom from "./pages/ChatRoom";
 const queryClient = new QueryClient();
 
 const App = () => (
+  <ThemeProvider>
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
@@ -43,6 +45,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
+  </ThemeProvider>
 );
 
 export default App;

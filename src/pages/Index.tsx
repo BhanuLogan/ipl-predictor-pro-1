@@ -6,7 +6,7 @@ import { useRoom } from "@/lib/room";
 import { api } from "@/lib/api";
 import { getPollOpenMatches, type MatchResult } from "@/lib/data";
 import { useMatches } from "@/lib/matches";
-import { Users, Bell, BellOff } from "lucide-react";
+import { Users, Bell, BellOff, Trophy } from "lucide-react";
 import { registerServiceWorker, subscribeToPush, unsubscribeFromPush, isPushSubscribed } from "@/lib/push";
 import { toast } from "@/components/ui/sonner";
 import OpenPolls from "@/components/dashboard/OpenPolls";
@@ -236,18 +236,18 @@ const Index = () => {
         />
       )}
 
-      <main className="container mx-auto px-4 py-8 max-w-2xl relative z-10">
+      <main className="container mx-auto px-4 py-6 md:py-8 max-w-3xl relative z-10">
         <AnnouncementMarquee text={announcement} />
         
         {/* Active Room Indicator */}
-        <div className="mb-6 flex items-center justify-between rounded-2xl border border-primary/20 bg-primary/5 px-6 py-4">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-primary">
-              <Users size={20} />
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-primary/20 text-primary shrink-0">
+              <Users size={18} />
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Active Room</p>
-              <h3 className="font-display text-2xl text-foreground leading-none">{activeRoom.name}</h3>
+              <h3 className="font-display text-xl sm:text-2xl text-foreground leading-none">{activeRoom.name}</h3>
             </div>
           </div>
           <div className="flex items-center gap-2 relative">
@@ -268,7 +268,7 @@ const Index = () => {
                   }}
                   disabled={pushLoading}
                   title={pushSubscribed ? 'Disable notifications' : 'Enable notifications'}
-                  className={`flex items-center justify-center rounded-lg border border-border bg-background p-1.5 transition-all disabled:opacity-50 ${
+                  className={`flex items-center justify-center rounded-lg border border-border bg-background p-2 transition-all disabled:opacity-50 ${
                     showPushPrompt && !pushSubscribed ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -277,8 +277,15 @@ const Index = () => {
               </div>
             )}
             <button
+              onClick={() => navigate(`/rooms/${activeRoom.id}`)}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              title="View podium & points table"
+            >
+              <Trophy size={13} /> Leaderboard
+            </button>
+            <button
               onClick={() => navigate("/rooms")}
-              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               Switch Room
             </button>

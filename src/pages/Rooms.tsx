@@ -192,7 +192,7 @@ const Rooms = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="container mx-auto max-w-3xl px-4 py-8">
+      <main className="container mx-auto max-w-5xl px-4 py-6 md:py-8">
 
         {/* Title row */}
         <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
@@ -220,7 +220,7 @@ const Rooms = () => {
 
         {/* Loading */}
         {loading && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2].map(i => <SkeletonCard key={i} />)}
           </div>
         )}
@@ -244,7 +244,7 @@ const Rooms = () => {
 
         {/* Room cards */}
         {!loading && rooms.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {rooms.map((room, i) => (
               <div
                 key={room.id}
