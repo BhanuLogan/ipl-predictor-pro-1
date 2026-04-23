@@ -2518,46 +2518,26 @@ async function fetchESPNSummary(espnEventId) {
     if (data.notes?.length) {
       console.log(`[ESPN] Notes for event ${espnEventId}:`, JSON.stringify(data.notes.map(n => ({ type: n.type, text: (n.text || '').slice(0, 120) }))));
     }
-    // Extract structured overs from linescores or statistics
-    const extractOvers = (comp, teamIndex) => {
-      const competitor = comp.competitors[teamIndex];
-      if (!competitor) return 20.0;
+    // Extract high-fidelity data from structured linescores
+    const extractTeamDataLS = (competitor) => {
+      const res = { runs: 0, wickets: 0, overs: 0, balls: 0 };
+      if (!competitor || !competitor.linescores) return res;
       
-      // 1. Try linescores display value
-      if (competitor.linescores && competitor.linescores[0]) {
-        const ls = competitor.linescores[0];
-        if (ls.overs) return parseFloat(ls.overs);
+      // The definitive source is the linescore where isBatting is true
+      const activeLS = competitor.linescores.find(ls => ls.isBatting === true) 
+                    || competitor.linescores.find(ls => ls.runs > 0)
+                    || competitor.linescores[0];
+      
+      if (activeLS) {
+          res.runs = activeLS.runs || 0;
+          res.wickets = activeLS.wickets ?? 0;
+          res.overs = activeLS.overs || 0;
       }
-      return null;
+      return res;
     };
 
-    // Calculate total balls from rosters as the most reliable fallback
-    const extractBallsFromRoster = (rosters, teamAbbr) => {
-       if (!rosters) return null;
-       // We need the bowlers who bowled AT this team.
-       // In ESPN summary, rosters[i] is the players FOR team i.
-       // So we look at the OTHER team's bowlers.
-       const team1Roster = rosters[0] || {};
-       const team2Roster = rosters[1] || {};
-       const team1Abbr = team1Roster.team?.abbreviation;
-       const team2Abbr = team2Roster.team?.abbreviation;
-
-       let bowlers = [];
-       if (teamAbbr === team1Abbr) {
-         // Team 1 faced Team 2's bowlers
-         bowlers = team2Roster.bowlers || [];
-       } else if (teamAbbr === team2Abbr) {
-         // Team 2 faced Team 1's bowlers
-         bowlers = team1Roster.bowlers || [];
-       }
-       
-       if (bowlers.length === 0) return null;
-       const totalBalls = bowlers.reduce((sum, b) => sum + (b.ballsCount || 0), 0);
-       return totalBalls;
-    };
-
-    const ov1 = extractOvers(comp, 0);
-    const ov2 = extractOvers(comp, 1);
+    const td1 = extractTeamDataLS(c1);
+    const td2 = extractTeamDataLS(c2);
     const b1 = extractBallsFromRoster(data.rosters, t1Abbr);
     const b2 = extractBallsFromRoster(data.rosters, t2Abbr);
 
@@ -2575,18 +2555,18 @@ async function fetchESPNSummary(espnEventId) {
         name: t1Name, 
         short: t1Abbr, 
         score: String(c1.score || ''), 
-        linescores: c1.linescores || [], 
-        wickets: c1.wickets ?? null,
-        overs: ov1,
+        wickets: td1.wickets,
+        runs: td1.runs,
+        overs: td1.overs,
         balls: b1
       },
       team2: { 
         name: t2Name, 
         short: t2Abbr, 
         score: String(c2.score || ''), 
-        linescores: c2.linescores || [], 
-        wickets: c2.wickets ?? null,
-        overs: ov2,
+        wickets: td2.wickets,
+        runs: td2.runs,
+        overs: td2.overs,
         balls: b2
       },
     };
@@ -3016,6 +2996,12 @@ const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
 /** Helper to parse "180/5" or "180" into {runs, wickets} */
 function parseRunsWickets(teamSummary) {
   if (!teamSummary) return { runs: 0, wickets: 0 };
+  
+  // 1. Priority: Explicit runs and wickets from linescores
+  if (teamSummary.runs !== undefined) {
+    return { runs: teamSummary.runs, wickets: teamSummary.wickets || 0 };
+  }
+
   const scoreStr = String(teamSummary.score || "");
   const cleaned = scoreStr.split('(')[0].trim(); // remove (20 ov) parts
   const parts = cleaned.split('/');
