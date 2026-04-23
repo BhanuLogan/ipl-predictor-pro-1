@@ -1421,8 +1421,11 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
 
   // 1. Get the latest match with a result
   const lastResult = await queryOne(`
-    SELECT r.match_id, r.winner, r.score_summary, r.created_at
+    SELECT r.match_id, r.winner, r.score_summary, r.created_at,
+           ms.team1_runs, ms.team1_wickets, ms.team1_overs,
+           ms.team2_runs, ms.team2_wickets, ms.team2_overs
     FROM results r
+    LEFT JOIN match_scores ms ON r.match_id = ms.match_id
     ORDER BY r.created_at DESC
     LIMIT 1
   `);
@@ -1506,12 +1509,12 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
   };
 
   const currentRank = getRank(currentBoard, req.user.id);
+
   const prevRank = getRank(prevBoard, req.user.id);
   const pointsGained = (userVote && (lastResult.winner === 'nr' || lastResult.winner === 'draw'))
     ? 1
     : (userVote && userVote.prediction === lastResult.winner ? 2 : 0);
 
-  // User outcomes — only users in this room who participated
   const userOutcomes = votes.map(v => {
     const cRank = getRank(currentBoard, v.user_id);
     const pRank = getRank(prevBoard, v.user_id);
@@ -1532,6 +1535,8 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
     team2: match.team2,
     winner: lastResult.winner,
     scoreSummary: lastResult.score_summary,
+    team1Score: { runs: lastResult.team1_runs, wickets: lastResult.team1_wickets, overs: lastResult.team1_overs },
+    team2Score: { runs: lastResult.team2_runs, wickets: lastResult.team2_wickets, overs: lastResult.team2_overs },
     userVote: userVote ? userVote.prediction : null,
     userStatus,
     pointsGained,

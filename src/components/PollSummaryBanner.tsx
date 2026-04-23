@@ -51,6 +51,14 @@ const PollSummaryBanner: React.FC<PollSummaryBannerProps> = ({ summary, onClose 
                     <img src={t1.logo} alt={t1.short} className="h-full w-full object-contain" />
                   </div>
                   <span className="font-display text-xs font-bold">{t1.short}</span>
+                  {summary.team1Score && summary.team1Score.runs !== null && (
+                    <div className="mt-1 flex flex-col items-center">
+                      <span className="font-display text-sm font-black text-gradient-gold">
+                        {summary.team1Score.runs}/{summary.team1Score.wickets}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-medium">({summary.team1Score.overs})</span>
+                    </div>
+                  )}
                 </div>
                 <div className="font-display text-2xl italic text-muted-foreground/50">VS</div>
                 <div className="flex flex-col items-center gap-2">
@@ -58,6 +66,14 @@ const PollSummaryBanner: React.FC<PollSummaryBannerProps> = ({ summary, onClose 
                     <img src={t2.logo} alt={t2.short} className="h-full w-full object-contain" />
                   </div>
                   <span className="font-display text-xs font-bold">{t2.short}</span>
+                  {summary.team2Score && summary.team2Score.runs !== null && (
+                    <div className="mt-1 flex flex-col items-center">
+                      <span className="font-display text-sm font-black text-gradient-gold">
+                        {summary.team2Score.runs}/{summary.team2Score.wickets}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-medium">({summary.team2Score.overs})</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-6">

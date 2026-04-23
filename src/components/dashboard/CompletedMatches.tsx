@@ -60,7 +60,12 @@ const CompletedMatchCard = React.memo(({ match, result, myPick, roomId }: {
           <span className={`font-display text-sm ${winner === match.team1 ? "text-foreground" : "text-muted-foreground"}`}>
             {team1.short}
           </span>
-          {winner === match.team1 && <span className="text-base">🏆</span>}
+          {result.team1 && result.team1.runs !== null && (
+            <span className="text-[10px] font-black text-gradient-gold -mt-1">
+              {result.team1.runs}/{result.team1.wickets}
+            </span>
+          )}
+          {winner === match.team1 && <span className="text-base -mt-1">🏆</span>}
         </div>
 
         <span className="text-[10px] text-muted-foreground font-display">VS</span>
@@ -83,7 +88,12 @@ const CompletedMatchCard = React.memo(({ match, result, myPick, roomId }: {
           <span className={`font-display text-sm ${winner === match.team2 ? "text-foreground" : "text-muted-foreground"}`}>
             {team2.short}
           </span>
-          {winner === match.team2 && <span className="text-base">🏆</span>}
+          {result.team2 && result.team2.runs !== null && (
+            <span className="text-[10px] font-black text-gradient-gold -mt-1">
+              {result.team2.runs}/{result.team2.wickets}
+            </span>
+          )}
+          {winner === match.team2 && <span className="text-base -mt-1">🏆</span>}
         </div>
       </div>
 

@@ -134,6 +134,16 @@ export interface PollSummary {
   team2: string;
   winner: string;
   scoreSummary?: string | null;
+  team1Score?: {
+    runs: number | null;
+    wickets: number | null;
+    overs: number | null;
+  };
+  team2Score?: {
+    runs: number | null;
+    wickets: number | null;
+    overs: number | null;
+  };
   userVote: string | null;
   userStatus: 'won' | 'lost' | 'no_vote';
   pointsGained: number;

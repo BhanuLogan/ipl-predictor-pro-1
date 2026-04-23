@@ -20,11 +20,21 @@ export interface Match {
   venue: string;
 }
 
-/** Stored match outcome from API (winner + optional Cricbuzz-style score line). */
+/** Stored match outcome from API (winner + optional scores). */
 export type MatchResult = {
   winner: string;
   scoreSummary?: string | null;
   toss?: string | null;
+  team1?: {
+    runs: number | null;
+    wickets: number | null;
+    overs: number | null;
+  };
+  team2?: {
+    runs: number | null;
+    wickets: number | null;
+    overs: number | null;
+  };
 };
 
 // IPL 2026 Full schedule (70 matches)
