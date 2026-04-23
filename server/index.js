@@ -1160,6 +1160,7 @@ app.post("/api/result", authMiddleware, adminMiddleware, asyncRoute(async (req, 
 
   if (!winner) {
     await query("DELETE FROM results WHERE match_id = $1", [matchId]);
+    await query("DELETE FROM match_scores WHERE match_id = $1", [matchId]);
   } else {
     const summary =
       scoreSummary !== undefined && scoreSummary !== "" ? scoreSummary : null;
@@ -1178,6 +1179,36 @@ app.post("/api/result", authMiddleware, adminMiddleware, asyncRoute(async (req, 
 
     // Clear chat history for this match as it's now completed
     await query("DELETE FROM chat_messages WHERE match_id = $1", [matchId]);
+
+    // Try to fetch and populate structured scores for NRR
+    try {
+      const espnId = matchESPNIdMap.get(matchId);
+      if (espnId) {
+        const summary = await fetchESPNSummary(espnId);
+        if (summary) {
+          const s1 = parseRunsWickets(summary.team1);
+          const s2 = parseRunsWickets(summary.team2);
+          const ov1 = parseOversNew(summary.team1, summary.status);
+          const ov2 = parseOversNew(summary.team2, summary.status);
+
+          await query(`
+            INSERT INTO match_scores (
+              match_id, team1, team1_runs, team1_overs, team1_wickets,
+              team2, team2_runs, team2_overs, team2_wickets
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (match_id) DO UPDATE SET
+              team1_runs = EXCLUDED.team1_runs, team1_overs = EXCLUDED.team1_overs, team1_wickets = EXCLUDED.team1_wickets,
+              team2_runs = EXCLUDED.team2_runs, team2_overs = EXCLUDED.team2_overs, team2_wickets = EXCLUDED.team2_wickets
+          `, [
+            matchId,
+            summary.team1.short, s1.runs, ov1, s1.wickets,
+            summary.team2.short, s2.runs, ov2, s2.wickets
+          ]);
+        }
+      }
+    } catch (e) {
+      console.error(`[Scores] Manual result score sync failed for ${matchId}:`, e.message);
+    }
   }
 
   res.json({ ok: true });
@@ -2497,8 +2528,8 @@ async function fetchESPNSummary(espnEventId) {
       state,
       status: resultText || statusDetail,
       winnerName,
-      team1: { name: t1Name, short: t1Abbr, score: c1.score || '', linescores: c1.linescores || [] },
-      team2: { name: t2Name, short: t2Abbr, score: c2.score || '', linescores: c2.linescores || [] },
+      team1: { name: t1Name, short: t1Abbr, score: String(c1.score || ''), linescores: c1.linescores || [], wickets: c1.wickets ?? null },
+      team2: { name: t2Name, short: t2Abbr, score: String(c2.score || ''), linescores: c2.linescores || [], wickets: c2.wickets ?? null },
     };
   } catch (e) {
     console.error(`[ESPN] fetchESPNSummary error for event ${espnEventId}:`, e.message);
@@ -2923,14 +2954,22 @@ const HOUR_MS = 60 * 60 * 1000;
 const AUTO_RESULT_CHECK_DELAY_MS = 4 * HOUR_MS;
 const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
 
-function parseRunsWickets(scoreStr) {
-  if (!scoreStr) return { runs: 0, wickets: 0 };
+/** Helper to parse "180/5" or "180" into {runs, wickets} */
+function parseRunsWickets(teamSummary) {
+  if (!teamSummary) return { runs: 0, wickets: 0 };
+  const scoreStr = String(teamSummary.score || "");
   const cleaned = scoreStr.split('(')[0].trim(); // remove (20 ov) parts
   const parts = cleaned.split('/');
-  return {
-    runs: parseInt(parts[0]) || 0,
-    wickets: parseInt(parts[1]) || (scoreStr.toLowerCase().includes('all out') ? 10 : 0)
-  };
+  
+  const runs = parseInt(parts[0]) || 0;
+  let wickets = parseInt(parts[1]) || (scoreStr.toLowerCase().includes('all out') ? 10 : 0);
+  
+  // Use explicit wickets from API if provided
+  if (teamSummary.wickets !== undefined && teamSummary.wickets !== null) {
+    wickets = parseInt(teamSummary.wickets);
+  }
+  
+  return { runs, wickets };
 }
 
 /** Helper to parse overs for a team from various sources in ESPN summary */
@@ -2984,8 +3023,8 @@ async function backfillMatchScores() {
         const summary = await fetchESPNSummary(res.espn_event_id);
         if (!summary) continue;
 
-        const s1 = parseRunsWickets(summary.team1.score);
-        const s2 = parseRunsWickets(summary.team2.score);
+        const s1 = parseRunsWickets(summary.team1);
+        const s2 = parseRunsWickets(summary.team2);
         
         // Use new robust over parsing
         const ov1 = parseOversNew(summary.team1, summary.status);
@@ -3104,8 +3143,8 @@ async function checkRecentMatches(isManual = false) {
           try {
             const rosters = summary.lineups || []; // summary contains lineups from fetchESPNSummary
             // Re-fetch with scorecard if needed, but summary usually has enough for NRR if we parse it
-               const s1 = parseRunsWickets(summary.team1.score);
-               const s2 = parseRunsWickets(summary.team2.score);
+               const s1 = parseRunsWickets(summary.team1);
+               const s2 = parseRunsWickets(summary.team2);
                
                const ov1 = parseOversNew(summary.team1, summary.status);
                const ov2 = parseOversNew(summary.team2, summary.status);
