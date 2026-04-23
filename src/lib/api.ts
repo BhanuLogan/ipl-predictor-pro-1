@@ -54,6 +54,7 @@ export interface LeaderboardEntry {
   matches: number;
   /** Average absolute minutes between vote time and match time (higher is better). */
   nrr?: number | null;
+  nrr2?: number | null;
   is_room_admin?: boolean;
 }
 

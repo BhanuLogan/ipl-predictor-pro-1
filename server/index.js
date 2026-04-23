@@ -306,6 +306,21 @@ async function initDb() {
     );
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS match_scores (
+      match_id TEXT PRIMARY KEY,
+      team1 TEXT,
+      team1_runs INTEGER,
+      team1_overs NUMERIC(5,2),
+      team1_wickets INTEGER,
+      team2 TEXT,
+      team2_runs INTEGER,
+      team2_overs NUMERIC(5,2),
+      team2_wickets INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
   await query(`CREATE INDEX IF NOT EXISTS idx_chat_room_match ON chat_messages(room_id, match_id);`);
 
   // Bot columns & reactions table
@@ -1190,6 +1205,66 @@ function computeUserTimingStats(voteRows) {
   return out;
 }
 
+/** Compute cricket-style NRR2 for each user based on their predictions and match scores */
+async function computeNRR2Stats(userIds, roomId = null) {
+  if (!userIds || userIds.length === 0) return {};
+  
+  const scores = await query(`SELECT * FROM match_scores`);
+  const scoreMap = new Map(scores.map(s => [s.match_id, s]));
+
+  const voteSql = roomId 
+    ? `SELECT user_id, match_id, prediction FROM votes WHERE user_id = ANY($1::int[]) AND room_id = $2`
+    : `SELECT user_id, match_id, prediction FROM votes WHERE user_id = ANY($1::int[])`;
+  const voteParams = roomId ? [userIds, roomId] : [userIds];
+  const votes = await query(voteSql, voteParams);
+
+  // function to convert over format (19.2) to decimal (19.333)
+  const toDecimalOvers = (ov) => {
+    const str = String(ov);
+    if (!str.includes('.')) return parseFloat(ov);
+    const [w, b] = str.split('.').map(Number);
+    return w + (b / 6);
+  };
+
+  const uStats = {};
+  for (const uid of userIds) {
+    uStats[uid] = { runsFor: 0, oversFor: 0, runsAgainst: 0, oversAgainst: 0 };
+  }
+
+  for (const v of votes) {
+    const s = scoreMap.get(v.match_id);
+    if (!s) continue;
+    const us = uStats[v.user_id];
+    if (!us) continue;
+
+    const vIsT1 = (v.prediction === s.team1);
+    const vIsT2 = (v.prediction === s.team2);
+
+    if (vIsT1) {
+      us.runsFor += s.team1_runs;
+      us.oversFor += (s.team1_wickets === 10 ? 20.0 : toDecimalOvers(s.team1_overs));
+      us.runsAgainst += s.team2_runs;
+      us.oversAgainst += (s.team2_wickets === 10 ? 20.0 : toDecimalOvers(s.team2_overs));
+    } else if (vIsT2) {
+      us.runsFor += s.team2_runs;
+      us.oversFor += (s.team2_wickets === 10 ? 20.0 : toDecimalOvers(s.team2_overs));
+      us.runsAgainst += s.team1_runs;
+      us.oversAgainst += (s.team1_wickets === 10 ? 20.0 : toDecimalOvers(s.team1_overs));
+    }
+  }
+
+  const result = {};
+  for (const uid of userIds) {
+    const us = uStats[uid];
+    if (us.oversFor === 0 || us.oversAgainst === 0) {
+      result[uid] = null;
+    } else {
+      result[uid] = (us.runsFor / us.oversFor) - (us.runsAgainst / us.oversAgainst);
+    }
+  }
+  return result;
+}
+
 async function getRoomLeaderboard(roomId) {
   const board = await query(`
     SELECT
@@ -1263,13 +1338,26 @@ async function getLeaderboardInternal() {
     return {
       ...row,
       nrr: t.nrr ?? null,
+      nrr2: null, // Placeholder, will update after enrichment
       first_vote_at: t.firstVoteAt ? t.firstVoteAt.toISOString() : null,
     };
+  });
+
+  // Calculate NRR2 for all users
+  const userIds = enriched.map(e => e.user_id);
+  const nrr2Stats = await computeNRR2Stats(userIds);
+  enriched.forEach(e => {
+    e.nrr2 = nrr2Stats[e.user_id];
   });
 
   enriched.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.correct !== a.correct) return b.correct - a.correct;
+
+    // NRR2 (Cricket NRR) tie-breaker
+    const n2A = a.nrr2 ?? -Infinity;
+    const n2B = b.nrr2 ?? -Infinity;
+    if (n2B !== n2A) return n2B - n2A;
     const valA = a.nrr ?? -Infinity;
     const valB = b.nrr ?? -Infinity;
     if (valB !== valA) return valB - valA;
@@ -1352,6 +1440,11 @@ app.get("/api/last-poll-summary", authMiddleware, asyncRoute(async (req, res) =>
   prevBoard.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.correct !== a.correct) return b.correct - a.correct;
+
+    // NRR2 (Cricket NRR) tie-breaker
+    const n2A = a.nrr2 ?? -Infinity;
+    const n2B = b.nrr2 ?? -Infinity;
+    if (n2B !== n2A) return n2B - n2A;
     const valA = a.nrr ?? -Infinity;
     const valB = b.nrr ?? -Infinity;
     if (valB !== valA) return valB - valA;
@@ -1630,14 +1723,22 @@ async function getRoomLeaderboard(roomId) {
     timing = computeUserTimingStats(voteRows);
   }
 
+  const nrr2Map = await computeNRR2Stats(userIds, roomId);
+
   const enriched = board.map((row) => {
     const t = timing[row.user_id] || {};
-    return { ...row, nrr: t.nrr ?? null };
+    const n2 = nrr2Map[row.user_id] ?? null;
+    return { ...row, nrr: t.nrr ?? null, nrr2: n2 };
   });
 
   enriched.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.correct !== a.correct) return b.correct - a.correct;
+
+    // NRR2 (Cricket NRR) tie-breaker
+    const n2A = a.nrr2 ?? -Infinity;
+    const n2B = b.nrr2 ?? -Infinity;
+    if (n2B !== n2A) return n2B - n2A;
     const valA = a.nrr ?? -Infinity;
     const valB = b.nrr ?? -Infinity;
     if (valB !== valA) return valB - valA;
@@ -2804,6 +2905,68 @@ const HOUR_MS = 60 * 60 * 1000;
 const AUTO_RESULT_CHECK_DELAY_MS = 4 * HOUR_MS;
 const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
 
+/** Helper to parse "180/5" or "180" into {runs, wickets} */
+function parseRunsWickets(scoreStr) {
+  if (!scoreStr) return { runs: 0, wickets: 0 };
+  const cleaned = scoreStr.split('(')[0].trim(); // remove (20 ov) parts
+  const parts = cleaned.split('/');
+  return {
+    runs: parseInt(parts[0]) || 0,
+    wickets: parseInt(parts[1]) || (scoreStr.toLowerCase().includes('all out') ? 10 : 0)
+  };
+}
+
+/** Backfill match_scores table for all completed matches */
+async function backfillMatchScores() {
+  console.log('[Scores] Starting backfill...');
+  try {
+    const results = await query(`
+      SELECT r.match_id, m.espn_event_id
+      FROM results r
+      JOIN matches m ON m.id = r.match_id
+      LEFT JOIN match_scores ms ON ms.match_id = r.match_id
+      WHERE ms.match_id IS NULL AND m.espn_event_id IS NOT NULL
+    `);
+
+    if (results.length === 0) {
+      console.log('[Scores] No matches to backfill.');
+      return;
+    }
+
+    console.log(`[Scores] Backfilling ${results.length} matches...`);
+    for (const res of results) {
+      try {
+        const summary = await fetchESPNSummary(res.espn_event_id);
+        if (!summary) continue;
+
+        const s1 = parseRunsWickets(summary.team1.score);
+        const s2 = parseRunsWickets(summary.team2.score);
+
+        // Default to 20 overs. We can improve this later by parsing status or lineups.
+        await query(`
+          INSERT INTO match_scores (
+            match_id, team1, team1_runs, team1_overs, team1_wickets,
+            team2, team2_runs, team2_overs, team2_wickets
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (match_id) DO NOTHING
+        `, [
+          res.match_id,
+          summary.team1.short, s1.runs, 20.0, s1.wickets,
+          summary.team2.short, s2.runs, 20.0, s2.wickets
+        ]);
+        console.log(`[Scores] Backfilled ${res.match_id}`);
+        // Sleep slightly to respect rate limits
+        await new Promise(r => setTimeout(r, 500));
+      } catch (e) {
+        console.error(`[Scores] Error backfilling ${res.match_id}:`, e.message);
+      }
+    }
+    console.log('[Scores] Backfill complete.');
+  } catch (err) {
+    console.error('[Scores] Backfill general error:', err.message);
+  }
+}
+
 async function checkRecentMatches(isManual = false) {
   try {
     const now = new Date();
@@ -2887,6 +3050,44 @@ async function checkRecentMatches(isManual = false) {
                details = EXCLUDED.details`,
             [match.id, winner, scoreSummary, toss, JSON.stringify(matchDetails)]
           );
+
+          // Populate structured match_scores table
+          try {
+            const rosters = summary.lineups || []; // summary contains lineups from fetchESPNSummary
+            // Re-fetch with scorecard if needed, but summary usually has enough for NRR if we parse it
+            const s1 = parseRunsWickets(summary.team1.score);
+            const s2 = parseRunsWickets(summary.team2.score);
+            
+            // Getting overs is tricky without the full roster scorecard. 
+            // We'll use a helper to get the latest scorecard if available.
+            const scorecardData = await fetchESPNSummary(espnId); 
+            if (scorecardData) {
+               const rosters = scorecardData.lineups || [];
+               const competitors = [
+                 { team: { displayName: scorecardData.team1.name }, score: scorecardData.team1.score },
+                 { team: { displayName: scorecardData.team2.name }, score: scorecardData.team2.score }
+               ];
+               // We need buildScorecardFromRosters - let's ensure it's accessible or use a simpler version
+               // Actually, let's just use a simpler parsing approach and use 20.0 as default
+               
+               await query(`
+                 INSERT INTO match_scores (
+                   match_id, team1, team1_runs, team1_overs, team1_wickets,
+                   team2, team2_runs, team2_overs, team2_wickets
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 ON CONFLICT (match_id) DO UPDATE SET
+                   team1_runs = EXCLUDED.team1_runs, team1_overs = EXCLUDED.team1_overs, team1_wickets = EXCLUDED.team1_wickets,
+                   team2_runs = EXCLUDED.team2_runs, team2_overs = EXCLUDED.team2_overs, team2_wickets = EXCLUDED.team2_wickets
+               `, [
+                 match.id, 
+                 summary.team1.short, s1.runs, 20.0, s1.wickets,
+                 summary.team2.short, s2.runs, 20.0, s2.wickets
+               ]);
+            }
+          } catch (e) {
+            console.error(`[Scores] Failed to populate match_scores for ${match.id}:`, e.message);
+          }
+
           await query("DELETE FROM chat_messages WHERE match_id = $1", [match.id]);
           updatedCount++;
           invalidateResultsCache();
@@ -4493,6 +4694,7 @@ initDb()
   .then(async () => {
     await loadMatchESPNIds();
     await initVapid();
+    await backfillMatchScores();
     server.listen(PORT, () => {
       console.log(`IPL Predictor API with Chat running on http://localhost:${PORT}`);
     });

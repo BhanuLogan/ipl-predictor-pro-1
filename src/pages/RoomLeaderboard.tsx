@@ -313,6 +313,7 @@ const RoomLeaderboard = () => {
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NR</th>
                   <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR2</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
                   {canManageAdmins && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground" />}
                 </tr>
@@ -357,6 +358,9 @@ const RoomLeaderboard = () => {
                     <td className="px-4 py-4 text-center text-sm font-medium text-muted-foreground">{entry.nr}</td>
                     <td className="px-4 py-4 text-center text-sm font-medium">
                       {entry.nrr == null ? "—" : (entry.nrr / 100).toFixed(3)}
+                    </td>
+                    <td className={`px-4 py-4 text-center text-sm font-bold ${entry.nrr2 && entry.nrr2 > 0 ? 'text-secondary' : entry.nrr2 && entry.nrr2 < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {entry.nrr2 == null ? "—" : (entry.nrr2 > 0 ? "+" : "") + entry.nrr2.toFixed(3)}
                     </td>
                     <td className="px-4 py-4 text-right">
                       <span className="font-display text-xl text-gradient-gold">{entry.points}</span>
