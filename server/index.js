@@ -3067,22 +3067,6 @@ const SCORE_OVERRIDES = {
   }
 };
 
-/** Master Overrides for match scores (Guarantees precision for early matches) */
-const SCORE_OVERRIDES = {
-  'm01': {
-    t1: { short: 'RCB', runs: 203, overs: 15.4, wickets: 4 },
-    t2: { short: 'SRH', runs: 201, overs: 20.0, wickets: 9 }
-  },
-  'm02': {
-    t1: { short: 'MI', runs: 224, overs: 19.1, wickets: 4 },
-    t2: { short: 'KKR', runs: 220, overs: 20.0, wickets: 4 }
-  },
-  'm03': {
-    t1: { short: 'RR', runs: 128, overs: 12.1, wickets: 2 },
-    t2: { short: 'CSK', runs: 127, overs: 20.0, wickets: 10 }
-  }
-};
-
 /** Backfill match_scores table for all matches with ESPN IDs */
 async function backfillMatchScores() {
   console.log('[Scores] Starting Master Backfill/Correction...');
