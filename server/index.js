@@ -2923,7 +2923,6 @@ const HOUR_MS = 60 * 60 * 1000;
 const AUTO_RESULT_CHECK_DELAY_MS = 4 * HOUR_MS;
 const AUTO_RESULT_CHECK_WINDOW_MS = 2 * HOUR_MS;
 
-/** Helper to parse "180/5" or "180" into {runs, wickets} */
 function parseRunsWickets(scoreStr) {
   if (!scoreStr) return { runs: 0, wickets: 0 };
   const cleaned = scoreStr.split('(')[0].trim(); // remove (20 ov) parts
@@ -2934,16 +2933,25 @@ function parseRunsWickets(scoreStr) {
   };
 }
 
+/** Helper to parse overs for a team from status like "MI 150/1 (15.4) PBKS 147 (20)" or "CSK 180 (20.0)" */
+function parseOversFromStatus(status, teamAbbr) {
+  if (!status || !teamAbbr) return 20.0;
+  // Look for "(X.Y)" or "(X)" following the team abbreviation
+  const regex = new RegExp(teamAbbr + '[^\\(]*\\(([\\d\\.]+)', 'i');
+  const match = status.match(regex);
+  if (match && match[1]) return parseFloat(match[1]);
+  return 20.0;
+}
+
 /** Backfill match_scores table for all completed matches */
 async function backfillMatchScores() {
-  console.log('[Scores] Starting backfill...');
+  console.log('[Scores] Starting backfill (with overs correction)...');
   try {
     const results = await query(`
-      SELECT r.match_id, m.espn_event_id
+      SELECT r.match_id, m.espn_event_id, r.score_summary, r.details
       FROM results r
       JOIN matches m ON m.id = r.match_id
-      LEFT JOIN match_scores ms ON ms.match_id = r.match_id
-      WHERE ms.match_id IS NULL AND m.espn_event_id IS NOT NULL
+      WHERE m.espn_event_id IS NOT NULL
     `);
 
     if (results.length === 0) {
@@ -2951,7 +2959,7 @@ async function backfillMatchScores() {
       return;
     }
 
-    console.log(`[Scores] Backfilling ${results.length} matches...`);
+    console.log(`[Scores] Processing ${results.length} matches...`);
     for (const res of results) {
       try {
         const summary = await fetchESPNSummary(res.espn_event_id);
@@ -2959,27 +2967,31 @@ async function backfillMatchScores() {
 
         const s1 = parseRunsWickets(summary.team1.score);
         const s2 = parseRunsWickets(summary.team2.score);
+        
+        // Use summary status/detail to find overs
+        const ov1 = parseOversFromStatus(summary.status, summary.team1.short);
+        const ov2 = parseOversFromStatus(summary.status, summary.team2.short);
 
-        // Default to 20 overs. We can improve this later by parsing status or lineups.
         await query(`
           INSERT INTO match_scores (
             match_id, team1, team1_runs, team1_overs, team1_wickets,
             team2, team2_runs, team2_overs, team2_wickets
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          ON CONFLICT (match_id) DO NOTHING
+          ON CONFLICT (match_id) DO UPDATE SET
+            team1_runs = EXCLUDED.team1_runs, team1_overs = EXCLUDED.team1_overs, team1_wickets = EXCLUDED.team1_wickets,
+            team2_runs = EXCLUDED.team2_runs, team2_overs = EXCLUDED.team2_overs, team2_wickets = EXCLUDED.team2_wickets
         `, [
           res.match_id,
-          summary.team1.short, s1.runs, 20.0, s1.wickets,
-          summary.team2.short, s2.runs, 20.0, s2.wickets
+          summary.team1.short, s1.runs, ov1, s1.wickets,
+          summary.team2.short, s2.runs, ov2, s2.wickets
         ]);
-        console.log(`[Scores] Backfilled ${res.match_id}`);
-        // Sleep slightly to respect rate limits
-        await new Promise(r => setTimeout(r, 500));
+        console.log(`[Scores] Backfilled/Updated ${res.match_id}: ${summary.team1.short} (${ov1} ov), ${summary.team2.short} (${ov2} ov)`);
+        await new Promise(r => setTimeout(r, 300));
       } catch (e) {
-        console.error(`[Scores] Error backfilling ${res.match_id}:`, e.message);
+        console.error(`[Scores] Error processing ${res.match_id}:`, e.message);
       }
     }
-    console.log('[Scores] Backfill complete.');
+    console.log('[Scores] Backfill/Correction complete.');
   } catch (err) {
     console.error('[Scores] Backfill general error:', err.message);
   }
@@ -3073,20 +3085,11 @@ async function checkRecentMatches(isManual = false) {
           try {
             const rosters = summary.lineups || []; // summary contains lineups from fetchESPNSummary
             // Re-fetch with scorecard if needed, but summary usually has enough for NRR if we parse it
-            const s1 = parseRunsWickets(summary.team1.score);
-            const s2 = parseRunsWickets(summary.team2.score);
-            
-            // Getting overs is tricky without the full roster scorecard. 
-            // We'll use a helper to get the latest scorecard if available.
-            const scorecardData = await fetchESPNSummary(espnId); 
-            if (scorecardData) {
-               const rosters = scorecardData.lineups || [];
-               const competitors = [
-                 { team: { displayName: scorecardData.team1.name }, score: scorecardData.team1.score },
-                 { team: { displayName: scorecardData.team2.name }, score: scorecardData.team2.score }
-               ];
-               // We need buildScorecardFromRosters - let's ensure it's accessible or use a simpler version
-               // Actually, let's just use a simpler parsing approach and use 20.0 as default
+               const s1 = parseRunsWickets(summary.team1.score);
+               const s2 = parseRunsWickets(summary.team2.score);
+               
+               const ov1 = parseOversFromStatus(summary.status, summary.team1.short);
+               const ov2 = parseOversFromStatus(summary.status, summary.team2.short);
                
                await query(`
                  INSERT INTO match_scores (
@@ -3098,10 +3101,9 @@ async function checkRecentMatches(isManual = false) {
                    team2_runs = EXCLUDED.team2_runs, team2_overs = EXCLUDED.team2_overs, team2_wickets = EXCLUDED.team2_wickets
                `, [
                  match.id, 
-                 summary.team1.short, s1.runs, 20.0, s1.wickets,
-                 summary.team2.short, s2.runs, 20.0, s2.wickets
+                 summary.team1.short, s1.runs, ov1, s1.wickets,
+                 summary.team2.short, s2.runs, ov2, s2.wickets
                ]);
-            }
           } catch (e) {
             console.error(`[Scores] Failed to populate match_scores for ${match.id}:`, e.message);
           }

@@ -305,16 +305,16 @@ const RoomLeaderboard = () => {
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/20">
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Rank</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Player</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Matches</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Voted</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Wins</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Losses</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NR</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR</th>
-                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground">NRR2</th>
-                  <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pts</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Current ranking based on Points, Wins, then NRR">Rank</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Player name and avatar">Player</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Total matches completed in the IPL session">Matches</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Number of matches you have placed a vote on">Voted</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-secondary" title="Number of correct predictions">Wins</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-destructive" title="Number of incorrect predictions">Losses</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Matches with No Result (Abandoned/Rain)">NR</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Average Vote Time: Average minutes before match start that votes were placed. (Higher/Earlier is better)">AVT</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Net Run Rate: The total run rate difference of teams you voted for vs their opposition.">NRR</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground" title="Total score: 2 points for Win, 1 for No Result">Pts</th>
                   {canManageAdmins && <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground" />}
                 </tr>
               </thead>

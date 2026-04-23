@@ -52,8 +52,9 @@ export interface LeaderboardEntry {
   correct: number;
   voted: number;
   matches: number;
-  /** Average absolute minutes between vote time and match time (higher is better). */
+  /** AVT: Average absolute minutes between vote time and match time (higher is better). */
   nrr?: number | null;
+  /** NRR: Cricket-style Net Run Rate based on match scores. */
   nrr2?: number | null;
   is_room_admin?: boolean;
 }
