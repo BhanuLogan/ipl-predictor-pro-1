@@ -2518,6 +2518,49 @@ async function fetchESPNSummary(espnEventId) {
     if (data.notes?.length) {
       console.log(`[ESPN] Notes for event ${espnEventId}:`, JSON.stringify(data.notes.map(n => ({ type: n.type, text: (n.text || '').slice(0, 120) }))));
     }
+    // Extract structured overs from linescores or statistics
+    const extractOvers = (comp, teamIndex) => {
+      const competitor = comp.competitors[teamIndex];
+      if (!competitor) return 20.0;
+      
+      // 1. Try linescores display value
+      if (competitor.linescores && competitor.linescores[0]) {
+        const ls = competitor.linescores[0];
+        if (ls.overs) return parseFloat(ls.overs);
+      }
+      return null;
+    };
+
+    // Calculate total balls from rosters as the most reliable fallback
+    const extractBallsFromRoster = (rosters, teamAbbr) => {
+       if (!rosters) return null;
+       // We need the bowlers who bowled AT this team.
+       // In ESPN summary, rosters[i] is the players FOR team i.
+       // So we look at the OTHER team's bowlers.
+       const team1Roster = rosters[0] || {};
+       const team2Roster = rosters[1] || {};
+       const team1Abbr = team1Roster.team?.abbreviation;
+       const team2Abbr = team2Roster.team?.abbreviation;
+
+       let bowlers = [];
+       if (teamAbbr === team1Abbr) {
+         // Team 1 faced Team 2's bowlers
+         bowlers = team2Roster.bowlers || [];
+       } else if (teamAbbr === team2Abbr) {
+         // Team 2 faced Team 1's bowlers
+         bowlers = team1Roster.bowlers || [];
+       }
+       
+       if (bowlers.length === 0) return null;
+       const totalBalls = bowlers.reduce((sum, b) => sum + (b.ballsCount || 0), 0);
+       return totalBalls;
+    };
+
+    const ov1 = extractOvers(comp, 0);
+    const ov2 = extractOvers(comp, 1);
+    const b1 = extractBallsFromRoster(data.rosters, t1Abbr);
+    const b2 = extractBallsFromRoster(data.rosters, t2Abbr);
+
     return {
       toss: extractTossInfoESPN(data.notes),
       lineups: extractLineupsESPN(data.rosters, data.notes),
@@ -2528,8 +2571,24 @@ async function fetchESPNSummary(espnEventId) {
       state,
       status: resultText || statusDetail,
       winnerName,
-      team1: { name: t1Name, short: t1Abbr, score: String(c1.score || ''), linescores: c1.linescores || [], wickets: c1.wickets ?? null },
-      team2: { name: t2Name, short: t2Abbr, score: String(c2.score || ''), linescores: c2.linescores || [], wickets: c2.wickets ?? null },
+      team1: { 
+        name: t1Name, 
+        short: t1Abbr, 
+        score: String(c1.score || ''), 
+        linescores: c1.linescores || [], 
+        wickets: c1.wickets ?? null,
+        overs: ov1,
+        balls: b1
+      },
+      team2: { 
+        name: t2Name, 
+        short: t2Abbr, 
+        score: String(c2.score || ''), 
+        linescores: c2.linescores || [], 
+        wickets: c2.wickets ?? null,
+        overs: ov2,
+        balls: b2
+      },
     };
   } catch (e) {
     console.error(`[ESPN] fetchESPNSummary error for event ${espnEventId}:`, e.message);
@@ -2974,21 +3033,26 @@ function parseRunsWickets(teamSummary) {
 
 /** Helper to parse overs for a team from various sources in ESPN summary */
 function parseOversNew(teamSummary, status) {
-  // 1. Try linescores (best source)
-  if (teamSummary.linescores && teamSummary.linescores.length > 0) {
-    const ls = teamSummary.linescores[0];
-    if (ls.overs) return Math.min(20.0, ls.overs);
+  // 1. Use balls count from rosters (most accurate structured data)
+  if (teamSummary.balls !== undefined && teamSummary.balls !== null && teamSummary.balls > 0) {
+    const overs = Math.floor(teamSummary.balls / 6) + (teamSummary.balls % 6) / 10;
+    return Math.min(20.0, overs);
   }
 
-  // 2. Try to parse from the score string itself if it has "(19.2 ov)"
-  const scoreStr = teamSummary.score || "";
+  // 2. Use explicit overs from linescore API
+  if (teamSummary.overs !== undefined && teamSummary.overs !== null) {
+    return Math.min(20.0, teamSummary.overs);
+  }
+
+  // 3. Try to parse from the score string itself if it has "(19.2 ov)"
+  const scoreStr = String(teamSummary.score || "");
   const scoreMatch = scoreStr.match(/\(([\d\.]+)\s*ov\)/i);
   if (scoreMatch && scoreMatch[1]) {
     const val = parseFloat(scoreMatch[1]);
     if (val > 0 && val <= 20) return val;
   }
 
-  // 3. Fallback to status regex (more specific to avoid team name parentheticals)
+  // 4. Fallback to status regex (more specific to avoid team name parentheticals)
   if (status && teamSummary.short) {
     const regex = new RegExp(teamSummary.short + '\\s+\\d+[^\\(]*\\(([\\d\\.]+)', 'i');
     const match = status.match(regex);
